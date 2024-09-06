@@ -8,44 +8,39 @@ from torch_geometric.nn import global_add_pool
 from mlwiz.model.interface import ModelInterface
 
 
-class ToyMLP(ModelInterface):
+class MLP(ModelInterface):
     """
-    A toy MLP model used to test the library. Technically,
-    a DGN that ignores the adjacency matrix.
+    An MLP model used to test the library.
     """
 
     def __init__(
         self,
         dim_input_features,
-        dim_edge_features,
         dim_target,
-        readout_class,
         config,
     ):
         super().__init__(
             dim_input_features,
-            dim_edge_features,
             dim_target,
-            readout_class,
             config,
         )
 
+        # TODO IMPLEMENT A REAL MLP
         dim_embedding = config["dim_embedding"]
         self.W = nn.Linear(dim_input_features, dim_target, bias=True)
 
     def forward(
-        self, data: Batch
+        self, data: torch.Tensor
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
         """
-        Implements an MLP (structure agnostic baseline)
+        Implements an MLP forward pass
 
         Args:
-            data (torch_geometric.data.Batch): a batch of graphs
+            data (torch.Tensor): a batched tensor
 
         Returns:
             a tuple (output, node_embedddings)
         """
-        x, batch = data.x, data.batch
-
+        # TODO IMPLEMENT A REAL MLP
         hg = global_add_pool(x, batch)
         return self.W(hg), x

@@ -28,7 +28,7 @@ seed: 42
 # Experiment
 result_folder: RESULTS
 exp_name: supervised_grid_search_toy
-experiment: mlwiz.experiment.supervised_task.SupervisedTask
+experiment: mlwiz.experiment.StandardExperiment
 higher_results_are_better: True
 evaluate_every: 3
 risk_assessment_training_runs: 3

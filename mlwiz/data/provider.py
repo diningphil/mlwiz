@@ -554,8 +554,9 @@ class SingleGraphDataProvider(DataProvider):
         #  training and evaluation indices?
         dataset: DatasetInterface = self._get_dataset(**kwargs)
 
-        dataset.data.training_indices = torch.tensor(training_indices)
-        dataset.data.eval_indices = torch.tensor(eval_indices)
+        # single graph means there is only one sample
+        dataset[0][0].training_indices = torch.tensor(training_indices)
+        dataset[0][0].eval_indices = torch.tensor(eval_indices)
 
         assert (
             self.exp_seed is not None

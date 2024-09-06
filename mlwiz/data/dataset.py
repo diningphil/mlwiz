@@ -239,7 +239,10 @@ class NCI1(DatasetInterface):
         list.
         """
         self.dataset = TUDataset(root=self.dataset_folder, name="NCI1")
-        return [(g, g.y) for g in self.dataset]
+        # casting class to int will allow PyG collater to create a tensor of
+        # size (batch_size) instead of (batch_size, 1), making it consistent
+        # with other non-graph datasets
+        return [(g, int(g.y)) for g in self.dataset]
 
 
 class Cora(DatasetInterface):
@@ -261,11 +264,13 @@ class Cora(DatasetInterface):
 
         g = self.dataset[0]
         y = g.y
-        del g.y
         del g.train_mask
         del g.val_mask
         del g.test_mask
 
+        # TODO PyG collater will add a dummy dimension in front of y
+        #   it might be nice to create another collater to remove it, but it
+        #   might require the user to know about this..
         return [(g, y)]
 
 
