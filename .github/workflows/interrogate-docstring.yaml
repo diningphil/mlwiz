@@ -1,0 +1,44 @@
+name: Interrogate documentation
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        node-version: '20'
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+        node-version: '20'
+
+    - name: Python Interrogate Check
+      uses: diningphil/python-interrogate-check@main
+      with:
+        path: 'mlwiz'
+        badge-location: '.badges/interrogate_badge.svg'
+
+
+    - name: Commit files
+      if: github.event_name == 'push'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add .badges/interrogate_badge.svg
+        git diff --exit-code || git commit -m "Update interrogate_badge.svg" -a
+
+    - name: Push changes
+      if: github.event_name == 'push' && success()
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,16 @@
+splitter:
+  splits_folder: examples/DATA_SPLITS/
+  class_name: mlwiz.data.splitter.Splitter
+  args:
+    n_outer_folds: 10
+    n_inner_folds: 1
+    seed: 42
+    stratify: False
+    shuffle: True
+    inner_val_ratio: 0.1
+    outer_val_ratio: 0.1
+    test_ratio: 0.1
+dataset:
+  class_name: mlwiz.data.dataset.ToyIterableDataset
+  args:
+    storage_folder: DATA/
