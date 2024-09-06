@@ -186,7 +186,6 @@ class Splitter:
                 return False, None
 
             if not isinstance(y, torch.Tensor):
-
                 y = torch.tensor(np.ndarray(y))
 
             targets.append(y)
@@ -194,7 +193,6 @@ class Splitter:
         targets = torch.cat(targets, dim=0).numpy()
         print("Done.")
         return True, targets
-
 
     @classmethod
     def load(cls, path: str):
@@ -509,7 +507,6 @@ class SingleGraphSplitter(Splitter):
         for train_idxs, test_idxs in outer_splitter.split(
             outer_idxs, y=targets
         ):
-
             assert set(train_idxs) == set(outer_idxs[train_idxs])
             assert set(test_idxs) == set(outer_idxs[test_idxs])
 

@@ -378,7 +378,9 @@ class RiskAssesser:
 
                 # Append the NEW jobs to the waiting list
                 waiting.extend(
-                    self.final_runs_job_list[-self.risk_assessment_training_runs :]
+                    self.final_runs_job_list[
+                        -self.risk_assessment_training_runs :
+                    ]
                 )
 
         while waiting:
@@ -1003,12 +1005,12 @@ class RiskAssesser:
 
                     for results, set in outer_results:
                         set_results = np.array([res[k] for res in results])
-                        assessment_results[f"{AVG}_{set}_{k}"] = (
-                            set_results.mean()
-                        )
-                        assessment_results[f"{STD}_{set}_{k}"] = (
-                            set_results.std()
-                        )
+                        assessment_results[
+                            f"{AVG}_{set}_{k}"
+                        ] = set_results.mean()
+                        assessment_results[
+                            f"{STD}_{set}_{k}"
+                        ] = set_results.std()
 
         # Send telegram update
         if self.model_configs.telegram_config is not None:

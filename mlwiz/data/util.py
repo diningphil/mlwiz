@@ -108,8 +108,9 @@ def preprocess_data(options: dict):
     splitter_args = splits_info.pop("args")
     splitter = splitter_class(**splitter_args)
 
-    splits_dir = get_or_create_dir(osp.join(splits_folder,
-                                            dataset.dataset_name))
+    splits_dir = get_or_create_dir(
+        osp.join(splits_folder, dataset.dataset_name)
+    )
     splits_path = osp.join(
         splits_dir,
         f"{dataset.dataset_name}_outer{splitter.n_outer_folds}"

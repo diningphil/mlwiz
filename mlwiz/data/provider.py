@@ -452,6 +452,7 @@ class IterableDataProvider(DataProvider):
         )
         return dataloader
 
+
 class SingleGraphDataProvider(DataProvider):
     r"""
     A DataProvider subclass that only works with

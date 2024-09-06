@@ -211,7 +211,9 @@ def evaluation(options: argparse.Namespace):
         exp_path,
         data_splits_file,
         search,
-        risk_assessment_training_runs=configs_dict[RISK_ASSESSMENT_TRAINING_RUNS],
+        risk_assessment_training_runs=configs_dict[
+            RISK_ASSESSMENT_TRAINING_RUNS
+        ],
         higher_is_better=search.higher_results_are_better,
         gpus_per_task=gpus_per_task,
         base_seed=seed,

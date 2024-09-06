@@ -68,9 +68,9 @@ class EarlyStopper(EventHandler):
         if not hasattr(state, BEST_EPOCH_RESULTS):
             state.update(best_epoch_results=deepcopy(state.epoch_results))
             state.best_epoch_results[BEST_EPOCH] = state.epoch
-            state.best_epoch_results[score_or_loss][self.monitor] = (
-                state.epoch_results[score_or_loss][self.monitor]
-            )
+            state.best_epoch_results[score_or_loss][
+                self.monitor
+            ] = state.epoch_results[score_or_loss][self.monitor]
             state.best_epoch_results[MODEL_STATE] = deepcopy(
                 state.model.state_dict()
             )

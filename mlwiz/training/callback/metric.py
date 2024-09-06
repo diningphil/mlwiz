@@ -39,7 +39,7 @@ class Metric(Module, EventHandler):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__()
         self.batch_metrics = None
@@ -939,7 +939,7 @@ class Classification(Metric):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -947,7 +947,7 @@ class Classification(Metric):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
-            **kwargs
+            **kwargs,
         )
         self.metric = None
 
@@ -1012,7 +1012,7 @@ class Regression(Metric):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -1020,7 +1020,7 @@ class Regression(Metric):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
-            **kwargs
+            **kwargs,
         )
         self.metric = None
 
@@ -1085,7 +1085,7 @@ class MulticlassClassification(Classification):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -1093,7 +1093,7 @@ class MulticlassClassification(Classification):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
-            **kwargs
+            **kwargs,
         )
         self.metric = CrossEntropyLoss(reduction=reduction)
 
@@ -1118,7 +1118,7 @@ class MeanSquareError(Regression):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -1126,7 +1126,7 @@ class MeanSquareError(Regression):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
-            **kwargs
+            **kwargs,
         )
         self.metric = MSELoss(reduction=reduction)
 
@@ -1151,7 +1151,7 @@ class MeanAverageError(Regression):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
-        **kwargs: dict
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -1159,7 +1159,7 @@ class MeanAverageError(Regression):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
-            **kwargs
+            **kwargs,
         )
         self.metric = L1Loss(reduction=reduction)
 
@@ -1305,7 +1305,6 @@ class MulticlassAccuracy(Metric):
 
 
 class AllocatedGPUMemory(Metric):
-
     @property
     def name(self) -> str:
         """
@@ -1317,8 +1316,9 @@ class AllocatedGPUMemory(Metric):
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        gpu_mem = (torch.tensor([torch.cuda.memory_allocated()]).float()
-                   / (1024 * 1024))
+        gpu_mem = torch.tensor([torch.cuda.memory_allocated()]).float() / (
+            1024 * 1024
+        )
         return gpu_mem, gpu_mem
 
     def compute_metric(

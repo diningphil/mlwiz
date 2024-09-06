@@ -341,8 +341,9 @@ def loguniform(*args):
     return base ** (random.uniform(log_min, log_max))
 
 
-def retrieve_experiments(model_selection_folder,
-                         skip_results_not_found : bool =False) -> List[dict]:
+def retrieve_experiments(
+    model_selection_folder, skip_results_not_found: bool = False
+) -> List[dict]:
     """
     Once the experiments are done, retrieves the config_results.json files of
     all configurations in a specific model selection folder, and returns them
@@ -374,9 +375,7 @@ def retrieve_experiments(model_selection_folder,
         if not os.path.exists(config_results_path) and skip_results_not_found:
             continue
 
-        exp_info = json.load(
-            open(config_results_path, "rb")
-        )
+        exp_info = json.load(open(config_results_path, "rb"))
         exp_config = exp_info
 
         exp_config["exp_folder"] = cf

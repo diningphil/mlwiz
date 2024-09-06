@@ -59,9 +59,7 @@ class DatasetInterface:
 
         # if any of the processed files is missing, process the dataset
         # and store the results in a file
-        if not os.path.exists(
-            Path(self.dataset_filepath)
-        ):
+        if not os.path.exists(Path(self.dataset_filepath)):
             print(
                 f"File {self.dataset_filepath} from not found, "
                 f"calling process_data()..."
@@ -89,6 +87,7 @@ class DatasetInterface:
         Returns: a string
         """
         return self._name
+
     @property
     def dataset_folder(self) -> Path:
         """
@@ -184,7 +183,6 @@ class DatasetInterface:
 
 
 class MNIST(DatasetInterface):
-
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 28 * 28
@@ -226,7 +224,6 @@ class MNIST(DatasetInterface):
 
 
 class NCI1(DatasetInterface):
-
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 37
@@ -241,12 +238,11 @@ class NCI1(DatasetInterface):
         should generate files according to the obj:`self.dataset_file_names`
         list.
         """
-        self.dataset = TUDataset(root=self.dataset_folder, name='NCI1')
+        self.dataset = TUDataset(root=self.dataset_folder, name="NCI1")
         return [(g, g.y) for g in self.dataset]
 
 
 class Cora(DatasetInterface):
-
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 1433
@@ -261,7 +257,7 @@ class Cora(DatasetInterface):
         should generate files according to the obj:`self.dataset_file_names`
         list.
         """
-        self.dataset = Planetoid(root=self.dataset_folder, name='Cora')
+        self.dataset = Planetoid(root=self.dataset_folder, name="Cora")
 
         g = self.dataset[0]
         y = g.y
@@ -271,6 +267,7 @@ class Cora(DatasetInterface):
         del g.test_mask
 
         return [(g, y)]
+
 
 class _ReshapeMNISTTemporal(torch.nn.Module):
     def __call__(self, img: torch.Tensor):
@@ -286,7 +283,6 @@ class _ReshapeMNISTTemporal(torch.nn.Module):
 
 
 class MNISTTemporal(DatasetInterface):
-
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 28
@@ -310,7 +306,7 @@ class MNISTTemporal(DatasetInterface):
                 [
                     torchvision.transforms.ToTensor(),
                     torchvision.transforms.Normalize((0.1307,), (0.3081,)),
-                    _ReshapeMNISTTemporal()
+                    _ReshapeMNISTTemporal(),
                 ]
             ),
         )
@@ -322,12 +318,13 @@ class MNISTTemporal(DatasetInterface):
                 [
                     torchvision.transforms.ToTensor(),
                     torchvision.transforms.Normalize((0.1307,), (0.3081,)),
-                    _ReshapeMNISTTemporal()
+                    _ReshapeMNISTTemporal(),
                 ]
             ),
         )
         self.dataset = train + test
         return self.dataset
+
 
 class IterableDatasetInterface(torch.utils.data.IterableDataset):
     r"""
@@ -422,7 +419,6 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         Returns the Path to folder where the raw data is stored
         """
         return Path(self._raw_dataset_folder)
-
 
     @property
     def dataset_filepaths(self) -> List[Path]:

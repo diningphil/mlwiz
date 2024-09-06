@@ -226,9 +226,9 @@ class Experiment:
         """
         readout_classname = self.model_config.layer_config.get("readout", None)
         self.model_config.layer_config["depth"] = depth
-        self.model_config.layer_config["prev_outputs_to_consider"] = (
-            prev_outputs_to_consider
-        )
+        self.model_config.layer_config[
+            "prev_outputs_to_consider"
+        ] = prev_outputs_to_consider
         return self._create_model(
             dim_input_features,
             dim_edge_features,
