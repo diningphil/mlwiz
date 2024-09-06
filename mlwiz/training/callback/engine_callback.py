@@ -45,7 +45,8 @@ class EngineCallback(EventHandler):
                 object holding training information
         """
         # Forward pass
-        outputs = state.model.forward(state.batch_input)
+        # state.batch_input is a tuple (x, y)
+        outputs = state.model.forward(state.batch_input[0])
         state.update(batch_outputs=outputs)
 
     def on_epoch_end(self, state: State):

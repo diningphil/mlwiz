@@ -1,22 +1,20 @@
 import random
-from typing import Callable, Tuple, List
+from typing import Callable, Tuple, List, Union
 
 import numpy as np
 import torch
 
-from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
 from mlwiz.evaluation.util import return_class_and_args
 from mlwiz.experiment.util import s2c
-from mlwiz.log.logger import Logger
-from mlwiz.model.interface import ModelInterface, ReadoutInterface
+from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
 from mlwiz.training.engine import TrainingEngine
+from mlwiz.static import LOSS, SCORE
 
-
-class Experiment:
+class StandardExperiment:
     r"""
-    Class that handles a single experiment.
+    Class that handles a single standard experiment.
 
     Args:
         model_configuration (dict): the dictionary holding the
@@ -74,10 +72,8 @@ class Experiment:
 
     def _create_model(
         self,
-        dim_input_features: int,
-        dim_edge_features: int,
+        dim_input_features: Union[int, Tuple[int]],
         dim_target: int,
-        readout_classname: str,
         config: Config,
     ) -> ModelInterface:
         r"""
@@ -85,10 +81,8 @@ class Experiment:
         :class:`~mlwiz.model.model.ModelInterface` interface
 
         Args:
-            dim_input_features (int): number of node features
-            dim_edge_features (int): number of edge features
+            dim_input_features (Union[int, Tuple[int]]): number of node features
             dim_target (int): target dimension
-            readout_classname (str): string containing the model's class
             config (:class:`~mlwiz.evaluation.config.Config`):
                 the configuration dictionary
 
@@ -98,13 +92,7 @@ class Experiment:
         """
         model = s2c(config["model"])(
             dim_input_features=dim_input_features,
-            dim_edge_features=dim_edge_features,
             dim_target=dim_target,
-            readout_class=(
-                s2c(readout_classname)
-                if readout_classname is not None
-                else None
-            ),
             config=config,
         )
 
@@ -113,129 +101,6 @@ class Experiment:
         model.to(self.model_config.device)
         return model
 
-    def create_supervised_model(
-        self, dim_input_features: int, dim_edge_features: int, dim_target: int
-    ) -> ModelInterface:
-        r"""
-        Instantiates a **supervised** model that implements the
-        :class:`~mlwiz.model.model.ModelInterface` interface,
-        using the ``supervised_config`` field in the configuration file.
-
-        Args:
-            dim_input_features (int): number of node features
-            dim_edge_features (int): number of edge features
-            dim_target (int): target dimension
-
-        Returns:
-            a model that implements the
-            :class:`~mlwiz.model.model.ModelInterface` interface
-        """
-        readout_classname = (
-            self.model_config.supervised_config["readout"]
-            if "readout" in self.model_config.supervised_config
-            else None
-        )
-        return self._create_model(
-            dim_input_features,
-            dim_edge_features,
-            dim_target,
-            readout_classname,
-            self.model_config.supervised_config,
-        )
-
-    def create_supervised_readout(
-        self, dim_input_features: int, dim_edge_features: int, dim_target: int
-    ) -> ReadoutInterface:
-        r"""
-        Instantiates an **supervised** readout that implements the
-        :class:`~mlwiz.model.model.ReadoutInterface` interface,
-        using the ``supervised_config`` field in the configuration file.
-
-        Args:
-            dim_input_features (int): number of node features
-            dim_edge_features (int): number of edge features
-            dim_target (int): target dimension
-
-        Returns:
-            a model that implements the
-            :class:`~mlwiz.model.model.ReadoutInterface` interface
-        """
-        return s2c(self.model_config.supervised_config["readout"])(
-            dim_input_features=dim_input_features,
-            dim_edge_features=dim_edge_features,
-            dim_target=dim_target,
-            config=self.model_config.supervised_config,
-        )
-
-    def create_unsupervised_model(
-        self, dim_input_features: int, dim_edge_features: int, dim_target: int
-    ) -> ModelInterface:
-        r"""
-        Instantiates an **unsupervised** model that implements the
-        :class:`~mlwiz.model.model.ModelInterface` interface,
-        using the ``unsupervised_config`` field in the configuration file.
-
-        Args:
-            dim_input_features (int): number of node features
-            dim_edge_features (int): number of edge features
-            dim_target (int): target dimension
-
-        Returns:
-            a model that implements the
-            :class:`~mlwiz.model.model.ModelInterface` interface
-        """
-        readout_classname = (
-            self.model_config.unsupervised_config["readout"]
-            if "readout" in self.model_config.unsupervised_config
-            else None
-        )
-        return self._create_model(
-            dim_input_features,
-            dim_edge_features,
-            dim_target,
-            readout_classname,
-            self.model_config.unsupervised_config,
-        )
-
-    def create_incremental_model(
-        self,
-        dim_input_features: int,
-        dim_edge_features: int,
-        dim_target: int,
-        depth: int,
-        prev_outputs_to_consider: List[int],
-    ) -> ModelInterface:
-        r"""
-        Instantiates a layer of an incremental architecture.
-        It assumes the config file has a field ``layer_config``
-        and another ``layer_config.arbitrary_function_config``
-        that holds any kind of information for the arbitrary
-        function of an incremental architecture
-
-        Args:
-            dim_input_features: input node features
-            dim_edge_features: input edge features
-            dim_target: target size
-            depth: current depth of the architecture
-            prev_outputs_to_consider: A list of previous layers to consider,
-                e.g., [1,2] means the last two previous layers.
-
-        Returns:
-            a layer of a model that implements the
-            :class:`~mlwiz.model.model.ModelInterface` interface
-        """
-        readout_classname = self.model_config.layer_config.get("readout", None)
-        self.model_config.layer_config["depth"] = depth
-        self.model_config.layer_config[
-            "prev_outputs_to_consider"
-        ] = prev_outputs_to_consider
-        return self._create_model(
-            dim_input_features,
-            dim_edge_features,
-            dim_target,
-            readout_classname,
-            self.model_config.layer_config,
-        )
 
     def _create_engine(
         self,
@@ -356,91 +221,14 @@ class Experiment:
         )
         return engine
 
-    def create_supervised_engine(
-        self, model: ModelInterface
-    ) -> TrainingEngine:
+    def run_valid(self, dataset_getter, logger):
         r"""
-        Instantiates the training engine by using the ``supervised_config``
-        key in the config file
-
-        Args:
-            model: the  model that needs be trained
-
-        Returns:
-            a :class:`~mlwiz.training.engine.TrainingEngine` object
-        """
-        device = self.model_config.device
-        evaluate_every = self.model_config.evaluate_every
-        reset_eval_model_hidden_state = self.model_config.get(
-            "reset_eval_model_hidden_state", True
-        )
-
-        return self._create_engine(
-            self.model_config.supervised_config,
-            model,
-            device,
-            evaluate_every,
-            reset_eval_model_hidden_state,
-        )
-
-    def create_unsupervised_engine(
-        self, model: ModelInterface
-    ) -> TrainingEngine:
-        r"""
-        Instantiates the training engine by using the ``unsupervised_config``
-        key in the config file
-
-        Args:
-            model: the  model that needs be trained
-
-        Returns:
-            a :class:`~mlwiz.training.engine.TrainingEngine` object
-        """
-        device = self.model_config.device
-        evaluate_every = self.model_config.evaluate_every
-        reset_eval_model_hidden_state = self.model_config.get(
-            "reset_eval_model_hidden_state", True
-        )
-        return self._create_engine(
-            self.model_config.unsupervised_config,
-            model,
-            device,
-            evaluate_every,
-            reset_eval_model_hidden_state,
-        )
-
-    def create_incremental_engine(
-        self, model: ModelInterface
-    ) -> TrainingEngine:
-        r"""
-        Instantiates the training engine by using the ``layer_config``
-        key in the config file
-
-        Args:
-            model: the  model that needs be trained
-
-        Returns:
-            a :class:`~mlwiz.training.engine.TrainingEngine` object
-        """
-        device = self.model_config.device
-        evaluate_every = self.model_config.evaluate_every
-        reset_eval_model_hidden_state = self.model_config.get(
-            "reset_eval_model_hidden_state", True
-        )
-        return self._create_engine(
-            self.model_config.layer_config,
-            model,
-            device,
-            evaluate_every,
-            reset_eval_model_hidden_state,
-        )
-
-    def run_valid(self, dataset_getter, logger) -> Tuple[dict, dict]:
-        r"""
-        This function returns the training and validation results for a
-        `model selection run`.
+        This function returns the training and validation results
+        for a `model selection run`.
         **Do not attempt to load the test set inside this method!**
         **If possible, rely on already available subclasses of this class**.
+
+        It implements a simple training scheme.
 
         Args:
             dataset_getter (:class:`~mlwiz.data.provider.DataProvider`):
@@ -457,17 +245,64 @@ class Experiment:
             For instance, training_results[SCORE] is a dictionary itself
             with other fields to be used by the evaluator.
         """
-        raise NotImplementedError("You must implement this function!")
+        batch_size = self.model_config["batch_size"]
+        shuffle = (
+            self.model_config["shuffle"]
+            if "shuffle" in self.model_config
+            else True
+        )
 
-    def run_test(
-        self, dataset_getter: DataProvider, logger: Logger
-    ) -> Tuple[dict, dict, dict]:
+        # Instantiate the Dataset
+        train_loader = dataset_getter.get_inner_train(
+            batch_size=batch_size, shuffle=shuffle
+        )
+        val_loader = dataset_getter.get_inner_val(
+            batch_size=batch_size, shuffle=shuffle
+        )
+
+        dim_input_features = dataset_getter.get_dim_input_features()
+        dim_target = dataset_getter.get_dim_target()
+
+        # Instantiate the Model
+        model = self.create_model(
+            dim_input_features, dim_target
+        )
+
+        # Instantiate the engine (it handles the training loop and the
+        # inference phase by abstracting the specifics)
+        training_engine = self.create_engine(model)
+
+        (
+            train_loss,
+            train_score,
+            _,  # check the ordering is correct
+            val_loss,
+            val_score,
+            _,
+            _,
+            _,
+            _,
+        ) = training_engine.train(
+            train_loader=train_loader,
+            validation_loader=val_loader,
+            test_loader=None,
+            max_epochs=self.model_config["epochs"],
+            logger=logger,
+        )
+
+        train_res = {LOSS: train_loss, SCORE: train_score}
+        val_res = {LOSS: val_loss, SCORE: val_score}
+        return train_res, val_res
+
+    def run_test(self, dataset_getter, logger):
         """
         This function returns the training, validation and test results
         for a `final run`.
-        **Do not use the test to train the model nor for
-        early stopping reasons!**
+        **Do not use the test to train the model
+        nor for early stopping reasons!**
         **If possible, rely on already available subclasses of this class**.
+
+        It implements a simple training scheme.
 
         Args:
             dataset_getter (:class:`~mlwiz.data.provider.DataProvider`):
@@ -481,7 +316,60 @@ class Experiment:
             * ``LOSS`` (as defined in ``mlwiz.static``)
             * ``SCORE`` (as defined in ``mlwiz.static``)
 
-            For instance, training_results[SCORE] is a dictionary itself
-            with other fields to be used by the evaluator.
+            For instance, training_results[SCORE] is a dictionary itself with
+            other fields to be used by the evaluator.
         """
-        raise NotImplementedError("You must implement this function!")
+        batch_size = self.model_config["batch_size"]
+        shuffle = (
+            self.model_config["shuffle"]
+            if "shuffle" in self.model_config
+            else True
+        )
+
+        # Instantiate the Dataset
+        train_loader = dataset_getter.get_outer_train(
+            batch_size=batch_size, shuffle=shuffle
+        )
+        val_loader = dataset_getter.get_outer_val(
+            batch_size=batch_size, shuffle=shuffle
+        )
+        test_loader = dataset_getter.get_outer_test(
+            batch_size=batch_size, shuffle=shuffle
+        )
+
+        # Call this after the loaders: the datasets may need to be instantiated
+        # with additional parameters
+        dim_input_features = dataset_getter.get_dim_input_features()
+        dim_target = dataset_getter.get_dim_target()
+
+        # Instantiate the Model
+        model = self.create_model(
+            dim_input_features, dim_target
+        )
+
+        # Instantiate the engine (it handles the training loop and the
+        # inference phase by abstracting the specifics)
+        training_engine = self.create_engine(model)
+
+        (
+            train_loss,
+            train_score,
+            _,
+            val_loss,
+            val_score,
+            _,
+            test_loss,
+            test_score,
+            _,
+        ) = training_engine.train(
+            train_loader=train_loader,
+            validation_loader=val_loader,
+            test_loader=test_loader,
+            max_epochs=self.model_config["epochs"],
+            logger=logger,
+        )
+
+        train_res = {LOSS: train_loss, SCORE: train_score}
+        val_res = {LOSS: val_loss, SCORE: val_score}
+        test_res = {LOSS: test_loss, SCORE: test_score}
+        return train_res, val_res, test_res

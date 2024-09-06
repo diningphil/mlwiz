@@ -24,7 +24,7 @@ copyright = "2024, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags
-release = "0.0.1"
+release = "1.0.0"
 
 
 # -- General configuration ---------------------------------------------------
@@ -84,7 +84,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 
 # Logo of the doc
-html_logo = html_static_path[0] + "/" + "mlwiz-logo.svg"
+html_logo = html_static_path[0] + "/" + "mlwiz-logo.png"
 html_theme_options = {
     "logo_only": False,
     "display_version": True,
