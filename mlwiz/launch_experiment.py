@@ -153,7 +153,7 @@ def evaluation(options: argparse.Namespace):
     # number of processes on the machine
     # torch.set_num_threads(1)
 
-    from mlwiz.experiment.util import s2c
+    from mlwiz.util import s2c
     from mlwiz.data.splitter import Splitter
     from mlwiz.evaluation.grid import Grid
     from mlwiz.evaluation.random_search import RandomSearch

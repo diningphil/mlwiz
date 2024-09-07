@@ -1,6 +1,6 @@
 from torch.optim.optimizer import Optimizer
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import *
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State

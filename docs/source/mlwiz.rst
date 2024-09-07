@@ -10,3 +10,13 @@ mlwiz
    mlwiz.log
    mlwiz.model
    mlwiz.training
+
+
+mlwiz.util
+----------------------------
+
+.. automodule:: mlwiz.util
+   :members:
+   :private-members:
+   :undoc-members:
+   :show-inheritance:

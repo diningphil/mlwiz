@@ -9,13 +9,3 @@ experiment.experiment
    :private-members:
    :undoc-members:
    :show-inheritance:
-
-
-experiment.util
-----------------------------
-
-.. automodule:: mlwiz.experiment.util
-   :members:
-   :private-members:
-   :undoc-members:
-   :show-inheritance:

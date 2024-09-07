@@ -18,7 +18,7 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import ProgressManager
 from mlwiz.experiment.experiment import Experiment
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
 

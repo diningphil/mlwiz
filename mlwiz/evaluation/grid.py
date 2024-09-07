@@ -1,8 +1,7 @@
 from copy import deepcopy
 from typing import List
 
-from mlwiz.evaluation.util import return_class_and_args
-from mlwiz.experiment.util import s2c
+from mlwiz.util import return_class_and_args, s2c
 from mlwiz.static import *
 
 

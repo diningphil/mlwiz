@@ -5,8 +5,7 @@ import numpy as np
 import torch
 
 from mlwiz.evaluation.config import Config
-from mlwiz.evaluation.util import return_class_and_args
-from mlwiz.experiment.util import s2c
+from mlwiz.util import return_class_and_args, s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
 from mlwiz.static import LOSS, SCORE

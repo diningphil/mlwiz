@@ -12,7 +12,7 @@ from sklearn.model_selection import (
 
 import mlwiz
 from mlwiz.data.dataset import IterableDatasetInterface
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 
 
 class Fold:

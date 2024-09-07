@@ -7,7 +7,7 @@ from typing import Callable
 import torch
 from torchvision.transforms import Compose
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import STORAGE_FOLDER
 
 

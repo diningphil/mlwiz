@@ -3,7 +3,7 @@ from typing import List, Union, Tuple
 import torch
 from torch.nn import Module, CrossEntropyLoss, MSELoss, L1Loss
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import ARGS, CLASS_NAME
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
