@@ -24,7 +24,7 @@ def test_datasets_creation():
         preprocess_data(config)
 
 
-@pytest.mark.dependency(depends=["test_dataset_creation"])
+@pytest.mark.dependency(depends=["test_datasets_creation"])
 def test_experiments():
     class MockConfig:
         def __init__(self, d):
