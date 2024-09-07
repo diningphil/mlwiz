@@ -18,7 +18,7 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import ProgressManager
 from mlwiz.experiment.experiment import Experiment
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
 
@@ -474,7 +474,6 @@ class RiskAssesser:
             self.model_configs.data_root,
             self.splits_filepath,
             s2c(self.model_configs.dataset_class),
-            self.model_configs.dataset_name,
             s2c(self.model_configs.data_loader_class),
             self.model_configs.data_loader_args,
             self.outer_folds,
@@ -611,7 +610,6 @@ class RiskAssesser:
             self.model_configs.data_root,
             self.splits_filepath,
             s2c(self.model_configs.dataset_class),
-            self.model_configs.dataset_name,
             s2c(self.model_configs.data_loader_class),
             self.model_configs.data_loader_args,
             self.outer_folds,

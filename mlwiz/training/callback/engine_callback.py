@@ -45,8 +45,8 @@ class EngineCallback(EventHandler):
                 object holding training information
         """
         # Forward pass
-        # state.batch_input is a tuple (x, y)
-        outputs = state.model.forward(state.batch_input[0])
+        # state.batch_input holds the input
+        outputs = state.model.forward(state.batch_input)
         state.update(batch_outputs=outputs)
 
     def on_epoch_end(self, state: State):
@@ -85,7 +85,8 @@ class IterableEngineCallback(EngineCallback):
     r"""
     Class that extends :class:`mlwiz.training.callback.EngineCallback`
     to the processing of Iterable-style datasets.
-    Needs to be used together with the appropriate engine class.
+    Needs to be used together with the appropriate engine class
+    (DataStreamTrainingEngine).
     """
 
     def on_fetch_data(self, state: State):
@@ -104,28 +105,3 @@ class IterableEngineCallback(EngineCallback):
         except StopIteration as e:
             state.update(stop_fetching=True)
             state.update(batch_input=None)
-
-
-class TemporalEngineCallback(EngineCallback):
-    r"""
-    Class that extends :class:`mlwiz.training.callback.EngineCallback`
-    to the processing of temporal datasets.
-    Needs to be used together with the appropriate engine class.
-    """
-
-    def on_forward(self, state):
-        """
-        Calls the forward method of the model and stores the outputs in the
-        `batch_outputs` field of the state. In addition to the input, passes
-        to the model the hidden state computed at the previous time step.
-
-        Args:
-            state (:class:`~training.event.state.State`):
-                object holding training information
-        """
-        # Forward pass, the last hidden state gets passed as additional
-        # argument
-        outputs = state.model.forward(
-            state.batch_input, state.last_hidden_state
-        )
-        state.update(batch_outputs=outputs)

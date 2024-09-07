@@ -239,10 +239,6 @@ class EventHandler:
               * ``state.batch_input``: the input to be fed to the model
               * ``state.batch_targets``: the ground truth values to be fed
                 to the model (if any, ow a dummy value can be used)
-              * ``state.batch_num_graphs``: the total number of graphs in
-                the minibatch
-              * ``state.batch_num_nodes``: the total number of nodes in
-                the minibatch
               * ``state.batch_num_targets``: the total number of ground
                 truth values in the minibatch
 

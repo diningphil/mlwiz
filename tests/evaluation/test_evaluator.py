@@ -6,7 +6,7 @@ import yaml
 
 from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
-from mlwiz.experiment.experiment import Experiment
+from mlwiz.experiment import Experiment
 from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
 
 

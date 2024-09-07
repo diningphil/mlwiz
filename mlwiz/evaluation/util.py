@@ -3,53 +3,16 @@ import json
 import math
 import os
 import random
-from typing import Tuple, Callable, List
+from typing import List
 
 import torch
 import tqdm
-from mlwiz.data.provider import DataProvider
 
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.experiment.util import s2c
+from mlwiz.data.provider import DataProvider
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
-
-
-def return_class_and_args(
-    config: dict, key: str, return_class_name: bool = False
-) -> Tuple[Callable[..., object], dict]:
-    r"""
-    Returns the class and arguments associated to a specific key in the
-    configuration file.
-
-    Args:
-        config (dict): the configuration dictionary
-        key (str): a string representing a particular class in the
-            configuration dictionary
-        return_class_name (bool): if ``True``, returns the class name as a
-            string rather than the class object
-
-    Returns:
-        a tuple (class, dict of arguments), or (None, None) if the key
-        is not present in the config dictionary
-    """
-    if key not in config or config[key] is None:
-        return None, None
-    elif isinstance(config[key], str):
-        return s2c(config[key]), {}
-    elif isinstance(config[key], dict):
-        return (
-            (
-                s2c(config[key]["class_name"])
-                if not return_class_name
-                else config[key]["class_name"]
-            ),
-            config[key]["args"] if "args" in config[key] else {},
-        )
-    else:
-        raise NotImplementedError(
-            f"Parameter {key} " f"has not been formatted properly"
-        )
+from mlwiz.util import return_class_and_args, s2c
 
 
 def clear_screen():

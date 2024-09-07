@@ -7,7 +7,7 @@ from typing import Callable
 import torch
 from torchvision.transforms import Compose
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import STORAGE_FOLDER
 
 
@@ -87,12 +87,10 @@ def preprocess_data(options: dict):
     ################################
 
     dataset = dataset_class(**dataset_args)
-    assert hasattr(
-        dataset, "dataset_name"
-    ), "Dataset instance should have a name attribute!"
+    dataset_name = dataset.__class__.__name__
 
     # Store dataset additional arguments in a separate file
-    kwargs_folder = osp.join(storage_folder, dataset.dataset_name)
+    kwargs_folder = osp.join(storage_folder, dataset_name)
     kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.pt")
 
     get_or_create_dir(kwargs_folder)
@@ -108,12 +106,10 @@ def preprocess_data(options: dict):
     splitter_args = splits_info.pop("args")
     splitter = splitter_class(**splitter_args)
 
-    splits_dir = get_or_create_dir(
-        osp.join(splits_folder, dataset.dataset_name)
-    )
+    splits_dir = get_or_create_dir(osp.join(splits_folder, dataset_name))
     splits_path = osp.join(
         splits_dir,
-        f"{dataset.dataset_name}_outer{splitter.n_outer_folds}"
+        f"{dataset_name}_outer{splitter.n_outer_folds}"
         f"_inner{splitter.n_inner_folds}.splits",
     )
 
@@ -133,7 +129,6 @@ def preprocess_data(options: dict):
 
 def load_dataset(
     storage_folder: str,
-    dataset_name: str,
     dataset_class: Callable,
     **kwargs: dict,
 ) -> object:
@@ -143,8 +138,6 @@ def load_dataset(
 
     Args:
         storage_folder (str): path of the folder that contains the dataset folder
-        dataset_name (str): name of the dataset (same as the name of the
-            dataset folder that has been already created)
         dataset_class
             (Callable):
             the class of the dataset to instantiate with the parameters
@@ -156,6 +149,7 @@ def load_dataset(
         a dataset object
     """
     # Load arguments
+    dataset_name = dataset_class.__name__
     kwargs_path = osp.join(storage_folder, dataset_name, "dataset_kwargs.pt")
     if not os.path.exists(kwargs_path):  # backward compatibility
         kwargs_path = osp.join(
@@ -176,3 +170,7 @@ def load_dataset(
         dataset = dataset_class(**dataset_args)
 
     return dataset
+
+
+def single_graph_collate(batch):
+    return batch[0]

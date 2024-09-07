@@ -3,7 +3,6 @@ from typing import Tuple
 
 import numpy as np
 import torch
-
 from sklearn.model_selection import (
     StratifiedKFold,
     StratifiedShuffleSplit,
@@ -13,7 +12,7 @@ from sklearn.model_selection import (
 
 import mlwiz
 from mlwiz.data.dataset import IterableDatasetInterface
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 
 
 class Fold:
@@ -186,7 +185,7 @@ class Splitter:
                 return False, None
 
             if not isinstance(y, torch.Tensor):
-                y = torch.tensor(np.ndarray(y))
+                y = torch.Tensor([y])
 
             targets.append(y)
 

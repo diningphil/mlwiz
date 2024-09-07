@@ -107,7 +107,6 @@ explanation of each field as a comment:
     # Dataset and Splits
     data_root:  # path to DATA root folder (same as in data config file)
     dataset_class:  # dotted path to dataset class
-    dataset_name:  # dataset name (same as in data config file)
     data_splits_file:  # path to data splits file
 
 

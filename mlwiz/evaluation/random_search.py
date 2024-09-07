@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 from mlwiz.evaluation.grid import Grid
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import *
 
 

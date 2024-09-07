@@ -3,7 +3,7 @@ from typing import List, Union, Tuple
 import torch
 from torch.nn import Module, CrossEntropyLoss, MSELoss, L1Loss
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.static import ARGS, CLASS_NAME
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
@@ -684,14 +684,14 @@ class AdditiveLoss(Metric):
         if self.losses_weights is not None:
             for loss in self.losses:
                 # check that a weight exists for each loss
-                assert loss._name in self.losses_weights, (
+                assert loss.name in self.losses_weights, (
                     "You have to specify a weight for each loss! "
-                    f"We could not find the weight for {loss._name} "
+                    f"We could not find the weight for {loss.name} "
                     f"in the dict."
                 )
         else:
             # all losses are simply added together
-            self.losses_weights = {loss._name: 1.0 for loss in self.losses}
+            self.losses_weights = {loss.name: 1.0 for loss in self.losses}
 
     @property
     def name(self) -> str:
@@ -720,9 +720,9 @@ class AdditiveLoss(Metric):
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
-        self.batch_metrics = {loss._name: [] for loss in [self] + self.losses}
-        self.y_pred = {loss._name: [] for loss in [self] + self.losses}
-        self.y_true = {loss._name: [] for loss in [self] + self.losses}
+        self.batch_metrics = {loss.name: [] for loss in [self] + self.losses}
+        self.y_pred = {loss.name: [] for loss in [self] + self.losses}
+        self.y_true = {loss.name: [] for loss in [self] + self.losses}
 
     def on_training_batch_end(self, state: State):
         """
@@ -754,22 +754,22 @@ class AdditiveLoss(Metric):
         """
         if not self.accumulate_over_epoch:
             epoch_res = {
-                loss._name: torch.tensor(self.batch_metrics[loss._name]).sum()
-                / len(self.batch_metrics[loss._name])
+                loss.name: torch.tensor(self.batch_metrics[loss.name]).sum()
+                / len(self.batch_metrics[loss.name])
                 for loss in [self] + self.losses
             }
         else:
             epoch_res = {
-                loss._name: loss.compute_metric(
-                    torch.cat(self.y_true[loss._name], dim=0),
-                    torch.cat(self.y_pred[loss._name], dim=0),
+                loss.name: loss.compute_metric(
+                    torch.cat(self.y_true[loss.name], dim=0),
+                    torch.cat(self.y_pred[loss.name], dim=0),
                 )
-                * self.losses_weights[loss._name]
+                * self.losses_weights[loss.name]
                 for loss in self.losses
             }
             additive_epoch_loss = 0.0
             for loss in self.losses:
-                additive_epoch_loss += epoch_res[loss._name]
+                additive_epoch_loss += epoch_res[loss.name]
             epoch_res[self.name] = additive_epoch_loss
 
         state.update(epoch_loss=epoch_res)
@@ -786,9 +786,9 @@ class AdditiveLoss(Metric):
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
-        self.batch_metrics = {loss._name: [] for loss in [self] + self.losses}
-        self.y_pred = {loss._name: [] for loss in [self] + self.losses}
-        self.y_true = {loss._name: [] for loss in [self] + self.losses}
+        self.batch_metrics = {loss.name: [] for loss in [self] + self.losses}
+        self.y_pred = {loss.name: [] for loss in [self] + self.losses}
+        self.y_true = {loss.name: [] for loss in [self] + self.losses}
 
     def on_eval_epoch_end(self, state: State):
         """
@@ -803,22 +803,22 @@ class AdditiveLoss(Metric):
         """
         if not self.accumulate_over_epoch:
             epoch_res = {
-                loss._name: torch.tensor(self.batch_metrics[loss._name]).sum()
-                / len(self.batch_metrics[loss._name])
+                loss.name: torch.tensor(self.batch_metrics[loss.name]).sum()
+                / len(self.batch_metrics[loss.name])
                 for loss in [self] + self.losses
             }
         else:
             epoch_res = {
-                loss._name: loss.compute_metric(
-                    torch.cat(self.y_true[loss._name], dim=0),
-                    torch.cat(self.y_pred[loss._name], dim=0),
+                loss.name: loss.compute_metric(
+                    torch.cat(self.y_true[loss.name], dim=0),
+                    torch.cat(self.y_pred[loss.name], dim=0),
                 )
-                * self.losses_weights[loss._name]
+                * self.losses_weights[loss.name]
                 for loss in self.losses
             }
             additive_epoch_loss = 0.0
             for loss in self.losses:
-                additive_epoch_loss += epoch_res[loss._name]
+                additive_epoch_loss += epoch_res[loss.name]
             epoch_res[self.name] = additive_epoch_loss
 
         state.update(epoch_loss=epoch_res)
@@ -862,7 +862,7 @@ class AdditiveLoss(Metric):
         for loss in self.losses:
             single_loss = (
                 loss.compute_metric(targets, predictions)
-                * self.losses_weights[loss._name]
+                * self.losses_weights[loss.name]
             )
             loss_sum += single_loss
         return loss_sum
@@ -883,7 +883,7 @@ class AdditiveLoss(Metric):
             y_pred_batch, y_true_batch = loss.get_predictions_and_targets(
                 targets, *outputs
             )
-            metric_name = loss._name
+            metric_name = loss.name
 
             self.y_pred[metric_name].append(
                 y_pred_batch.detach().cpu()
@@ -916,10 +916,10 @@ class AdditiveLoss(Metric):
             )
             single_loss = (
                 loss.compute_metric(y_true_batch, y_pred_batch)
-                * self.losses_weights[loss._name]
+                * self.losses_weights[loss.name]
             )
 
-            res[loss._name] = single_loss
+            res[loss.name] = single_loss
             loss_sum += single_loss
 
         res[self.name] = loss_sum
@@ -1172,73 +1172,6 @@ class MeanAverageError(Regression):
         return "Mean Average Error"
 
 
-class DotProductLink(Metric):
-    """
-    Implements a dot product link prediction metric,
-    as defined in https://arxiv.org/abs/1611.07308.
-    """
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Dot Product Link Prediction"
-
-    def get_predictions_and_targets(
-        self, targets: torch.Tensor, *outputs: List[torch.Tensor]
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        Uses node embeddings (outputs[1]) aand positive/negative edges
-        (contained in targets by means of
-        e.g.,
-        a :obj:`~mlwiz.data.provider.LinkPredictionSingleGraphDataProvider`)
-        to return logits and target labels of an edge classification task.
-
-        Args:
-            targets (:class:`torch.Tensor`): ground truth
-            outputs (List[:class:`torch.Tensor`]): outputs of the model
-
-        Returns:
-            A tuple of tensors (predicted_values, target_values)
-        """
-        node_embs = outputs[1]
-        _, pos_edges, neg_edges = targets
-
-        loss_edge_index = torch.cat((pos_edges, neg_edges), dim=1)
-        loss_target = torch.cat(
-            (torch.ones(pos_edges.shape[1]), torch.zeros(neg_edges.shape[1]))
-        )
-
-        # Taken from
-        # rusty1s/pytorch_geometric/blob/master/examples/link_pred.py
-        x_j = torch.index_select(node_embs, 0, loss_edge_index[0])
-        x_i = torch.index_select(node_embs, 0, loss_edge_index[1])
-        link_logits = torch.einsum("ef,ef->e", x_i, x_j)
-
-        return link_logits, loss_target.to(link_logits.device)
-
-    def compute_metric(
-        self, targets: torch.Tensor, predictions: torch.Tensor
-    ) -> torch.tensor:
-        """
-        Applies BCEWithLogits to link logits and targets.
-
-        Args:
-            targets (:class:`torch.Tensor`): tensor of ground truth values
-            predictions (:class:`torch.Tensor`):
-                tensor of predictions of the model
-
-        Returns:
-            A tensor with the metric value
-        """
-        metric = torch.nn.functional.binary_cross_entropy_with_logits(
-            predictions, targets
-        )
-        return metric
-
-
 class MulticlassAccuracy(Metric):
     """
     Implements multiclass classification accuracy.
@@ -1380,9 +1313,9 @@ class ToyMetric(Metric):
         return metric
 
 
-class ToyUnsupervisedMetric(Metric):
+class SingleGraphMulticlassClassification(MulticlassClassification):
     r"""
-    Implements a toy metric.
+    Wrapper around :class:`torch.nn.CrossEntropyLoss`
     """
 
     @property
@@ -1391,36 +1324,40 @@ class ToyUnsupervisedMetric(Metric):
         The name of the loss to be used in configuration files and displayed
         on Tensorboard
         """
-        return "Toy Unsupervised Metric"
+        return "Single Graph Multiclass Classification"
 
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # o and h have alredy been filtered by the model according to
+        # required data split indexes
+        o, _, idxs = outputs
+        t = targets[idxs]
+        return o, t
+
+
+class SingleGraphMulticlassAccuracy(MulticlassAccuracy):
+    r"""
+    Wrapper around :class:`torch.nn.CrossEntropyLoss`
+    """
+
+    @property
+    def name(self) -> str:
         """
-        Returns output[0] and dataset targets
-
-        Args:
-            targets (:class:`torch.Tensor`): ground truth
-            outputs (List[:class:`torch.Tensor`]): outputs of the model
-
-        Returns:
-            A tuple of tensors (predicted_values, target_values)
+        The name of the loss to be used in configuration files and displayed
+        on Tensorboard
         """
-        return outputs[0], targets
+        return "Single Graph Multiclass Accuracy"
 
-    def compute_metric(
-        self, targets: torch.Tensor, predictions: torch.Tensor
-    ) -> torch.tensor:
-        """
-        Computes a dummy score
+    def get_predictions_and_targets(
+        self, targets: torch.Tensor, *outputs: List[torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        # o and h have alredy been filtered by the model according to
+        # required data split indexes
+        o, _, idxs = outputs
+        pred = self._get_correct(o)
+        if len(targets.shape) == 2:
+            targets = targets.squeeze(dim=1)
+        t = targets[idxs]
 
-        Args:
-            targets (:class:`torch.Tensor`): tensor of ground truth values
-            predictions (:class:`torch.Tensor`):
-                tensor of predictions of the model
-
-        Returns:
-            A tensor with the metric value
-        """
-        metric = (predictions * 0.0).mean()
-        return metric
+        return pred, t

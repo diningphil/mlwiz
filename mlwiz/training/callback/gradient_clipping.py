@@ -1,6 +1,5 @@
 from torch.nn.utils import clip_grad_value_
 
-from mlwiz.experiment.util import s2c
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 

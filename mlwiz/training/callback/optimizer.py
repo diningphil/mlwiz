@@ -1,6 +1,6 @@
 import copy
 
-from mlwiz.experiment.util import s2c
+from mlwiz.util import s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.training.event.handler import EventHandler
 

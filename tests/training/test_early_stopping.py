@@ -8,7 +8,7 @@ from mlwiz.training.event.state import State
 
 class FakeModel(ModelInterface):
     def __init__(self):
-        super().__init__(0, 0, 0, None, None)
+        super().__init__(0, 0, None)
         self.lin = Linear(10, 10)
 
 

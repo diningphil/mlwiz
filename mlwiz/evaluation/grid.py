@@ -1,7 +1,7 @@
 from copy import deepcopy
 from typing import List
 
-from mlwiz.evaluation.util import return_class_and_args
+from mlwiz.util import return_class_and_args, s2c
 from mlwiz.static import *
 
 
@@ -23,7 +23,6 @@ class Grid:
         self._exp_name = self.configs_dict.get(EXP_NAME)
         self.data_root = self.configs_dict[DATA_ROOT]
         self.dataset_class = self.configs_dict[DATASET_CLASS]
-        self.dataset_name = self.configs_dict[DATASET_NAME]
         self.data_loader_class, self.data_loader_args = return_class_and_args(
             self.configs_dict, DATA_LOADER, return_class_name=True
         )
@@ -55,7 +54,6 @@ class Grid:
         for cfg in configs:
             cfg.update(
                 {
-                    DATASET: self.dataset_name,
                     DATASET_GETTER: self.dataset_getter,
                     DATA_LOADER: self.data_loader_class,
                     DATA_LOADER_ARGS: self.data_loader_args,
@@ -184,7 +182,8 @@ class Grid:
         Returns:
              the name of the root folder as made of ``EXP-NAME_DATASET-NAME``
         """
-        return f"{self._exp_name}_{self.dataset_name}"
+        dataset_name = s2c(self.dataset_class).__name__
+        return f"{self._exp_name}_{dataset_name}"
 
     @property
     def num_configs(self) -> int:

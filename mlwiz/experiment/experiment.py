@@ -1,18 +1,18 @@
 import random
-from typing import Callable, Tuple, List, Union
+from typing import Callable, Tuple, Union
 
 import numpy as np
 import torch
 
 from mlwiz.evaluation.config import Config
-from mlwiz.evaluation.util import return_class_and_args
-from mlwiz.experiment.util import s2c
+from mlwiz.util import return_class_and_args, s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
-from mlwiz.training.engine import TrainingEngine
 from mlwiz.static import LOSS, SCORE
+from mlwiz.training.engine import TrainingEngine
 
-class StandardExperiment:
+
+class Experiment:
     r"""
     Class that handles a single standard experiment.
 
@@ -70,7 +70,7 @@ class StandardExperiment:
                 "Parameter has not been formatted properly"
             )
 
-    def _create_model(
+    def create_model(
         self,
         dim_input_features: Union[int, Tuple[int]],
         dim_target: int,
@@ -101,14 +101,10 @@ class StandardExperiment:
         model.to(self.model_config.device)
         return model
 
-
-    def _create_engine(
+    def create_engine(
         self,
         config: Config,
         model: ModelInterface,
-        device: str,
-        evaluate_every: int,
-        reset_eval_model_hidden_state: bool,
     ) -> TrainingEngine:
         r"""
         Utility that instantiates the training engine. It looks for
@@ -122,20 +118,12 @@ class StandardExperiment:
             config (:class:`~mlwiz.evaluation.config.Config`):
                 the configuration dictionary
             model: the  model that needs be trained
-            device (str): the string with the CUDA device to be used,
-                or ``cpu``
-            evaluate_every (int): number of epochs after which to
-                log information
-            reset_eval_model_hidden_state (bool): [temporal graph learning]
-                Used when we want to reset the state after performing
-                previous inference. It should be ``False`` when we are
-                dealing with a single temporal graph sequence,
-                because we don't want to reset the hidden state after
-                processing the previous [training/validation] time steps.
 
         Returns:
             a :class:`~mlwiz.training.engine.TrainingEngine` object
         """
+        device = config["device"]
+        evaluate_every = config["evaluate_every"]
 
         loss_class, loss_args = return_class_and_args(config, "loss")
         loss_args.update(device=device)
@@ -217,7 +205,6 @@ class StandardExperiment:
             evaluate_every=evaluate_every,
             eval_training=eval_training,
             store_last_checkpoint=store_last_checkpoint,
-            reset_eval_model_hidden_state=reset_eval_model_hidden_state,
         )
         return engine
 
@@ -265,12 +252,12 @@ class StandardExperiment:
 
         # Instantiate the Model
         model = self.create_model(
-            dim_input_features, dim_target
+            dim_input_features, dim_target, self.model_config
         )
 
         # Instantiate the engine (it handles the training loop and the
         # inference phase by abstracting the specifics)
-        training_engine = self.create_engine(model)
+        training_engine = self.create_engine(self.model_config, model)
 
         (
             train_loss,
@@ -344,12 +331,12 @@ class StandardExperiment:
 
         # Instantiate the Model
         model = self.create_model(
-            dim_input_features, dim_target
+            dim_input_features, dim_target, self.model_config
         )
 
         # Instantiate the engine (it handles the training loop and the
         # inference phase by abstracting the specifics)
-        training_engine = self.create_engine(model)
+        training_engine = self.create_engine(self.model_config, model)
 
         (
             train_loss,
