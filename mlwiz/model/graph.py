@@ -69,6 +69,7 @@ class DGN(ModelInterface):
 
         h = torch.cat(x_all, dim=1)
 
+        idxs = None
         if self.is_single_graph:
             if self.training:
                 idxs = data.training_indices

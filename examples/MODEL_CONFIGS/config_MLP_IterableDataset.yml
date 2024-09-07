@@ -91,4 +91,4 @@ grid:
         checkpoint: True  # store the best checkpoint
 
   # Plotter of metrics
-  plotter: mlwiz.training.callback.plotter.Plotter
+  plotter: null
