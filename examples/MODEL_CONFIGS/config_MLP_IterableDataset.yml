@@ -1,8 +1,7 @@
 # Dataset and Splits
 data_root: DATA
 dataset_class: mlwiz.data.dataset.ToyIterableDataset
-dataset_name:  ToyIterableDataset
-data_splits_file:  examples/DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer10_inner1.splits
+data_splits_file:  examples/DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer3_inner2.splits
 
 
 # Hardware
@@ -15,9 +14,9 @@ gpus_per_task:  1
 # Data Loading
 dataset_getter: mlwiz.data.provider.IterableDataProvider
 data_loader:
-  class_name: torch_geometric.loader.DataLoader
+  class_name: torch.utils.data.DataLoader
   args:
-    num_workers : 4
+    num_workers : 2
     pin_memory: False
 
 
@@ -27,27 +26,25 @@ seed: 42
 
 # Experiment
 result_folder: RESULTS
-exp_name: supervised_grid_search_toy
-experiment: mlwiz.experiment.StandardExperiment
+exp_name: mlp_iterable_dataset
+experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 3
 risk_assessment_training_runs: 3
 
 
 grid:
-  model: mlwiz.model.graph.toy_dgn.ToyDGN
+  model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
   batch_size: 32
-  epochs: 100
+  epochs: 3
 
   # Model specific arguments #
 
-  dim_embedding: 5
-  num_layers:
-    - 3
+  dim_embedding:
     - 5
-  aggregation: mean
+    - 10
 
   # ------------------------ #
 
@@ -58,25 +55,19 @@ grid:
         optimizer_class_name: torch.optim.Adam
         lr:
           - 0.01
-          - 0.001
         weight_decay: 0.
 
   # Scheduler (optional)
   scheduler: null
 
   # Loss metric (with an example of Additive Loss)
-  loss:
-    - class_name: mlwiz.training.callback.metric.AdditiveLoss
-      args:
-        loss_1: mlwiz.training.callback.metric.MeanSquareError
-        loss_2: mlwiz.training.callback.metric.MeanSquareError
+  loss: mlwiz.training.callback.metric.MeanSquareError
 
   # Score metric (with an example of Multi Score)
   scorer:
     - class_name: mlwiz.training.callback.metric.MultiScore
       args:
         main_scorer: mlwiz.training.callback.metric.MeanSquareError
-        my_second_metric: mlwiz.training.callback.metric.ToyMetric
 
   # Training engine
   engine:

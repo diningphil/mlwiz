@@ -242,7 +242,7 @@ class NCI1(DatasetInterface):
         # casting class to int will allow PyG collater to create a tensor of
         # size (batch_size) instead of (batch_size, 1), making it consistent
         # with other non-graph datasets
-        return [(g, int(g.y)) for g in self.dataset]
+        return [(g, g.y.item()) for g in self.dataset]
 
 
 class Cora(DatasetInterface):
@@ -385,6 +385,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
                 f"Folder {self._raw_dataset_folder} " f"not found"
             )
 
+        self._url_indices = self.url_indices
         self.shuffled_urls = self.dataset_filepaths
 
         self.start_index = 0
@@ -430,7 +431,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         """
         Returns the full Path to the single file where the dataset is stored
         """
-        return [Path(self.dataset_folder, u) for u in self.url_indices]
+        return [Path(self.dataset_folder, u) for u in self._url_indices]
 
     @property
     def url_indices(self) -> List[Path]:
@@ -481,6 +482,16 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         """
         self.start_index = start
         self.end_index = end
+
+    def subset(self, indices: List[int]):
+        r"""
+        Use this method to modify the dataset by taking a subset of samples
+
+        Args:
+            indices (List[int]): the indices to keep
+        """
+        self._url_indices = [self._url_indices[i] for i in indices]
+        self.shuffled_urls = [self.shuffled_urls[i] for i in indices]
 
     def __iter__(self):
         r"""
@@ -551,13 +562,10 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
 
     def __len__(self):
         r"""
-        Returns the number of graphs stored in the dataset.
-        Note: we need to implement both `len` and `__len__` to comply
-        with PyG interface
+        Returns the number of samples stored in the dataset.
         """
-        # It's important it stays dynamic, because
-        # self.urls depends on url_indices
-        return len(self.url_indices)
+        # It's important it stays dynamic
+        return len(self.shuffled_urls[self.start_index : self.end_index])
 
 
 class ToyIterableDataset(IterableDatasetInterface):
@@ -580,7 +588,7 @@ class ToyIterableDataset(IterableDatasetInterface):
     @property
     def url_indices(self) -> List[Path]:
         r"""
-        Specifies the ist of file names where you plan to store
+        Specifies the list of file names where you plan to store
             portions of the large dataset
         """
         return [f"fake_path_{i}" for i in range(100)]

@@ -1,19 +1,19 @@
 import math
 import random
-from typing import Union, Callable, List
+from copy import deepcopy
+from typing import Union, Callable
 
 import numpy as np
 import torch
 import torch_geometric.loader
 from torch.utils.data import Subset
-from torch_geometric.data import Data, Batch
 from torch_geometric.loader.dataloader import Collater
 
 import mlwiz.data.dataset
 from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
-from mlwiz.data.util import load_dataset
+from mlwiz.data.util import load_dataset, single_graph_collate
 
 
 def seed_worker(exp_seed, worker_id):
@@ -56,7 +56,6 @@ class DataProvider:
             Callable[...,:class:`torch_geometric.loader.DataLoader`]]):
             the class of the data loader to use
         data_loader_args (dict): the arguments of the data loader
-        dataset_name (str): the name of the dataset
         outer_folds (int): the number of outer folds for risk assessment.
             1 means hold-out, >1 means k-fold
         inner_folds (int): the number of outer folds for model selection.
@@ -69,7 +68,6 @@ class DataProvider:
         data_root: str,
         splits_filepath: str,
         dataset_class: Callable[..., mlwiz.data.dataset.DatasetInterface],
-        dataset_name: str,
         data_loader_class: Union[
             Callable[..., torch.utils.data.DataLoader],
             Callable[..., torch_geometric.loader.DataLoader],
@@ -77,12 +75,11 @@ class DataProvider:
         data_loader_args: dict,
         outer_folds: int,
         inner_folds: int,
-    ):
+    ) -> object:
         self.exp_seed = None
 
         self.data_root = data_root
         self.dataset_class = dataset_class
-        self.dataset_name = dataset_name
 
         self.data_loader_class = data_loader_class
         self.data_loader_args = data_loader_args
@@ -172,13 +169,11 @@ class DataProvider:
             # so load the dataset in memory again
             # an example is the subset of urls in Iterable style datasets
             dataset = load_dataset(
-                self.data_root, self.dataset_name, self.dataset_class, **kwargs
+                self.data_root, self.dataset_class, **kwargs
             )
         else:
             if self.dataset is None:
-                dataset = load_dataset(
-                    self.data_root, self.dataset_name, self.dataset_class
-                )
+                dataset = load_dataset(self.data_root, self.dataset_class)
                 self.dataset = dataset
             else:
                 dataset = self.dataset
@@ -397,8 +392,10 @@ class IterableDataProvider(DataProvider):
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
 
-        # we will overwrite the dataset each time the loader is called
-        dataset = self._get_dataset(**{"url_indices": indices})
+        # we can deepcopy the dataset each time the loader is called,
+        # because iterable datasets are not supposed to keep all data in memory
+        dataset = deepcopy(self._get_dataset())
+        dataset.subset(indices)
 
         if shuffle:
             dataset.shuffle_urls(True)
@@ -470,7 +467,6 @@ class SingleGraphDataProvider(DataProvider):
             Callable[...,:class:`torch_geometric.loader.DataLoader`]]):
             the class of the data loader to use
         data_loader_args (dict): the arguments of the data loader
-        dataset_name (str): the name of the dataset
         outer_folds (int): the number of outer folds for risk assessment.
             1 means hold-out, >1 means k-fold
         inner_folds (int): the number of outer folds for model selection.
@@ -517,13 +513,10 @@ class SingleGraphDataProvider(DataProvider):
         # we probably need to pass run-time specific parameters, so load the
         # dataset in memory again
         # an example is the subset of urls in Iterable style datasets
-        dataset = load_dataset(
-            self.data_root, self.dataset_name, self.dataset_class, **kwargs
-        )
+        dataset = load_dataset(self.data_root, self.dataset_class, **kwargs)
 
         self.dim_input_features = dataset.dim_input_features
         self.dim_target = dataset.dim_target
-
         return dataset
 
     def _get_loader(
@@ -573,11 +566,19 @@ class SingleGraphDataProvider(DataProvider):
         if shuffle is True:
             sampler = RandomSampler(dataset)
             dataloader = self.data_loader_class(
-                dataset, sampler=sampler, batch_size=batch_size, **kwargs
+                dataset,
+                sampler=sampler,
+                batch_size=batch_size,
+                collate_fn=single_graph_collate,
+                **kwargs,
             )
         else:
             dataloader = self.data_loader_class(
-                dataset, shuffle=False, batch_size=batch_size, **kwargs
+                dataset,
+                shuffle=False,
+                batch_size=batch_size,
+                collate_fn=single_graph_collate,
+                **kwargs,
             )
 
         return dataloader

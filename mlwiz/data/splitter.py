@@ -3,7 +3,6 @@ from typing import Tuple
 
 import numpy as np
 import torch
-
 from sklearn.model_selection import (
     StratifiedKFold,
     StratifiedShuffleSplit,
@@ -186,7 +185,7 @@ class Splitter:
                 return False, None
 
             if not isinstance(y, torch.Tensor):
-                y = torch.tensor(np.ndarray(y))
+                y = torch.Tensor([y])
 
             targets.append(y)
 

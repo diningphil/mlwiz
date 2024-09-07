@@ -1,5 +1,5 @@
-from copy import deepcopy
 import operator
+from copy import deepcopy
 from pathlib import Path
 
 from mlwiz.static import *

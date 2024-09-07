@@ -1,13 +1,19 @@
+# Telegram Bot
+# telegram_config_file: telegram_config.yml
+
+
 # Dataset and Splits
 data_root: DATA
 dataset_class: mlwiz.data.dataset.NCI1
-data_splits_file:  data/tmp/DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
+data_splits_file:  examples/DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
+
 
 # Hardware
 device:  cpu
-max_cpus:  4
-max_gpus: 0
+max_cpus:  8
+max_gpus: 1
 gpus_per_task:  1
+# gpus_subset: 0,1,2,3,4,5,6,7,8
 
 
 # Data Loading
@@ -24,28 +30,27 @@ seed: 42
 
 
 # Experiment
-result_folder: TEST
-exp_name: TEST_GRID
-experiment: mlwiz.experiment.supervised_task.SupervisedTask
+result_folder: RESULTS
+exp_name: dgn
+experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
-risk_assessment_training_runs: 1
+risk_assessment_training_runs: 3
 
 
 grid:
-  model: mlwiz.model.graph.toy_dgn.ToyDGN
+  model: mlwiz.model.DGN
   checkpoint: True
   shuffle: True
-  batch_size: 32
-  epochs: 3
+  batch_size: 512
+  epochs: 2
 
   # Model specific arguments #
 
   dim_embedding: 5
-  num_layers:
-    - 3
-    - 5
-  aggregation: mean
+  num_layers: 2
+  is_graph_classification: True
+  is_single_graph: False
 
   # ------------------------ #
 
@@ -56,38 +61,26 @@ grid:
         optimizer_class_name: torch.optim.Adam
         lr:
           - 0.01
-          - 0.001
-        weight_decay: 0.
-    - class_name: mlwiz.training.callback.optimizer.Optimizer
-      args:
-        optimizer_class_name: torch.optim.Adagrad
-        lr:
-          - 0.01
         weight_decay: 0.
 
   # Scheduler (optional)
   scheduler: null
 
   # Loss metric (with an example of Additive Loss)
-  loss:
-    - class_name: mlwiz.training.callback.metric.AdditiveLoss
-      args:
-        loss_1: mlwiz.training.callback.metric.MulticlassClassification
-        loss_2: mlwiz.training.callback.metric.MulticlassClassification
-
+  loss: mlwiz.training.callback.metric.MulticlassClassification
 
   # Score metric (with an example of Multi Score)
   scorer:
     - class_name: mlwiz.training.callback.metric.MultiScore
       args:
         main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-        my_second_metric: mlwiz.training.callback.metric.ToyMetric
-
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
 
   # Training engine
-  engine: mlwiz.training.engine.TrainingEngine
+  engine:
+    - class_name: mlwiz.training.engine.TrainingEngine
+      args:
+        eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
+          - False  # default behavior, saves some compute time as we are generally interested in validation scores
 
   # Gradient clipper (optional)
   gradient_clipper: null
@@ -105,4 +98,7 @@ grid:
         checkpoint: True  # store the best checkpoint
 
   # Plotter of metrics
-  plotter: mlwiz.training.callback.plotter.Plotter
+  plotter:
+    - class_name: mlwiz.training.callback.plotter.Plotter
+      args:
+        store_on_disk: True

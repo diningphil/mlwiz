@@ -37,14 +37,6 @@ data.splitter
    :undoc-members:
    :show-inheritance:
 
-data.transform
----------------------------
-
-.. automodule:: mlwiz.data.transform
-   :members:
-   :private-members:
-   :undoc-members:
-   :show-inheritance:
 
 data.util
 ----------------------

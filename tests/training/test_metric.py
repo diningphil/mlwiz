@@ -15,6 +15,7 @@ class FakeMetric(Metric):
         accumulate_over_epoch: bool = True,
         force_cpu: bool = True,
         device: str = "cpu",
+        **kwargs: dict,
     ):
         super().__init__(
             use_as_loss=use_as_loss,
@@ -22,6 +23,7 @@ class FakeMetric(Metric):
             accumulate_over_epoch=accumulate_over_epoch,
             force_cpu=force_cpu,
             device=device,
+            **kwargs,
         )
         self.called = 0
         self.num_nodes = 20

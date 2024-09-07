@@ -1,8 +1,7 @@
 # Dataset and Splits
 data_root: DATA
-dataset_class: mlwiz.data.dataset.TUDatasetInterface
-dataset_name:  PROTEINS
-data_splits_file:  examples/DATA_SPLITS/CHEMICAL/PROTEINS/PROTEINS_outer10_inner1.splits
+dataset_class: mlwiz.data.dataset.NCI1
+data_splits_file:  data/tmp/DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
 
 
 # Hardware
@@ -36,63 +35,62 @@ risk_assessment_training_runs: 1
 
 num_samples: 10  # number of random searches to try
 random:
-  supervised_config:
-    model: mlwiz.model.graph.toy_dgn.ToyDGN
-    checkpoint: True
-    shuffle: True
-    batch_size:
-      sample_method: mlwiz.evaluation.util.choice
-      args:
-        - 32
-        - 64
-    epochs: 10
+  model: mlwiz.model.graph.toy_dgn.ToyDGN
+  checkpoint: True
+  shuffle: True
+  batch_size:
+    sample_method: mlwiz.evaluation.util.choice
+    args:
+      - 32
+      - 64
+  epochs: 10
 
-    # Model specific arguments #
+  # Model specific arguments #
 
-    dim_embedding: 5
-    num_layers:
-      sample_method: mlwiz.evaluation.util.randint
-      args:
-        - 1  # min
-        - 5  # max
-    aggregation: mean
+  dim_embedding: 5
+  num_layers:
+    sample_method: mlwiz.evaluation.util.randint
+    args:
+      - 1  # min
+      - 5  # max
+  aggregation: mean
 
-    # ------------------------ #
+  # ------------------------ #
 
-    # Optimizer
-    optimizer:
-      sample_method: mlwiz.evaluation.util.choice
-      args:
-        - class_name: mlwiz.training.callback.optimizer.Optimizer
-          args:
-            optimizer_class_name: torch.optim.Adam
-            lr:
-              sample_method: mlwiz.evaluation.util.normal
-              # sample from normal distribution each time
-              args:
-                - 0.001  # mu
-                - 0.0001  # sigma
+  # Optimizer
+  optimizer:
+    sample_method: mlwiz.evaluation.util.choice
+    args:
+      - class_name: mlwiz.training.callback.optimizer.Optimizer
+        args:
+          optimizer_class_name: torch.optim.Adam
+          lr:
+            sample_method: mlwiz.evaluation.util.normal
+            # sample from normal distribution each time
+            args:
+              - 0.001  # mu
+              - 0.0001  # sigma
 
-    # Scheduler (optional)
-    scheduler: null
+  # Scheduler (optional)
+  scheduler: null
 
-    # Loss metric
-    loss: mlwiz.training.callback.metric.MulticlassClassification
+  # Loss metric
+  loss: mlwiz.training.callback.metric.MulticlassClassification
 
-    # Score metric
-    scorer: mlwiz.training.callback.metric.MulticlassAccuracy
+  # Score metric
+  scorer: mlwiz.training.callback.metric.MulticlassAccuracy
 
-    # Readout (optional)
-    readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
+  # Readout (optional)
+  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
 
-    # Training engine
-    engine: mlwiz.training.engine.TrainingEngine
+  # Training engine
+  engine: mlwiz.training.engine.TrainingEngine
 
-    # Gradient clipper (optional)
-    gradient_clipper: null
+  # Gradient clipper (optional)
+  gradient_clipper: null
 
-    # Early stopper (optional, with an example of "patience" early stopping on the validation score)
-    early_stopper: null
+  # Early stopper (optional, with an example of "patience" early stopping on the validation score)
+  early_stopper: null
 
-    # Plotter of metrics
-    plotter: null
+  # Plotter of metrics
+  plotter: null

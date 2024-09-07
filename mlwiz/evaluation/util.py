@@ -7,9 +7,9 @@ from typing import Tuple, Callable, List
 
 import torch
 import tqdm
-from mlwiz.data.provider import DataProvider
 
 from mlwiz.data.dataset import DatasetInterface
+from mlwiz.data.provider import DataProvider
 from mlwiz.experiment.util import s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
