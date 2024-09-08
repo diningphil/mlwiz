@@ -62,6 +62,7 @@ def test_evaluator():
         splits_filepath,
         search,
         10,
+        2,
         True,
         0,
         base_seed=42,

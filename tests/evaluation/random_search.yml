@@ -1,7 +1,7 @@
 # Dataset and Splits
 data_root: DATA
-dataset_class: mlwiz.data.dataset.NCI1
-data_splits_file:  data/tmp/DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
+dataset_class: mlwiz.data.dataset.MNIST
+data_splits_file:  TEST
 
 
 # Hardware
