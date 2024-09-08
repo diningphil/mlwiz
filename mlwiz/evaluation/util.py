@@ -449,6 +449,7 @@ def retrieve_best_configuration(model_selection_folder) -> dict:
 def instantiate_dataset_from_config(config: dict) -> DatasetInterface:
     """
     Instantiate a dataset from a configuration file.
+
     :param config (dict): the configuration file
     :return: an instance of DatasetInterface, i.e., the dataset
     """

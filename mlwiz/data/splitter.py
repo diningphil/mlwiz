@@ -243,7 +243,7 @@ class Splitter:
         Args:
             n_splits (int): the number of different splits to create
             stratified (bool): whether to perform stratification.
-                **Works with graph classification tasks only!**
+                **Works with classification tasks only!**
             eval_ratio (float): the amount of evaluation (validation/test)
                 data to use in case ``n_splits==1`` (i.e., hold-out data split)
 

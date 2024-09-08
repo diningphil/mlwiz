@@ -214,6 +214,9 @@ def evaluation(options: argparse.Namespace):
         risk_assessment_training_runs=configs_dict[
             RISK_ASSESSMENT_TRAINING_RUNS
         ],
+        model_selection_training_runs=configs_dict[
+            MODEL_SELECTION_TRAINING_RUNS
+        ],
         higher_is_better=search.higher_results_are_better,
         gpus_per_task=gpus_per_task,
         base_seed=seed,

@@ -32,6 +32,8 @@ experiment:  # dotted path to experiment class
 higher_results_are_better:  # model selection: should we select based on max (True) or min (False) main score?
 evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
 risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
+model_selection_training_runs:  # how many (model selection) training runs to perform to mitigate bad initializations
+
 
 # Grid Search
 # if only 1 configuration is selected, any inner model selection will be skipped

@@ -43,7 +43,7 @@ class MLP(ModelInterface):
             data (torch.Tensor): a batched tensor
 
         Returns:
-            a tuple (output, node_embedddings)
+            a tuple (output, embedddings)
         """
         # for testing
         if data.shape[1] == 1:

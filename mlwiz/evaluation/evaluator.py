@@ -56,11 +56,12 @@ def run_valid(
     dataset_getter: Callable[..., DataProvider],
     config: dict,
     config_id: int,
+    run_id: int,
     fold_exp_folder: str,
     fold_results_torch_path: str,
     exp_seed: int,
     logger: Logger,
-) -> Tuple[int, int, int, float]:
+) -> Tuple[int, int, int, int, float]:
     r"""
     Ray job that performs a model selection run and returns bookkeeping
     information for the progress manager.
@@ -74,6 +75,7 @@ def run_valid(
             the class of the data provider to instantiate
         config (dict): the configuration of this specific experiment
         config_id (int): the id of the configuration (for bookkeeping reasons)
+        run_id (int): the id of the training run (for bookkeeping reasons)
         fold_exp_folder (str): path of the experiment root folder
         fold_results_torch_path (str): path where to store the
             results of the experiment
@@ -82,7 +84,8 @@ def run_valid(
             information in the appropriate file
 
     Returns:
-        a tuple with outer fold id, inner fold id, config id, and time elapsed
+        a tuple with outer fold id, inner fold id, config id, run id,
+            and time elapsed
     """
     if not osp.exists(fold_results_torch_path):
         start = time.time()
@@ -100,7 +103,13 @@ def run_valid(
             elapsed = -1
     else:
         _, _, elapsed = torch.load(fold_results_torch_path)
-    return dataset_getter.outer_k, dataset_getter.inner_k, config_id, elapsed
+    return (
+        dataset_getter.outer_k,
+        dataset_getter.inner_k,
+        config_id,
+        run_id,
+        elapsed,
+    )
 
 
 @ray.remote(
@@ -115,7 +124,7 @@ def run_test(
     dataset_getter: Callable[..., DataProvider],
     best_config: dict,
     outer_k: int,
-    i: int,
+    run_id: int,
     final_run_exp_path: str,
     final_run_torch_path: str,
     exp_seed: int,
@@ -134,7 +143,7 @@ def run_test(
             the class of the data provider to instantiate
         best_config (dict): the best configuration to use for this
             specific outer fold
-        i (int): the id of the final run (for bookkeeping reasons)
+        run_id (int): the id of the final run (for bookkeeping reasons)
         final_run_exp_path (str): path of the experiment root folder
         final_run_torch_path (str): path where to store the results
             of the experiment
@@ -164,7 +173,7 @@ def run_test(
     else:
         res = torch.load(final_run_torch_path)
         elapsed = res[-1]
-    return outer_k, i, elapsed
+    return outer_k, run_id, elapsed
 
 
 class RiskAssesser:
@@ -190,9 +199,11 @@ class RiskAssesser:
             :class:`~mlwiz.evaluation.random_search.RandomSearch`]):
             an object storing all possible model configurations,
             e.g., config.base.Grid
-        risk_assessment_training_runs (int): no of final training runs to mitigate
-            bad initializations
-        higher_is_better (bool): whether or not the best model
+        risk_assessment_training_runs (int): no of final training runs to
+            mitigate bad initializations
+        risk_assessment_training_runs (int): no of training runs to mitigate
+            bad initializations at model selection time
+        higher_is_better (bool): whether the best model
             for each external fold should be selected by higher
             or lower score values
         gpus_per_task (float): Number of gpus to assign to each
@@ -210,6 +221,7 @@ class RiskAssesser:
         splits_filepath: str,
         model_configs: Union[Grid, RandomSearch],
         risk_assessment_training_runs: int,
+        model_selection_training_runs: int,
         higher_is_better: bool,
         gpus_per_task: float,
         base_seed: int = 42,
@@ -230,6 +242,7 @@ class RiskAssesser:
         # Iterator producing the list of all possible configs
         self.model_configs = model_configs
         self.risk_assessment_training_runs = risk_assessment_training_runs
+        self.model_selection_training_runs = model_selection_training_runs
         self.higher_is_better = higher_is_better
         if higher_is_better:
             self.operator = operator.gt
@@ -300,7 +313,10 @@ class RiskAssesser:
             self.model_selection_seeds = [
                 [
                     [
-                        random.randrange(2**32 - 1)
+                        [
+                            random.randrange(2**32 - 1)
+                            for _ in range(self.model_selection_training_runs)
+                        ]
                         for _ in range(self.inner_folds)
                     ]
                     for _ in range(len(self.model_configs))
@@ -356,7 +372,11 @@ class RiskAssesser:
         waiting = [el for el in self.outer_folds_job_list]
 
         # Number of jobs to run for each OUTER fold
-        n_inner_runs = self.inner_folds * no_model_configs
+        n_inner_runs = (
+            self.inner_folds
+            * no_model_configs
+            * self.model_selection_training_runs
+        )
 
         # Counters to keep track of what has completed
 
@@ -365,6 +385,14 @@ class RiskAssesser:
         # keeps track of the jobs completed for each inner fold
         inner_completed = [
             [0 for _ in range(no_model_configs)]
+            for _ in range(self.outer_folds)
+        ]
+        # keeps track of the model selection runs completed for each inner fold
+        inner_runs_completed = [
+            [
+                [0 for _ in range(self.inner_folds)]
+                for _ in range(no_model_configs)
+            ]
             for _ in range(self.outer_folds)
         ]
 
@@ -390,15 +418,8 @@ class RiskAssesser:
                 is_model_selection_run = future in self.outer_folds_job_list
 
                 if is_model_selection_run:  # Model selection
-                    outer_k, inner_k, config_id, elapsed = ray.get(future)
-                    self.progress_manager.update_state(
-                        dict(
-                            type=END_CONFIG,
-                            outer_fold=outer_k,
-                            inner_fold=inner_k,
-                            config_id=config_id,
-                            elapsed=elapsed,
-                        )
+                    outer_k, inner_k, config_id, run_id, elapsed = ray.get(
+                        future
                     )
 
                     ms_exp_path = osp.join(
@@ -410,9 +431,38 @@ class RiskAssesser:
                         ms_exp_path, self._CONFIG_BASE + str(config_id + 1)
                     )
 
-                    # if all inner folds completed, process that configuration
+                    fold_exp_folder = osp.join(
+                        config_folder, self._INNER_FOLD_BASE + str(inner_k + 1)
+                    )
+
+                    # if all runs for a certain config and inner fold are
+                    # completed, then update the progress manager
+                    inner_runs_completed[outer_k][config_id][inner_k] += 1
+                    if (
+                        inner_runs_completed[outer_k][config_id][inner_k]
+                        == self.model_selection_training_runs
+                    ):
+                        self.progress_manager.update_state(
+                            dict(
+                                type=END_CONFIG,
+                                outer_fold=outer_k,
+                                inner_fold=inner_k,
+                                config_id=config_id,
+                                elapsed=elapsed,
+                            )
+                        )
+                        self.process_model_selection_runs(
+                            fold_exp_folder, inner_k
+                        )
+
+                    # if all inner folds completed (including their runs),
+                    # process that configuration and compute its average scores
                     inner_completed[outer_k][config_id] += 1
-                    if inner_completed[outer_k][config_id] == self.inner_folds:
+                    if (
+                        inner_completed[outer_k][config_id]
+                        == self.inner_folds
+                        * self.model_selection_training_runs
+                    ):
                         self.process_config(
                             config_folder,
                             deepcopy(self.model_configs[config_id]),
@@ -508,65 +558,84 @@ class RiskAssesser:
                         fold_exp_folder, f"fold_{str(k + 1)}_results.torch"
                     )
 
-                    # Use pre-computed random seed for the experiment
-                    exp_seed = self.model_selection_seeds[outer_k][config_id][
-                        k
-                    ]
-                    dataset_getter.set_exp_seed(exp_seed)
-
                     # Tell the data provider to take data relative
                     # to a specific INNER split
                     dataset_getter.set_inner_k(k)
 
-                    logger = Logger(
-                        osp.join(fold_exp_folder, "experiment.log"),
-                        mode="a",
-                        debug=debug,
-                    )
-                    logger.log(
-                        json.dumps(
-                            dict(
-                                outer_k=dataset_getter.outer_k,
-                                inner_k=dataset_getter.inner_k,
-                                exp_seed=exp_seed,
-                                **config,
-                            ),
-                            sort_keys=False,
-                            indent=4,
+                    for run_id in range(self.model_selection_training_runs):
+                        fold_run_exp_folder = osp.join(
+                            fold_exp_folder, f"run_{run_id+1}"
                         )
-                    )
-                    if not debug:
-                        # Launch the job and append to list of outer jobs
-                        future = run_valid.remote(
-                            self.experiment_class,
-                            dataset_getter,
-                            config,
-                            config_id,
-                            fold_exp_folder,
-                            fold_results_torch_path,
-                            exp_seed,
-                            logger,
+                        fold_run_results_torch_path = osp.join(
+                            fold_run_exp_folder,
+                            f"run_{run_id+1}_results.torch",
                         )
-                        self.outer_folds_job_list.append(future)
-                    else:  # debug mode
-                        if not osp.exists(fold_results_torch_path):
-                            start = time.time()
-                            experiment = self.experiment_class(
-                                config, fold_exp_folder, exp_seed
-                            )
-                            (
-                                training_score,
-                                validation_score,
-                            ) = experiment.run_valid(dataset_getter, logger)
-                            elapsed = time.time() - start
-                            torch.save(
-                                (training_score, validation_score, elapsed),
-                                fold_results_torch_path,
-                            )
-                        # else:
-                        #     res = torch.load(fold_results_torch_path)
-                        #     elapsed = res[-1]
 
+                        # Use pre-computed random seed for the experiment
+                        exp_seed = self.model_selection_seeds[outer_k][
+                            config_id
+                        ][k][run_id]
+                        dataset_getter.set_exp_seed(exp_seed)
+
+                        logger = Logger(
+                            osp.join(fold_run_exp_folder, "experiment.log"),
+                            mode="a",
+                            debug=debug,
+                        )
+                        logger.log(
+                            json.dumps(
+                                dict(
+                                    outer_k=dataset_getter.outer_k,
+                                    inner_k=dataset_getter.inner_k,
+                                    run_id=run_id,
+                                    exp_seed=exp_seed,
+                                    **config,
+                                ),
+                                sort_keys=False,
+                                indent=4,
+                            )
+                        )
+                        if not debug:
+                            # Launch the job and append to list of outer jobs
+                            future = run_valid.remote(
+                                self.experiment_class,
+                                dataset_getter,
+                                config,
+                                config_id,
+                                run_id,
+                                fold_run_exp_folder,
+                                fold_run_results_torch_path,
+                                exp_seed,
+                                logger,
+                            )
+                            self.outer_folds_job_list.append(future)
+                        else:  # debug mode
+                            if not osp.exists(fold_run_results_torch_path):
+                                start = time.time()
+                                experiment = self.experiment_class(
+                                    config, fold_run_exp_folder, exp_seed
+                                )
+                                (
+                                    training_score,
+                                    validation_score,
+                                ) = experiment.run_valid(
+                                    dataset_getter, logger
+                                )
+                                elapsed = time.time() - start
+                                torch.save(
+                                    (
+                                        training_score,
+                                        validation_score,
+                                        elapsed,
+                                    ),
+                                    fold_run_results_torch_path,
+                                )
+                            # else:
+                            #     res = torch.load(fold_results_torch_path)
+                            #     elapsed = res[-1]
+
+                    if debug:
+                        self.process_model_selection_runs(fold_exp_folder, k)
                 if debug:
                     self.process_config(config_folder, deepcopy(config))
             if debug:
@@ -684,6 +753,112 @@ class RiskAssesser:
                 #     elapsed = res[-1]
         if debug:
             self.process_final_runs(outer_k)
+
+    def process_model_selection_runs(self, fold_exp_folder: str, inner_k: int):
+        r"""
+        Computes the average performances for the training runs about
+            a specific configuration and a specific inner_fold split
+
+        Args:
+            fold_exp_folder (str):
+            inner_k (int): the inner fold id
+        """
+        fold_results_filename = osp.join(
+            fold_exp_folder, f"fold_{str(inner_k + 1)}_results.torch"
+        )
+        fold_info_filename = osp.join(
+            fold_exp_folder, f"fold_{str(inner_k + 1)}_results.info"
+        )
+        run_dict = [{} for _ in range(self.model_selection_training_runs)]
+        results_dict = {}
+
+        assert not self.model_selection_training_runs <= 0
+        for run_id in range(self.model_selection_training_runs):
+            fold_run_exp_folder = osp.join(
+                fold_exp_folder, f"run_{run_id + 1}"
+            )
+            fold_run_results_torch_path = osp.join(
+                fold_run_exp_folder, f"run_{run_id + 1}_results.torch"
+            )
+
+            training_res, validation_res, _ = torch.load(
+                fold_run_results_torch_path
+            )
+
+            training_loss, validation_loss = (
+                training_res[LOSS],
+                validation_res[LOSS],
+            )
+            training_score, validation_score = (
+                training_res[SCORE],
+                validation_res[SCORE],
+            )
+
+            for res_type, mode, res, main_res_type in [
+                (LOSS, TRAINING, training_loss, MAIN_LOSS),
+                (LOSS, VALIDATION, validation_loss, MAIN_LOSS),
+                (SCORE, TRAINING, training_score, MAIN_SCORE),
+                (SCORE, VALIDATION, validation_score, MAIN_SCORE),
+            ]:
+                for key in res.keys():
+                    if main_res_type in key:
+                        continue
+                    run_dict[run_id][f"{mode}_{key}_{res_type}"] = float(
+                        res[key]
+                    )
+
+            # Rename main loss key for aesthetic
+            run_dict[run_id][TR_LOSS] = float(training_loss[MAIN_LOSS])
+            run_dict[run_id][VL_LOSS] = float(validation_loss[MAIN_LOSS])
+            run_dict[run_id][TR_SCORE] = float(training_score[MAIN_SCORE])
+            run_dict[run_id][VL_SCORE] = float(validation_score[MAIN_SCORE])
+            del training_loss[MAIN_LOSS]
+            del validation_loss[MAIN_LOSS]
+            del training_score[MAIN_SCORE]
+            del validation_score[MAIN_SCORE]
+
+        # Note that training/validation loss/score will be used only to extract
+        # the proper keys
+        for key_dict, set_type, res_type in [
+            (training_loss, TRAINING, LOSS),
+            (validation_loss, VALIDATION, LOSS),
+            (training_score, TRAINING, SCORE),
+            (validation_score, VALIDATION, SCORE),
+        ]:
+            for key in list(key_dict.keys()) + [res_type]:
+                suffix = f"_{res_type}" if key != res_type else ""
+                set_res = np.array(
+                    [
+                        run_dict[i][f"{set_type}_{key}{suffix}"]
+                        for i in range(self.model_selection_training_runs)
+                    ]
+                )
+                results_dict[f"{set_type}_{key}{suffix}"] = float(
+                    set_res.mean()
+                )
+                results_dict[f"{STD}_{set_type}_{key}{suffix}"] = float(
+                    set_res.std()
+                )
+
+        results_dict.update({MODEL_SELECTION_TRAINING_RUNS: run_dict})
+
+        with open(fold_info_filename, "w") as fp:
+            json.dump(results_dict, fp, sort_keys=False, indent=4)
+
+        torch.save(
+            (
+                {
+                    LOSS: {MAIN_LOSS: results_dict[f"{TRAINING}_{LOSS}"]},
+                    SCORE: {MAIN_SCORE: results_dict[f"{TRAINING}_{SCORE}"]},
+                },
+                {
+                    LOSS: {MAIN_LOSS: results_dict[f"{VALIDATION}_{LOSS}"]},
+                    SCORE: {MAIN_SCORE: results_dict[f"{VALIDATION}_{SCORE}"]},
+                },
+                None,
+            ),
+            fold_results_filename,
+        )
 
     def process_config(self, config_folder: str, config: Config):
         r"""

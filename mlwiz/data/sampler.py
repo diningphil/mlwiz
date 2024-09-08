@@ -8,7 +8,7 @@ class RandomSampler(sampler.RandomSampler):
     """
     This sampler wraps the dataset and saves the random permutation applied
     to the samples, so that it will be available
-    for further use (e.g. for saving graph embeddings in the original order).
+    for further use (e.g. for saving embeddings in the original samples order).
     The permutation is saved in the 'permutation' attribute.
 
     Args:
