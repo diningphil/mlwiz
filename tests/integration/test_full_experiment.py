@@ -42,7 +42,7 @@ def test_experiments():
     for config_file in config_files:
         config = {}
         config[CONFIG_FILE] = config_file
-        config[DEBUG] = False
+        config[DEBUG] = True
         config = MockConfig(config)
         evaluation(config)
 

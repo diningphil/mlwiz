@@ -611,7 +611,7 @@ class ToyIterableDataset(IterableDatasetInterface):
     def process_dataset(self, pre_transform: Optional[Callable]):
         r"""
         Creates a fake dataset and stores it to the :obj:`self.processed_dir`
-        folder. Each file will contain a list of 10 fake graphs.
+        folder. Each file will contain a list of 10 fake samples.
         """
         for i in range(len(self)):
             fake_samples = []

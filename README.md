@@ -10,7 +10,6 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Interrogate](https://github.com/diningphil/MLWiz/blob/main/.badges/interrogate_badge.svg)](https://interrogate.readthedocs.io/en/latest/)
 [![Coverage](https://github.com/diningphil/MLWiz/blob/main/.badges/coverage_badge.svg)]()
-[![DOI](https://joss.theoj.org/papers/10.21105/joss.05713/status.svg)](https://doi.org/10.21105/joss.05713)
 
 ## [Documentation](https://mlwiz.readthedocs.io/en/latest/index.html)
 

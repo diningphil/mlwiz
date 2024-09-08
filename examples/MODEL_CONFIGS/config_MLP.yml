@@ -36,7 +36,7 @@ experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
 risk_assessment_training_runs: 3
-
+model_selection_training_runs: 2
 
 grid:
   model: mlwiz.model.MLP

@@ -1,7 +1,7 @@
 # Dataset and Splits
 data_root: DATA
-dataset_class: mlwiz.data.dataset.NCI1
-data_splits_file:  data/tmp/DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
+dataset_class: mlwiz.data.dataset.MNIST
+data_splits_file:  TEST
 
 # Hardware
 device:  cpu
@@ -26,14 +26,14 @@ seed: 42
 # Experiment
 result_folder: TEST
 exp_name: TEST_GRID
-experiment: mlwiz.experiment.supervised_task.SupervisedTask
+experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
 risk_assessment_training_runs: 1
 
 
 grid:
-  model: mlwiz.model.graph.toy_dgn.ToyDGN
+  model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
   batch_size: 32

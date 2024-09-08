@@ -23,15 +23,8 @@ class State:
         self.scheduler = None
         self.scheduler_state = None
         self.stop_training = False
-        self.return_node_embeddings = False
+        self.return_embeddings_embeddings = False
         self.set = None
-
-        # For dynamic graph learning
-        self.time_step = None  # used to keep track of the time step
-        # used to store the hidden state to be fed to the model at the next
-        # time step
-        self.last_hidden_state = None
-        self.num_timesteps_per_batch = None
 
     def __getitem__(self, name):
         """
