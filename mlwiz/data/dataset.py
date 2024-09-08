@@ -606,19 +606,19 @@ class ToyIterableDataset(IterableDatasetInterface):
         r"""
         Specifies the dimension of each target vector.
         """
-        return 1
+        return 2
 
     def process_dataset(self, pre_transform: Optional[Callable]):
         r"""
         Creates a fake dataset and stores it to the :obj:`self.processed_dir`
-        folder. Each file will contain a list of 10 fake samples.
+        folder. Each file will contain a list of 20 fake samples.
         """
         for i in range(len(self)):
             fake_samples = []
             for s in range(100):
                 fake_sample = (
                     torch.zeros(20, self.dim_input_features),
-                    torch.zeros(1, 1),
+                    torch.zeros(20, 2),
                 )
 
                 if pre_transform is not None:
