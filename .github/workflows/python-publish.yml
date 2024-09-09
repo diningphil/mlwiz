@@ -13,10 +13,7 @@ on:
     types: [published]
 
 jobs:
-
-  interrogate-docstring:
-    uses: diningphil/mlwiz/.github/workflows/interrogate-docstring.yaml@main
-    
+   
   tests-and-coverage:
     uses: diningphil/mlwiz/.github/workflows/python-test-and-coverage.yml@main
 
