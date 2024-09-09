@@ -52,14 +52,11 @@ jobs:
 
     - name: Interrogate badge
       if: github.event_name == 'release'
-      uses: JackMcKew/python-interrogate-check@main
-      with:
-        path: 'mlwiz'
-        badge-location: '.badges/interrogate_badge.svg'
-        ignore-module: True
+      run: |
+        interrogate -i -M --generate-badge .badges mlwiz
 
     - name: Commit files
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && success()
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
@@ -67,7 +64,7 @@ jobs:
         git diff --exit-code || git commit -m "Update coverage_badge.svg and interrogate_badge.svg" -a
 
     - name: Push changes
-      if: github.event_name == 'release'
+      if: github.event_name == 'release' && success()
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
