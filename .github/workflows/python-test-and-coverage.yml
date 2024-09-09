@@ -4,8 +4,6 @@
 name: Test Python versions
 
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
   workflow_call:
@@ -43,7 +41,7 @@ jobs:
     - name: Pytest and Coverage badge
       if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'
       run: |
-        coverage run -m pytest tests/
+        coverage run --source=mlwiz -m pytest tests/
         coverage report -m
         coverage-badge -o .badges/coverage_badge.svg -f
 

@@ -39,7 +39,7 @@ def test_experiments():
         "tests/integration/MODEL_CONFIGS/config_DGN_SingleGraph.yml",
         "tests/integration/MODEL_CONFIGS/config_MLP_IterableDataset.yml",
     ]
-    for config_file in config_files:
+    for i, config_file in enumerate(config_files):
         config = {}
         config[CONFIG_FILE] = config_file
         config[DEBUG] = True

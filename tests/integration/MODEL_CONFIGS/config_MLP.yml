@@ -10,8 +10,8 @@ data_splits_file:  tests/tmp/DATA_SPLITS/FakeMNIST/FakeMNIST_outer3_inner2.split
 
 # Hardware
 device:  cpu
-max_cpus:  8
-max_gpus: 1
+max_cpus:  2
+max_gpus: 0
 gpus_per_task:  1
 # gpus_subset: 0,1,2,3,4,5,6,7,8
 
