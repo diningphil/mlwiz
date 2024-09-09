@@ -40,7 +40,7 @@ jobs:
         git diff --exit-code || git commit -m "Update interrogate_badge.svg" -a
 
     - name: Push changes
-      if: github.event_name == 'push' && success()
+      if: success()
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
