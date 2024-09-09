@@ -13,7 +13,7 @@ the following, with an explanation of each field as a comment:
 .. code-block:: yaml
 
     splitter:
-      root:  # folder where to store the splits
+      splits_folder:  # folder where to store the splits
       class_name:  # dotted path to splitter class
       args:
         n_outer_folds:  # number of outer folds for risk assessment
@@ -55,7 +55,7 @@ Here's an snippet of a potential configuration file that splits a classification
 .. code-block:: yaml
 
     splitter:
-      root: examples/DATA_SPLITS/
+      splits_folder: examples/DATA_SPLITS/
       class_name: mlwiz.data.splitter.Splitter
       args:
         n_outer_folds: 3
@@ -77,7 +77,6 @@ Here's an snippet of a potential configuration file that downloads and processes
 .. code-block:: yaml
 
     dataset:
-      root: DATA/
       class_name: mlwiz.data.dataset.MNIST
       args:
         storage_folder: DATA/
