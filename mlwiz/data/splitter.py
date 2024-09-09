@@ -479,7 +479,7 @@ class SingleGraphSplitter(Splitter):
         graph taken into consideration.
 
         Args:
-            dataset (:class:`~pydgn.data.dataset.DatasetInterface`):
+            dataset (:class:`~mlwiz.data.dataset.DatasetInterface`):
                 the Dataset object
             targets (np.ndarray]): targets used for stratification.
                 Default is ``None``
