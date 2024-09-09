@@ -47,8 +47,12 @@ jobs:
         coverage-badge -o .badges/coverage_badge.svg -f
 
     - name: Interrogate badge
-      run: |
-        interrogate -i -M --generate-badge .badges
+      uses: JackMcKew/python-interrogate-check@main
+      with:
+        path: 'mlwiz'
+        badge-location: '.badges/interrogate_badge.svg'
+        ignore-module: True
+        inputs: -i
 
     - name: Commit files
       if: github.event_name == 'push'
