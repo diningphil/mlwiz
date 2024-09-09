@@ -44,7 +44,7 @@ jobs:
       run: |
         coverage run -m pytest tests/
         coverage report -m
-        coverage-badge -o -f .badges/coverage_badge.svg
+        coverage-badge -o .badges/coverage_badge.svg -f
 
     - name: Interrogate badge
       run: |
