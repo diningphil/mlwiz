@@ -25,7 +25,6 @@ the following, with an explanation of each field as a comment:
         outer_val_ratio:  # percentage of validation data to extract for risk assessment final runs
         test_ratio:  # percentage of test to extract for hold-out risk assessment. this will be ignored when the number of outer folds is > than 1
     dataset:
-      root:  # path to data root folder
       class_name:  # dotted path to dataset class
       args:  # arguments to pass to the dataset class
         arg_name1:
