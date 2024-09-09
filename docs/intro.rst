@@ -19,7 +19,7 @@ To run an experiment, you usually rely on 2 **YAML configuration files**:
 Installation:
 *******************
 
-Automated tests passing on Windows, Linux, and MacOS.
+Automated tests passing on Linux and Windows.
 
 The recommended way to install the library is to follow the steps to install ``torch`` and ``torch_geometric`` prior to installing MLWiz.
 
