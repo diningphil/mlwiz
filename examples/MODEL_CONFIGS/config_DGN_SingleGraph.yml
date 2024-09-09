@@ -5,7 +5,7 @@
 # Dataset and Splits
 data_root: DATA
 dataset_class: mlwiz.data.dataset.Cora
-data_splits_file:  examples/DATA_SPLITS/Cora/Cora_outer3_inner2.splits
+data_splits_file:  DATA_SPLITS/Cora/Cora_outer3_inner2.splits
 
 
 # Hardware

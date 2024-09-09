@@ -4,25 +4,26 @@ import pytest
 import torch
 import torch_geometric
 
-from mlwiz.data.dataset import Cora, NCI1, MNIST, MNISTTemporal
 from mlwiz.data.splitter import (
     Splitter,
     SingleGraphSplitter,
 )
+from tests.integration.fake_dataset import FakeMNIST, FakeMNISTTemporal, \
+    FakeNCI1, FakeCora
 
 
 @pytest.fixture
 def datasets():
     return [
-        (MNIST("tests/tmp/DATA"), torch.utils.data.DataLoader),
-        (MNISTTemporal("tests/tmp/DATA"), torch.utils.data.DataLoader),
-        (NCI1("tests/tmp/DATA"), torch_geometric.loader.DataLoader),
+        (FakeMNIST("tests/tmp/DATA"), torch.utils.data.DataLoader),
+        (FakeMNISTTemporal("tests/tmp/DATA"), torch.utils.data.DataLoader),
+        (FakeNCI1("tests/tmp/DATA"), torch_geometric.loader.DataLoader),
     ]
 
 
 @pytest.fixture
 def single_graph_datasets():
-    return [(Cora("tests/tmp/DATA"), torch_geometric.loader.DataLoader)]
+    return [(FakeCora("tests/tmp/DATA"), torch_geometric.loader.DataLoader)]
 
 
 # To each task its own splitter

@@ -1,5 +1,5 @@
 splitter:
-  splits_folder: DATA_SPLITS/
+  splits_folder: tests/tmp/DATA_SPLITS/
   class_name: mlwiz.data.splitter.Splitter
   args:
     n_outer_folds: 3
@@ -9,8 +9,8 @@ splitter:
     shuffle: False  # no need to shuffle, the dataset is already split into training + test
     inner_val_ratio: 0.1  # let's use a portion of the training set for validation at model selection time
     outer_val_ratio: 0.1  # let's use a portion of the training set for validation at risk assessment time
-    test_ratio: 0.1428571428571429  # will correspond to the last 10k samples out of 70k, see dataset.MNIST
+    test_ratio: 0.1 # not used in this case
 dataset:
-  class_name: mlwiz.data.dataset.MNISTTemporal
+  class_name: tests.integration.fake_dataset.FakeMNIST
   args:
-    storage_folder: DATA/
+    storage_folder: tests/tmp/DATA/

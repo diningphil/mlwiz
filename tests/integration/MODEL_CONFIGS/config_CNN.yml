@@ -3,9 +3,9 @@
 
 
 # Dataset and Splits
-data_root: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_root: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.FakeMNIST
+data_splits_file:  tests/tmp/DATA_SPLITS/FakeMNIST/FakeMNIST_outer3_inner2.splits
 
 
 # Hardware
@@ -30,7 +30,7 @@ seed: 42
 
 
 # Experiment
-result_folder: RESULTS
+result_folder: tests/tmp/RESULTS
 exp_name: cnn
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True

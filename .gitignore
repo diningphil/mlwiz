@@ -56,10 +56,10 @@ venv.bak/
 .vscode
 .idea
 
-# PyDGN
+# MLWiz
 DATA/**
-examples/DATA_SPLITS/**
-*RESULTS*/**
+DATA_SPLITS/**
+RESULTS/**
 
 # Weights & Biases
 wandb/

@@ -3,9 +3,9 @@
 
 
 # Dataset and Splits
-data_root: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_root: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.FakeNCI1
+data_splits_file:  tests/tmp/DATA_SPLITS/FakeNCI1/FakeNCI1_outer3_inner2.splits
 
 
 # Hardware
@@ -19,7 +19,7 @@ gpus_per_task:  1
 # Data Loading
 dataset_getter: mlwiz.data.provider.DataProvider
 data_loader:
-  class_name: torch.utils.data.DataLoader
+  class_name: torch_geometric.loader.DataLoader
   args:
     num_workers : 0
     pin_memory: False
@@ -30,22 +30,28 @@ seed: 42
 
 
 # Experiment
-result_folder: RESULTS
-exp_name: cnn
+result_folder: tests/tmp/RESULTS
+exp_name: dgn
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
 risk_assessment_training_runs: 3
 model_selection_training_runs: 1
 
+
 grid:
-  model: mlwiz.model.CNN
+  model: mlwiz.model.DGN
   checkpoint: True
   shuffle: True
   batch_size: 512
   epochs: 2
 
   # Model specific arguments #
+
+  dim_embedding: 5
+  num_layers: 2
+  is_graph_classification: True
+  is_single_graph: False
 
   # ------------------------ #
 
@@ -70,16 +76,13 @@ grid:
       args:
         main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
 
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
-
   # Training engine
   engine:
     - class_name: mlwiz.training.engine.TrainingEngine
       args:
         eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
           - False  # default behavior, saves some compute time as we are generally interested in validation scores
-      
+
   # Gradient clipper (optional)
   gradient_clipper: null
 

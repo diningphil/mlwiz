@@ -10,11 +10,11 @@ from mlwiz.static import DEBUG, CONFIG_FILE
 
 def test_datasets_creation():
     yaml_files = [
-        "examples/DATA_CONFIGS/config_MNIST.yml",
-        "examples/DATA_CONFIGS/config_MNISTTemporal.yml",
-        "examples/DATA_CONFIGS/config_NCI1.yml",
-        "examples/DATA_CONFIGS/config_Cora.yml",
-        "examples/DATA_CONFIGS/config_ToyIterableDataset.yml",
+        "tests/integration/DATA_CONFIGS/config_FakeMNIST.yml",
+        "tests/integration/DATA_CONFIGS/config_FakeMNISTTemporal.yml",
+        "tests/integration/DATA_CONFIGS/config_FakeNCI1.yml",
+        "tests/integration/DATA_CONFIGS/config_FakeCora.yml",
+        "tests/integration/DATA_CONFIGS/config_FakeToyIterableDataset.yml",
     ]
     for y in yaml_files:
         config = yaml.load(
@@ -32,12 +32,12 @@ def test_experiments():
                 setattr(self, key, d[key])
 
     config_files = [
-        "examples/MODEL_CONFIGS/config_MLP.yml",
-        "examples/MODEL_CONFIGS/config_CNN.yml",
-        "examples/MODEL_CONFIGS/config_GRU.yml",
-        "examples/MODEL_CONFIGS/config_DGN.yml",
-        "examples/MODEL_CONFIGS/config_DGN_SingleGraph.yml",
-        "examples/MODEL_CONFIGS/config_MLP_IterableDataset.yml",
+        "tests/integration/MODEL_CONFIGS/config_MLP.yml",
+        "tests/integration/MODEL_CONFIGS/config_CNN.yml",
+        "tests/integration/MODEL_CONFIGS/config_GRU.yml",
+        "tests/integration/MODEL_CONFIGS/config_DGN.yml",
+        "tests/integration/MODEL_CONFIGS/config_DGN_SingleGraph.yml",
+        "tests/integration/MODEL_CONFIGS/config_MLP_IterableDataset.yml",
     ]
     for config_file in config_files:
         config = {}
@@ -49,5 +49,4 @@ def test_experiments():
 
 @pytest.mark.dependency(depends=["test_experiments"])
 def test_cleanup():
-    rmtree("RESULTS")
-    rmtree("DATA")
+    rmtree("tests/tmp/")

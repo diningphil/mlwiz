@@ -1,5 +1,5 @@
 splitter:
-  splits_folder: DATA_SPLITS/
+  splits_folder: tests/tmp/DATA_SPLITS/
   class_name: mlwiz.data.splitter.Splitter
   args:
     n_outer_folds: 3
@@ -11,6 +11,6 @@ splitter:
     outer_val_ratio: 0.1
     test_ratio: 0.1
 dataset:
-  class_name: mlwiz.data.dataset.ToyIterableDataset
+  class_name: tests.integration.fake_dataset.ToyIterableDataset
   args:
-    storage_folder: DATA/
+    storage_folder: tests/tmp/DATA/

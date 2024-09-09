@@ -1,27 +1,22 @@
-# Telegram Bot
-# telegram_config_file: telegram_config.yml
-
-
 # Dataset and Splits
-data_root: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_root: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.ToyIterableDataset
+data_splits_file:  tests/tmp/DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer3_inner2.splits
 
 
 # Hardware
 device:  cpu
-max_cpus:  8
-max_gpus: 1
+max_cpus:  4
+max_gpus: 0
 gpus_per_task:  1
-# gpus_subset: 0,1,2,3,4,5,6,7,8
 
 
 # Data Loading
-dataset_getter: mlwiz.data.provider.DataProvider
+dataset_getter: mlwiz.data.provider.IterableDataProvider
 data_loader:
   class_name: torch.utils.data.DataLoader
   args:
-    num_workers : 0
+    num_workers : 2
     pin_memory: False
 
 
@@ -30,22 +25,27 @@ seed: 42
 
 
 # Experiment
-result_folder: RESULTS
-exp_name: cnn
+result_folder: tests/tmp/RESULTS
+exp_name: mlp_iterable_dataset
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
-evaluate_every: 1
+evaluate_every: 3
 risk_assessment_training_runs: 3
 model_selection_training_runs: 1
 
+
 grid:
-  model: mlwiz.model.CNN
+  model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
-  batch_size: 512
-  epochs: 2
+  batch_size: 32
+  epochs: 3
 
   # Model specific arguments #
+
+  dim_embedding:
+    - 5
+    - 10
 
   # ------------------------ #
 
@@ -62,24 +62,20 @@ grid:
   scheduler: null
 
   # Loss metric (with an example of Additive Loss)
-  loss: mlwiz.training.callback.metric.MulticlassClassification
+  loss: mlwiz.training.callback.metric.MeanSquareError
 
   # Score metric (with an example of Multi Score)
   scorer:
     - class_name: mlwiz.training.callback.metric.MultiScore
       args:
-        main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
+        main_scorer: mlwiz.training.callback.metric.MeanSquareError
 
   # Training engine
   engine:
-    - class_name: mlwiz.training.engine.TrainingEngine
+    - class_name: mlwiz.training.engine.DataStreamTrainingEngine
       args:
-        eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
-          - False  # default behavior, saves some compute time as we are generally interested in validation scores
-      
+        engine_callback: mlwiz.training.callback.engine_callback.IterableEngineCallback
+
   # Gradient clipper (optional)
   gradient_clipper: null
 

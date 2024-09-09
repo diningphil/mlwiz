@@ -3,9 +3,9 @@
 
 
 # Dataset and Splits
-data_root: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_root: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.FakeCora
+data_splits_file:  tests/tmp/DATA_SPLITS/FakeCora/FakeCora_outer3_inner2.splits
 
 
 # Hardware
@@ -17,7 +17,7 @@ gpus_per_task:  1
 
 
 # Data Loading
-dataset_getter: mlwiz.data.provider.DataProvider
+dataset_getter: mlwiz.data.provider.SingleGraphDataProvider
 data_loader:
   class_name: torch.utils.data.DataLoader
   args:
@@ -30,22 +30,28 @@ seed: 42
 
 
 # Experiment
-result_folder: RESULTS
-exp_name: cnn
+result_folder: tests/tmp/RESULTS
+exp_name: dgn_single_graph
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
 risk_assessment_training_runs: 3
 model_selection_training_runs: 1
 
+
 grid:
-  model: mlwiz.model.CNN
+  model: mlwiz.model.DGN
   checkpoint: True
   shuffle: True
-  batch_size: 512
+  batch_size: 1  # single graph, passed in one shot to the model
   epochs: 2
 
   # Model specific arguments #
+
+  dim_embedding: 5
+  num_layers: 2
+  is_graph_classification: False
+  is_single_graph: True
 
   # ------------------------ #
 
@@ -62,16 +68,13 @@ grid:
   scheduler: null
 
   # Loss metric (with an example of Additive Loss)
-  loss: mlwiz.training.callback.metric.MulticlassClassification
+  loss: mlwiz.training.callback.metric.SingleGraphMulticlassClassification
 
   # Score metric (with an example of Multi Score)
   scorer:
     - class_name: mlwiz.training.callback.metric.MultiScore
       args:
-        main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
+        main_scorer: mlwiz.training.callback.metric.SingleGraphMulticlassAccuracy
 
   # Training engine
   engine:
@@ -79,7 +82,7 @@ grid:
       args:
         eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
           - False  # default behavior, saves some compute time as we are generally interested in validation scores
-      
+
   # Gradient clipper (optional)
   gradient_clipper: null
 

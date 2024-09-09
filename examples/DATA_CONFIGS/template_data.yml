@@ -17,7 +17,7 @@ dataset:
     arg1:
     argn:
   transform: # on the fly transforms: useful for social datasets with no node features (with an example)
-    - class_name: mlwiz.data.transform.ConstantIfEmpty
+    - class_name: # dotted path to transform class
       args:
         value: 1
   # pre_transform:  # transform data and store it at dataset creation time

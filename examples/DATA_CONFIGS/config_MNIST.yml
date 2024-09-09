@@ -1,5 +1,5 @@
 splitter:
-  splits_folder: examples/DATA_SPLITS/
+  splits_folder: DATA_SPLITS/
   class_name: mlwiz.data.splitter.Splitter
   args:
     n_outer_folds: 3

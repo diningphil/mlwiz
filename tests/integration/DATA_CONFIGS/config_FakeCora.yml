@@ -1,6 +1,6 @@
 splitter:
-  splits_folder: DATA_SPLITS/
-  class_name: mlwiz.data.splitter.Splitter
+  splits_folder: tests/tmp/DATA_SPLITS/
+  class_name: mlwiz.data.splitter.SingleGraphSplitter
   args:
     n_outer_folds: 3
     n_inner_folds: 2
@@ -11,6 +11,6 @@ splitter:
     outer_val_ratio: 0.1  # let's use a portion of the training set for validation at risk assessment time
     test_ratio: 0.1  # not used in this case
 dataset:
-  class_name: mlwiz.data.dataset.NCI1
+  class_name: tests.integration.fake_dataset.FakeCora
   args:
-    storage_folder: DATA/
+    storage_folder: tests/tmp/DATA/

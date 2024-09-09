@@ -3,9 +3,9 @@
 
 
 # Dataset and Splits
-data_root: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_root: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.FakeMNIST
+data_splits_file:  tests/tmp/DATA_SPLITS/FakeMNIST/FakeMNIST_outer3_inner2.splits
 
 
 # Hardware
@@ -30,22 +30,24 @@ seed: 42
 
 
 # Experiment
-result_folder: RESULTS
-exp_name: cnn
+result_folder: tests/tmp/RESULTS
+exp_name: mlp
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
 risk_assessment_training_runs: 3
-model_selection_training_runs: 1
+model_selection_training_runs: 2
 
 grid:
-  model: mlwiz.model.CNN
+  model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
   batch_size: 512
   epochs: 2
 
   # Model specific arguments #
+
+  dim_embedding: 5
 
   # ------------------------ #
 
@@ -62,16 +64,25 @@ grid:
   scheduler: null
 
   # Loss metric (with an example of Additive Loss)
-  loss: mlwiz.training.callback.metric.MulticlassClassification
+  loss:
+    - class_name: mlwiz.training.callback.metric.AdditiveLoss
+      args:
+        loss_1: mlwiz.training.callback.metric.MulticlassClassification
+        loss_2: mlwiz.training.callback.metric.MulticlassClassification
+        losses_weights:
+          Multiclass Classification:
+            - 1.
+        accumulate_over_epoch:
+          - True
+          - False
+
 
   # Score metric (with an example of Multi Score)
   scorer:
     - class_name: mlwiz.training.callback.metric.MultiScore
       args:
         main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
+        my_second_metric: mlwiz.training.callback.metric.ToyMetric
 
   # Training engine
   engine:
@@ -79,7 +90,8 @@ grid:
       args:
         eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
           - False  # default behavior, saves some compute time as we are generally interested in validation scores
-      
+          - True  # re-evaluates on training set after each training epoch, might not change much loss/score values and causes overhead
+
   # Gradient clipper (optional)
   gradient_clipper: null
 
@@ -96,4 +108,7 @@ grid:
         checkpoint: True  # store the best checkpoint
 
   # Plotter of metrics
-  plotter: null
+  plotter:
+    - class_name: mlwiz.training.callback.plotter.Plotter
+      args:
+        store_on_disk: True
