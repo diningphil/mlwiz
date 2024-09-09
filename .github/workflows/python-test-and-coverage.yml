@@ -47,7 +47,7 @@ jobs:
         coverage-badge -o .badges/coverage_badge.svg -f
 
     - name: Interrogate badge
-      if: ${{ matrix.os == 'ubuntu-latest' }}
+      if: github.event_name == 'push' && ${{ matrix.os == 'ubuntu-latest' }}
       uses: JackMcKew/python-interrogate-check@main
       with:
         path: 'mlwiz'
