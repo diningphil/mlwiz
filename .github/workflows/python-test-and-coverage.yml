@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest]
         python-version: ["3.10", "3.11"]
 
     steps:
@@ -38,23 +38,25 @@ jobs:
         # stop the build if there are Python syntax errors or undefined names
         flake8 . --count --select=E9,F63,F7,F82 --max-line-length=79 --show-source --statistics
 
-    - name: Pytest and Coverage badge
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'
+    - name: Pytests on pull request
+      if: github.event_name == 'pull_request'
+      run: |
+        pytest tests/
+
+    - name: Coverage and badge
+      if: github.event_name == 'release'
       run: |
         coverage run --source=mlwiz -m pytest tests/
         coverage report -m
         coverage-badge -o .badges/coverage_badge.svg -f
 
     - name: Interrogate badge
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'
-      uses: JackMcKew/python-interrogate-check@main
-      with:
-        path: 'mlwiz'
-        badge-location: '.badges/interrogate_badge.svg'
-        ignore-module: True
+      if: github.event_name == 'release'
+      run: |
+        interrogate -i -M --generate-badge .badges mlwiz
 
     - name: Commit files
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest'
+      if: github.event_name == 'release' && success()
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
@@ -62,7 +64,7 @@ jobs:
         git diff --exit-code || git commit -m "Update coverage_badge.svg and interrogate_badge.svg" -a
 
     - name: Push changes
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && success()
+      if: github.event_name == 'release' && success()
       uses: ad-m/github-push-action@master
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
