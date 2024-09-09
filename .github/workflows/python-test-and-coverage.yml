@@ -44,12 +44,12 @@ jobs:
       run: |
         coverage run -m pytest tests/
         coverage report -m
-        if [ -f .badges/coverage_badge.svg ]; then rm .badges/coverage_badge.svg; fi
+        if [ -f ".badges/coverage_badge.svg" ]; then rm .badges/coverage_badge.svg; fi
         coverage-badge -o .badges/coverage_badge.svg
 
     - name: Interrogate badge
       run: |
-        if [ -f .badges/interrogate_badge.svg ]; then rm .badges/interrogate_badge.svg; fi
+        if [ -f ".badges/interrogate_badge.svg" ]; then rm .badges/interrogate_badge.svg; fi
         interrogate -i -M --generate-badge .badges
 
     - name: Commit files
