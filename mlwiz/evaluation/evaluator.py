@@ -13,7 +13,7 @@ import requests
 import torch
 from torch_geometric.data import Data
 from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
-torch_geometric.data.storage.GlobalStorage
+from torch_geometric.data.storage import GlobalStorage
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
