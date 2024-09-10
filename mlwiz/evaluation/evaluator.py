@@ -11,6 +11,9 @@ import numpy as np
 import ray
 import requests
 import torch
+from torch_geometric.data import Data
+from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
+from torch_geometric.data.storage import GlobalStorage
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
@@ -102,7 +105,7 @@ def run_valid(
             print(e)
             elapsed = -1
     else:
-        _, _, elapsed = torch.load(fold_results_torch_path)
+        _, _, elapsed = torch.load(fold_results_torch_path, weights_only=True)
     return (
         dataset_getter.outer_k,
         dataset_getter.inner_k,
@@ -171,7 +174,7 @@ def run_test(
             print(e)
             elapse = -1
     else:
-        res = torch.load(final_run_torch_path)
+        res = torch.load(final_run_torch_path, weights_only=True)
         elapsed = res[-1]
     return outer_k, run_id, elapsed
 
@@ -235,6 +238,9 @@ class RiskAssesser:
         torch.cuda.manual_seed(self.base_seed)
         random.seed(self.base_seed)
 
+        # Add Data to serializable objects
+        torch.serialization.add_safe_globals([Data, DataEdgeAttr, DataTensorAttr, GlobalStorage])
+        
         self.outer_folds = outer_folds
         self.inner_folds = inner_folds
         self.experiment_class = experiment_class
@@ -630,9 +636,6 @@ class RiskAssesser:
                                     ),
                                     fold_run_results_torch_path,
                                 )
-                            # else:
-                            #     res = torch.load(fold_results_torch_path)
-                            #     elapsed = res[-1]
 
                     if debug:
                         self.process_model_selection_runs(fold_exp_folder, k)
@@ -748,9 +751,6 @@ class RiskAssesser:
                         (training_res, val_res, test_res, elapsed),
                         final_run_torch_path,
                     )
-                # else:
-                #     res = torch.load(final_run_torch_path)
-                #     elapsed = res[-1]
         if debug:
             self.process_final_runs(outer_k)
 
@@ -782,7 +782,7 @@ class RiskAssesser:
             )
 
             training_res, validation_res, _ = torch.load(
-                fold_run_results_torch_path
+                fold_run_results_torch_path, weights_only=True
             )
 
             training_loss, validation_loss = (
@@ -887,7 +887,7 @@ class RiskAssesser:
             )
 
             training_res, validation_res, _ = torch.load(
-                fold_results_torch_path
+                fold_results_torch_path, weights_only=True
             )
 
             training_loss, validation_loss = (
@@ -1038,7 +1038,7 @@ class RiskAssesser:
                 final_run_torch_path = osp.join(
                     final_run_exp_path, f"run_{i + 1}_results.torch"
                 )
-                res = torch.load(final_run_torch_path)
+                res = torch.load(final_run_torch_path, weights_only=True)
 
                 tr_res, vl_res, te_res = {}, {}, {}
 

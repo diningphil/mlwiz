@@ -156,7 +156,7 @@ def load_dataset(
             storage_folder, dataset_name, "processed", "dataset_kwargs.pt"
         )
 
-    dataset_args = torch.load(kwargs_path)
+    dataset_args = torch.load(kwargs_path, weights_only=True)
 
     # Overwrite original data_root field, which may have changed
     dataset_args["storage_folder"] = storage_folder

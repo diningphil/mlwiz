@@ -204,7 +204,7 @@ class Splitter:
         Returns:
             a :class:`~mlwiz.data.splitter.Splitter` object
         """
-        splits = torch.load(path)
+        splits = torch.load(path, weights_only=True)
 
         splitter_classname = splits.get("splitter_class", "Splitter")
         splitter_class = s2c(splitter_classname)

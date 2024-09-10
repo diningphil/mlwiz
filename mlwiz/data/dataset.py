@@ -78,7 +78,7 @@ class DatasetInterface:
 
         else:
             # Simply load the dataset in memory
-            self.dataset = torch.load(self.dataset_filepath)
+            self.dataset = torch.load(self.dataset_filepath, weights_only=True)
 
     @property
     def name(self) -> str:
@@ -508,7 +508,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             else len(self.shuffled_urls)
         )
         for url in self.shuffled_urls[self.start_index : end_index]:
-            url_data = torch.load(url)
+            url_data = torch.load(url, weights_only=True)
 
             if not isinstance(url_data, list):
                 url_data = [url_data]

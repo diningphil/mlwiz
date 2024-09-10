@@ -778,7 +778,8 @@ class TrainingEngine(EventDispatcher):
         # specify explicitly the map location as cpu. The other way around
         # (cpu to cuda) poses no problem since GPUs are visible.
         ckpt_dict = torch.load(
-            ckpt_filename, map_location="cpu" if self.device == "cpu" else None
+            ckpt_filename, map_location="cpu" if self.device == "cpu" else None,
+            weights_only = True
         )
 
         self.state.update(
@@ -803,6 +804,7 @@ class TrainingEngine(EventDispatcher):
             best_ckpt_dict = torch.load(
                 best_ckpt_filename,
                 map_location="cpu" if self.device == "cpu" else None,
+                weights_only = True
             )
             self.state.update(best_epoch_results=best_ckpt_dict)
 
