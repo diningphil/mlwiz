@@ -12,7 +12,7 @@ import ray
 import requests
 import torch
 from torch_geometric.data import Data
-from torch_geometric.data.data import DataEdgeAttr
+from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
@@ -238,7 +238,7 @@ class RiskAssesser:
         random.seed(self.base_seed)
 
         # Add Data to serializable objects
-        torch.serialization.add_safe_globals([Data, DataEdgeAttr])
+        torch.serialization.add_safe_globals([Data, DataEdgeAttr, DataTensorAttr])
         
         self.outer_folds = outer_folds
         self.inner_folds = inner_folds
