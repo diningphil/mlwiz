@@ -32,6 +32,11 @@ jobs:
         python -m pip install --upgrade pip
         python -m pip install flake8 pytest
 
+    - name: Install package dependencies
+      if: github.event_name == 'pull_request'
+      run: |
+        python -m pip install .
+
     - name: Lint with flake8
       run: |
         # stop the build if there are Python syntax errors or undefined names
