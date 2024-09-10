@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-gray.svg)](https://opensource.org/licenses/BSD-3-Clause)
 [![Documentation Status](https://readthedocs.org/projects/mlwiz/badge/?version=latest)](https://mlwiz.readthedocs.io/en/latest/?badge=latest)
 [![Publish Package](https://github.com/diningphil/mlwiz/actions/workflows/python-publish-package.yml/badge.svg)](https://github.com/diningphil/mlwiz/actions/workflows/python-publish-package.yml)
-[![Downloads](https://static.pepy.tech/personalized-badge/mlwiz?period=total&units=international_system&left_color=grey&right_color=blue&left_text=Downloads)](https://pepy.tech/project/mlwiz)
+[![Downloads](https://static.pepy.tech/badge/mlwiz)](https://pepy.tech/project/mlwiz)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![Interrogate](https://github.com/diningphil/MLWiz/blob/main/.badges/interrogate_badge.svg)](https://interrogate.readthedocs.io/en/latest/)
 [![Coverage](https://github.com/diningphil/MLWiz/blob/main/.badges/coverage_badge.svg)]()
