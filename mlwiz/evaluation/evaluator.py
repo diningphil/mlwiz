@@ -11,6 +11,7 @@ import numpy as np
 import ray
 import requests
 import torch
+from torch_geometric.data import Data
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
