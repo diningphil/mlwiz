@@ -34,7 +34,7 @@ class Plotter(EventHandler):
         self.stored_metrics = {"losses": {}, "scores": {}}
         self.stored_metrics_path = Path(self.exp_path, "metrics_data.torch")
         if os.path.exists(self.stored_metrics_path):
-            self.stored_metrics = torch.load(self.stored_metrics_path)
+            self.stored_metrics = torch.load(self.stored_metrics_path, weights_only=True)
 
     def on_epoch_end(self, state: State):
         """
