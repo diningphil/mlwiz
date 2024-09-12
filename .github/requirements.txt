@@ -1,6 +1,7 @@
 PyYAML>=5.4
 tensorboard>=2.11.0
 tqdm>=4.47.0
+dill>=0.3.8
 ray>=2.6.0
 torchvision>=0.18.1
 torch>=2.3.1

@@ -3,7 +3,7 @@
 
 
 # Dataset and Splits
-data_root: DATA
+storage_folder: DATA
 dataset_class: mlwiz.data.dataset.MNIST
 data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
@@ -48,6 +48,7 @@ grid:
   # Model specific arguments #
 
   dim_embedding: 5
+  mlwiz_tests: True  # allow reshaping of MNIST dataset
 
   # ------------------------ #
 

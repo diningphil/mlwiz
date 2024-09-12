@@ -355,7 +355,7 @@ def filter_experiments(
     The dictionary contains the keys and values of the configuration files you are looking for.
 
     If you specify more then one key/value pair to look for, then the `logic` parameter specifies whether you want to filter
-    using the AND or OR rule.
+    using the AND/OR rule.
 
     For a key, you can specify more than one possible value you are interested in by passing a list as the value, for instance
     {'device': 'cpu', 'lr': [0.1, 0.01]}
@@ -453,11 +453,9 @@ def instantiate_dataset_from_config(config: dict) -> DatasetInterface:
     :param config (dict): the configuration file
     :return: an instance of DatasetInterface, i.e., the dataset
     """
-    data_root = config[CONFIG][DATA_ROOT]
-    dataset_name = config[CONFIG][DATASET]
+    storage_folder = config[CONFIG][STORAGE_FOLDER]
     dataset_class = s2c(config[CONFIG][DATASET_CLASS])
-
-    return dataset_class(data_root, dataset_name)
+    return dataset_class(storage_folder)
 
 
 def instantiate_data_provider_from_config(
@@ -471,17 +469,15 @@ def instantiate_data_provider_from_config(
     :param n_inner_folds (int): the number of inner folds
     :return: an instance of DataProvider, i.e., the data provider
     """
-    data_root = config[CONFIG][DATA_ROOT]
-    dataset_name = config[CONFIG][DATASET]
+    storage_folder = config[CONFIG][STORAGE_FOLDER]
     dataset_class = s2c(config[CONFIG][DATASET_CLASS])
     dataset_getter = s2c(config[CONFIG][DATASET_GETTER])
     dl_class, dl_args = return_class_and_args(config[CONFIG], DATA_LOADER)
 
     return dataset_getter(
-        data_root=data_root,
+        storage_folder=storage_folder,
         splits_filepath=splits_filepath,
         dataset_class=dataset_class,
-        dataset_name=dataset_name,
         data_loader_class=dl_class,
         data_loader_args=dl_args,
         outer_folds=n_outer_folds,
@@ -492,27 +488,18 @@ def instantiate_data_provider_from_config(
 def instantiate_model_from_config(
     config: dict,
     dataset: DatasetInterface,
-    config_type: str = "supervised_config",
 ) -> ModelInterface:
     """
     Instantiate a model from a configuration file.
     :param config (dict): the configuration file
     :param dataset (DatasetInterface): the dataset used in the experiment
-    :param config_type (str): the type of model in ["supervised_config", "unsupervised_config"],
-        as written on the YAML experiment configuration file. Defaults to "supervised_config"
     :return: an instance of ModelInterface, i.e., the model
     """
-    config_ = config[CONFIG][config_type]
-
-    readout_str = config_.get(READOUT)
-    readout_class = s2c(readout_str) if readout_str is not None else None
-
+    config_ = config[CONFIG]
     model_class = s2c(config_[MODEL])
     model = model_class(
         dataset.dim_input_features,
-        dataset.dim_edge_features,
         dataset.dim_target,
-        readout_class,
         config=config_,
     )
 

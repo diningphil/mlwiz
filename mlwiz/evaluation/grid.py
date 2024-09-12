@@ -21,7 +21,7 @@ class Grid:
         self.configs_dict = configs_dict
         self.seed = self.configs_dict.get(SEED, None)
         self._exp_name = self.configs_dict.get(EXP_NAME)
-        self.data_root = self.configs_dict[DATA_ROOT]
+        self.storage_folder = self.configs_dict.get(STORAGE_FOLDER)
         self.dataset_class = self.configs_dict[DATASET_CLASS]
         self.data_loader_class, self.data_loader_args = return_class_and_args(
             self.configs_dict, DATA_LOADER, return_class_name=True
@@ -58,7 +58,7 @@ class Grid:
                     DATA_LOADER: self.data_loader_class,
                     DATA_LOADER_ARGS: self.data_loader_args,
                     DATASET_CLASS: self.dataset_class,
-                    DATA_ROOT: self.data_root,
+                    STORAGE_FOLDER: self.storage_folder,
                     DEVICE: self.device,
                     EXPERIMENT: self.experiment,
                     HIGHER_RESULTS_ARE_BETTER: self.higher_results_are_better,

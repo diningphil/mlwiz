@@ -19,7 +19,6 @@ from tests.data.test_data_splitter import (
     single_graph_datasets,
 )
 
-
 def mock_get_dataset(cls, **kwargs):
     """
     Returns the dataset stored in the object (see main test)
@@ -74,6 +73,7 @@ def test_DataProvider(datasets):
     Check that the data provider returns the correct data associated
     with different data splits
     """
+
     for dataset_loader in datasets:
         dataset, loader = dataset_loader
         batch_size = 32
@@ -157,6 +157,7 @@ def test_SingleGraphDataProvider(single_graph_datasets):
     Check that the data provider returns the correct data associated
     with different data splits
     """
+
     for dataset_loader in single_graph_datasets:
         dataset, loader = dataset_loader
         batch_size = 32
@@ -316,14 +317,14 @@ def mock_get_iterable_dataset(cls, **kwargs):
     """
     Returns the dataset stored in the object (see main test)
     """
-    data_root = "tests/tmp/DATA_ToyIterableDataset"
+    storage_folder = "tests/tmp/DATA_ToyIterableDataset"
 
     if "url_indices" in kwargs:
         indices = kwargs["url_indices"]
-        dataset = ToyIterableDataset(data_root)
+        dataset = ToyIterableDataset(storage_folder)
         dataset.subset(indices)
         return dataset
-    return ToyIterableDataset(data_root)
+    return ToyIterableDataset(storage_folder)
 
 
 @patch.object(IterableDataProvider, "_get_dataset", mock_get_iterable_dataset)
@@ -335,13 +336,14 @@ def test_IterableDataProvider():
     Check that the data provider returns the correct data associated
     with different data splits
     """
-    data_root = "tests/tmp/DATA_ToyIterableDataset"
+
+    storage_folder = "tests/tmp/DATA_ToyIterableDataset"
     batch_size = 32
     for outer_folds in [1, 3]:
         for inner_folds in [1, 3]:
             for shuffle in [False, True]:
                 provider = IterableDataProvider(
-                    data_root,
+                    storage_folder,
                     None,
                     DatasetInterface,
                     torch.utils.data.DataLoader,
@@ -349,7 +351,7 @@ def test_IterableDataProvider():
                     outer_folds=outer_folds,
                     inner_folds=inner_folds,
                 )
-                provider.dataset = ToyIterableDataset(data_root)
+                provider.dataset = ToyIterableDataset(storage_folder)
                 provider.set_exp_seed(0)
 
                 for o in range(outer_folds):

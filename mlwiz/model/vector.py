@@ -33,6 +33,8 @@ class MLP(ModelInterface):
         )
         self.out_layer = Linear(dim_embedding, dim_target)
 
+        self._testing = config.get("mlwiz_tests", False)
+
     def forward(
         self, data: torch.Tensor
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
@@ -45,12 +47,16 @@ class MLP(ModelInterface):
         Returns:
             a tuple (output, embedddings)
         """
+
         # for testing
-        if data.shape[1] == 1:
-            # MNIST dataset, let's remove channel dim and flatten
-            assert len(data.shape) > 2
-            data = data.squeeze(1)
-            data = torch.reshape(data, (-1, self.dim_input_features))
+        if self._testing:
+            if data.shape[1] == 1:
+                # MNIST dataset, let's remove channel dim and flatten
+                assert len(data.shape) > 2
+                data = data.squeeze(1)
+                data = torch.reshape(data, (-1, self.dim_input_features))
+            elif data.shape == (1, 28, 28):
+                data = torch.reshape(data, (-1, self.dim_input_features))
         # --
 
         h = self.mlp(data)

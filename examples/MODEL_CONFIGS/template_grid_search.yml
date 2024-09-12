@@ -1,5 +1,5 @@
 # Dataset and Splits
-data_root:  # path to DATA root folder (same as in data config file)
+storage_folder:  # path to DATA root folder (same as in data config file)
 dataset_class:  # dotted path to dataset class
 data_splits_file:  # path to data splits file
 

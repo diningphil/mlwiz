@@ -1,5 +1,5 @@
 # Dataset and Splits
-data_root: tests/tmp/DATA
+storage_folder: tests/tmp/DATA
 dataset_class: tests.integration.fake_dataset.ToyIterableDataset
 data_splits_file:  tests/tmp/DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer3_inner2.splits
 

@@ -79,7 +79,6 @@ CONFIG_FILE_CLI_ARGUMENT = "--config-file"
 CONFIG_FILE = "config_file"
 DEBUG_CLI_ARGUMENT = "--debug"
 
-DATA_ROOT = "data_root"
 DATA_SPLITS_FILE = "data_splits_file"
 DATASET_CLASS = "dataset_class"
 DATASET_GETTER = "dataset_getter"

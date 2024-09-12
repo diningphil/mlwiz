@@ -42,6 +42,7 @@ def test_node_graph_split_overlap(node_and_graph_task_input):
     """
     Tests data splits overlap for node and graph prediction
     """
+
     for datasets, splitter_class in node_and_graph_task_input:
         for dataset_loader in datasets:
             dataset, loader = dataset_loader

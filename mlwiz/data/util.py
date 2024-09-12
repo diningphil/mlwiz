@@ -4,10 +4,9 @@ import os.path as osp
 import warnings
 from typing import Callable
 
-import torch
 from torchvision.transforms import Compose
 
-from mlwiz.util import s2c
+from mlwiz.util import s2c, dill_load, dill_save
 from mlwiz.static import STORAGE_FOLDER
 
 
@@ -94,7 +93,7 @@ def preprocess_data(options: dict):
     kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.pt")
 
     get_or_create_dir(kwargs_folder)
-    torch.save(dataset_args, kwargs_path)
+    dill_save(dataset_args, kwargs_path)
 
     # Process data splits
 
@@ -156,9 +155,9 @@ def load_dataset(
             storage_folder, dataset_name, "processed", "dataset_kwargs.pt"
         )
 
-    dataset_args = torch.load(kwargs_path, weights_only=True)
+    dataset_args = dill_load(kwargs_path)
 
-    # Overwrite original data_root field, which may have changed
+    # Overwrite original storage_folder field, which may have changed
     dataset_args["storage_folder"] = storage_folder
 
     # pass extra arguments to dataset

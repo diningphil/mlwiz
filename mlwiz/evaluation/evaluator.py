@@ -11,6 +11,7 @@ import numpy as np
 import ray
 import requests
 import torch
+from torch.utils.data import ConcatDataset
 from torch_geometric.data import Data
 from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
 from torch_geometric.data.storage import GlobalStorage
@@ -21,10 +22,9 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import ProgressManager
 from mlwiz.experiment.experiment import Experiment
-from mlwiz.util import s2c
+from mlwiz.util import s2c, dill_load, dill_save
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
-
 
 def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
     """
@@ -96,7 +96,7 @@ def run_valid(
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
             train_res, val_res = experiment.run_valid(dataset_getter, logger)
             elapsed = time.time() - start
-            torch.save((train_res, val_res, elapsed), fold_results_torch_path)
+            dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
             print(
                 f"There has been an issue with configuration "
@@ -105,7 +105,7 @@ def run_valid(
             print(e)
             elapsed = -1
     else:
-        _, _, elapsed = torch.load(fold_results_torch_path, weights_only=True)
+        _, _, elapsed = dill_load(fold_results_torch_path)
     return (
         dataset_getter.outer_k,
         dataset_getter.inner_k,
@@ -166,7 +166,7 @@ def run_test(
             res = experiment.run_test(dataset_getter, logger)
             elapsed = time.time() - start
             train_res, val_res, test_res = res
-            torch.save(
+            dill_save(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
         except Exception as e:
@@ -174,7 +174,7 @@ def run_test(
             print(e)
             elapse = -1
     else:
-        res = torch.load(final_run_torch_path, weights_only=True)
+        res = dill_load(final_run_torch_path)
         elapsed = res[-1]
     return outer_k, run_id, elapsed
 
@@ -238,9 +238,6 @@ class RiskAssesser:
         torch.cuda.manual_seed(self.base_seed)
         random.seed(self.base_seed)
 
-        # Add Data to serializable objects
-        torch.serialization.add_safe_globals([Data, DataEdgeAttr, DataTensorAttr, GlobalStorage])
-        
         self.outer_folds = outer_folds
         self.inner_folds = inner_folds
         self.experiment_class = experiment_class
@@ -527,7 +524,7 @@ class RiskAssesser:
         # Create the dataset provider
         dataset_getter_class = s2c(self.model_configs.dataset_getter)
         dataset_getter = dataset_getter_class(
-            self.model_configs.data_root,
+            self.model_configs.storage_folder,
             self.splits_filepath,
             s2c(self.model_configs.dataset_class),
             s2c(self.model_configs.data_loader_class),
@@ -628,7 +625,7 @@ class RiskAssesser:
                                     dataset_getter, logger
                                 )
                                 elapsed = time.time() - start
-                                torch.save(
+                                dill_save(
                                     (
                                         training_score,
                                         validation_score,
@@ -679,7 +676,7 @@ class RiskAssesser:
 
         dataset_getter_class = s2c(self.model_configs.dataset_getter)
         dataset_getter = dataset_getter_class(
-            self.model_configs.data_root,
+            self.model_configs.storage_folder,
             self.splits_filepath,
             s2c(self.model_configs.dataset_class),
             s2c(self.model_configs.data_loader_class),
@@ -747,7 +744,7 @@ class RiskAssesser:
                     elapsed = time.time() - start
 
                     training_res, val_res, test_res = res
-                    torch.save(
+                    dill_save(
                         (training_res, val_res, test_res, elapsed),
                         final_run_torch_path,
                     )
@@ -781,9 +778,8 @@ class RiskAssesser:
                 fold_run_exp_folder, f"run_{run_id + 1}_results.torch"
             )
 
-            training_res, validation_res, _ = torch.load(
-                fold_run_results_torch_path, weights_only=True
-            )
+            training_res, validation_res, _ = dill_load(
+                fold_run_results_torch_path)
 
             training_loss, validation_loss = (
                 training_res[LOSS],
@@ -845,7 +841,7 @@ class RiskAssesser:
         with open(fold_info_filename, "w") as fp:
             json.dump(results_dict, fp, sort_keys=False, indent=4)
 
-        torch.save(
+        dill_save(
             (
                 {
                     LOSS: {MAIN_LOSS: results_dict[f"{TRAINING}_{LOSS}"]},
@@ -886,9 +882,8 @@ class RiskAssesser:
                 fold_exp_folder, f"fold_{str(k + 1)}_results.torch"
             )
 
-            training_res, validation_res, _ = torch.load(
-                fold_results_torch_path, weights_only=True
-            )
+            training_res, validation_res, _ = dill_load(
+                fold_results_torch_path)
 
             training_loss, validation_loss = (
                 training_res[LOSS],
@@ -1038,7 +1033,7 @@ class RiskAssesser:
                 final_run_torch_path = osp.join(
                     final_run_exp_path, f"run_{i + 1}_results.torch"
                 )
-                res = torch.load(final_run_torch_path, weights_only=True)
+                res = dill_load(final_run_torch_path)
 
                 tr_res, vl_res, te_res = {}, {}, {}
 

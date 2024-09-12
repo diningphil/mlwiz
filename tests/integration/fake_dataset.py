@@ -5,6 +5,7 @@ import torch
 from torch_geometric.data import Data
 
 from mlwiz.data.dataset import DatasetInterface, IterableDatasetInterface
+from mlwiz.util import dill_save
 
 
 class FakeMNIST(DatasetInterface):
@@ -126,4 +127,4 @@ class ToyIterableDataset(IterableDatasetInterface):
 
                 fake_samples.append(fake_sample)
 
-            torch.save(fake_samples, self.dataset_filepaths[i])
+            dill_save(fake_samples, self.dataset_filepaths[i])

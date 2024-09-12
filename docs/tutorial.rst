@@ -101,7 +101,7 @@ explanation of each field as a comment:
 .. code-block:: yaml
 
     # Dataset and Splits
-    data_root:  # path to DATA root folder (same as in data config file)
+    storage_folder:  # path to DATA root folder (same as in data config file)
     dataset_class:  # dotted path to dataset class
     data_splits_file:  # path to data splits file
 
@@ -214,7 +214,7 @@ Here we can specify some information about the dataset:
 
 .. code-block:: yaml
 
-    data_root: DATA
+    storage_folder: DATA
     dataset_class: mlwiz.data.dataset.MNIST
     data_splits_file:  examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
