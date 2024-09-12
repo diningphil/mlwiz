@@ -1,6 +1,7 @@
 from pydoc import locate
 from typing import Tuple, Callable
 
+import dill
 
 def return_class_and_args(
     config: dict, key: str, return_class_name: bool = False
@@ -56,3 +57,22 @@ def s2c(class_name: str) -> Callable[..., object]:
             f"Check your configuration."
         )
     return result
+
+
+def dill_save(data: object, filepath: str) -> object:
+    """
+    Saves a dill object to a file.
+    :param data: the dill object to save
+    :param filepath: the path to the dill object to save
+    """
+    with open(filepath, "wb") as file:
+        return dill.dump(data, file)
+
+def dill_load(filepath: str) -> object:
+    """
+    Loads a dill file.
+    :param filepath: the path to the dill file
+    :return: an object
+    """
+    with open(filepath, "rb") as file:
+        return dill.load(file)

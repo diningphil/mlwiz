@@ -3,7 +3,7 @@
 
 
 # Dataset and Splits
-data_root: DATA
+storage_folder: DATA
 dataset_class: mlwiz.data.dataset.NCI1
 data_splits_file:  DATA_SPLITS/NCI1/NCI1_outer3_inner2.splits
 

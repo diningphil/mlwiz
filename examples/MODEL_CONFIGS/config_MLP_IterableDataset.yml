@@ -1,5 +1,5 @@
 # Dataset and Splits
-data_root: DATA
+storage_folder: DATA
 dataset_class: mlwiz.data.dataset.ToyIterableDataset
 data_splits_file:  DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer3_inner2.splits
 

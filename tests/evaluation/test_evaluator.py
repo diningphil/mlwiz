@@ -1,4 +1,5 @@
 import json
+import pytest
 from shutil import rmtree
 
 import numpy as np
@@ -8,7 +9,6 @@ from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
 from mlwiz.experiment import Experiment
 from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
-
 
 class FakeTask(Experiment):
     def run_valid(self, dataset_getter, logger):
@@ -44,7 +44,8 @@ class FakeTask(Experiment):
 
 # This test activates most of the library's main routines.
 def test_evaluator():
-    results_folder = "tests/evaluation/debug_evaluator/"
+
+    results_folder = "tests/tmp/debug_evaluator/"
     search = Grid(
         yaml.load(
             open("tests/evaluation/grid_search.yml", "r"),
@@ -80,7 +81,7 @@ def test_evaluator():
 
         ms_results = json.load(
             open(
-                "tests/evaluation/debug_evaluator/"
+                "tests/tmp/debug_evaluator/"
                 + f"MODEL_ASSESSMENT/OUTER_FOLD_{outer_k+1}/"
                 + "MODEL_SELECTION/winner_config.json",
                 "r",
@@ -96,7 +97,7 @@ def test_evaluator():
 
     ass_results = json.load(
         open(
-            "tests/evaluation/debug_evaluator/"
+            "tests/tmp/debug_evaluator/"
             + "MODEL_ASSESSMENT/assessment_results.json",
             "r",
         )
@@ -110,4 +111,7 @@ def test_evaluator():
     assert ass_results["std_validation_main_score"] == outer_val_results.std()
     assert ass_results["std_test_main_score"] == outer_test_results.std()
 
-    rmtree(results_folder)
+
+@pytest.mark.dependency(depends=["test_experiments"])
+def test_cleanup():
+    rmtree("tests/tmp/")

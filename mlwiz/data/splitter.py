@@ -12,7 +12,7 @@ from sklearn.model_selection import (
 
 import mlwiz
 from mlwiz.data.dataset import IterableDatasetInterface
-from mlwiz.util import s2c
+from mlwiz.util import s2c, dill_load, dill_save
 
 
 class Fold:
@@ -204,7 +204,7 @@ class Splitter:
         Returns:
             a :class:`~mlwiz.data.splitter.Splitter` object
         """
-        splits = torch.load(path, weights_only=True)
+        splits = dill_load(path)
 
         splitter_classname = splits.get("splitter_class", "Splitter")
         splitter_class = s2c(splitter_classname)
@@ -441,7 +441,7 @@ class Splitter:
             inner_split
         ) in self.inner_folds:  # len(self.inner_folds) == # of **outer** folds
             savedict["inner_folds"].append([i.todict() for i in inner_split])
-        torch.save(savedict, path)
+        dill_save(savedict, path)
         print("Done.")
 
 

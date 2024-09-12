@@ -8,6 +8,7 @@ import torchvision
 from torch_geometric.datasets import TUDataset, Planetoid
 
 from mlwiz.data.util import get_or_create_dir
+from mlwiz.util import dill_save, dill_load
 
 
 class DatasetInterface:
@@ -74,11 +75,11 @@ class DatasetInterface:
 
             # store dataset
             print(f"Storing into {self.dataset_filepath}...")
-            torch.save(self.dataset, self.dataset_filepath)
+            dill_save(self.dataset, self.dataset_filepath)
 
         else:
             # Simply load the dataset in memory
-            self.dataset = torch.load(self.dataset_filepath, weights_only=True)
+            self.dataset = dill_load(self.dataset_filepath)
 
     @property
     def name(self) -> str:
@@ -495,7 +496,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
 
     def __iter__(self):
         r"""
-        Generator that returns individual Data objects. If each files contains
+        Generator that returns individual Data objects. If each file contains
         a list of data objects, these can be shuffled using the
         method :func:`shuffle_urls_elements`.
 
@@ -508,7 +509,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             else len(self.shuffled_urls)
         )
         for url in self.shuffled_urls[self.start_index : end_index]:
-            url_data = torch.load(url, weights_only=True)
+            url_data = dill_load(url)
 
             if not isinstance(url_data, list):
                 url_data = [url_data]
@@ -626,4 +627,4 @@ class ToyIterableDataset(IterableDatasetInterface):
 
                 fake_samples.append(fake_sample)
 
-            torch.save(fake_samples, self.dataset_filepaths[i])
+            dill_save(fake_samples, self.dataset_filepaths[i])

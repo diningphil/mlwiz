@@ -4,7 +4,6 @@ import yaml
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 
-
 @pytest.fixture
 def search_method_config_length():
     return [
@@ -14,6 +13,7 @@ def search_method_config_length():
 
 
 def test_search_method(search_method_config_length):
+
     for search_method, filepath, num_of_configs in search_method_config_length:
         search = search_method(
             yaml.load(open(filepath, "r"), Loader=yaml.FullLoader)

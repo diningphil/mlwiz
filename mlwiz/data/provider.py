@@ -45,7 +45,7 @@ class DataProvider:
     permutation.
 
     Args:
-        data_root (str): the path of the root folder in which data is stored
+        storage_folder (str): the path of the root folder in which data is stored
         splits_filepath (str): the filepath of the splits. with additional
             metadata
         dataset_class
@@ -65,7 +65,7 @@ class DataProvider:
 
     def __init__(
         self,
-        data_root: str,
+        storage_folder: str,
         splits_filepath: str,
         dataset_class: Callable[..., mlwiz.data.dataset.DatasetInterface],
         data_loader_class: Union[
@@ -78,7 +78,7 @@ class DataProvider:
     ) -> object:
         self.exp_seed = None
 
-        self.data_root = data_root
+        self.storage_folder = storage_folder
         self.dataset_class = dataset_class
 
         self.data_loader_class = data_loader_class
@@ -169,11 +169,11 @@ class DataProvider:
             # so load the dataset in memory again
             # an example is the subset of urls in Iterable style datasets
             dataset = load_dataset(
-                self.data_root, self.dataset_class, **kwargs
+                self.storage_folder, self.dataset_class, **kwargs
             )
         else:
             if self.dataset is None:
-                dataset = load_dataset(self.data_root, self.dataset_class)
+                dataset = load_dataset(self.storage_folder, self.dataset_class)
                 self.dataset = dataset
             else:
                 dataset = self.dataset
@@ -456,7 +456,7 @@ class SingleGraphDataProvider(DataProvider):
     :class:`mlwiz.data.splitter.SingleGraphSplitter`.
 
     Args:
-        data_root (str): the path of the root folder in which data is stored
+        storage_folder (str): the path of the root folder in which data is stored
         splits_filepath (str): the filepath of the splits. with additional
             metadata
         dataset_class
@@ -513,7 +513,7 @@ class SingleGraphDataProvider(DataProvider):
         # we probably need to pass run-time specific parameters, so load the
         # dataset in memory again
         # an example is the subset of urls in Iterable style datasets
-        dataset = load_dataset(self.data_root, self.dataset_class, **kwargs)
+        dataset = load_dataset(self.storage_folder, self.dataset_class, **kwargs)
 
         self.dim_input_features = dataset.dim_input_features
         self.dim_target = dataset.dim_target

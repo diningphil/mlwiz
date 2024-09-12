@@ -24,7 +24,7 @@ copyright = "2024, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags
-release = "1.0.1-alpha"
+release = "1.0.1"
 
 
 # -- General configuration ---------------------------------------------------
@@ -62,6 +62,7 @@ autodoc_mock_imports = [
     "torch_geometric",
     "tqdm",
     "ray",
+    "dill",
     "pandas",
     "numpy",
     "sklearn",

@@ -3,7 +3,7 @@
 
 
 # Dataset and Splits
-data_root: tests/tmp/DATA
+storage_folder: tests/tmp/DATA
 dataset_class: tests.integration.fake_dataset.FakeNCI1
 data_splits_file:  tests/tmp/DATA_SPLITS/FakeNCI1/FakeNCI1_outer3_inner2.splits
 
