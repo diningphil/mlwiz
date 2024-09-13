@@ -11,7 +11,7 @@
 [![Interrogate](https://github.com/diningphil/MLWiz/blob/main/.badges/interrogate_badge.svg)](https://interrogate.readthedocs.io/en/latest/)
 [![Coverage](https://github.com/diningphil/MLWiz/blob/main/.badges/coverage_badge.svg)]()
 
-## [Documentation](https://mlwiz.readthedocs.io/en/latest/index.html)
+## [Documentation](https://mlwiz.readthedocs.io/en/stable/index.html)
 
 MLWiz is a Python library that fosters machine learning research by reducing the boilerplate code 
 to run reproducible experiments. It provides automatic management of data splitting, loading and common 
@@ -41,4 +41,4 @@ Use ``CTRL-C``, then type ``ray stop --force`` to stop **all** ray processes you
 
 ### Using the Trained Models
 
-It's very easy to load the model from the experiments: see the end of the [Tutorial](https://mlwiz.readthedocs.io/en/latest/tutorial.html) for more information!
+It's very easy to load the model from the experiments: see the end of the [Tutorial](https://mlwiz.readthedocs.io/en/stable/tutorial.html) for more information!
