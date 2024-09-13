@@ -41,4 +41,4 @@ Use ``CTRL-C``, then type ``ray stop --force`` to stop **all** ray processes you
 
 ### Using the Trained Models
 
-It's very easy to load the model from the experiments: see the end of the [Tutorial](https://mlwiz.readthedocs.io/en/latest/tutorial.html)) for more information!
+It's very easy to load the model from the experiments: see the end of the [Tutorial](https://mlwiz.readthedocs.io/en/latest/tutorial.html) for more information!
