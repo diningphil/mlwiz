@@ -29,11 +29,11 @@ Requires at least Python 3.10. Simply run
 
 #### Build dataset and data splits
 
-    mlwiz-data --config-file examples/DATA_CONFIGS/config_NCI1.yml [--debug]
+    mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml [--debug]
 
 #### Launch experiments
 
-    mlwiz-exp  --config-file examples/MODEL_CONFIGS/config_SupToyDGN.yml [--debug]
+    mlwiz-exp  --config-file examples/MODEL_CONFIGS/config_MLP.yml [--debug]
 
 
 #### Stop experiments
@@ -41,23 +41,4 @@ Use ``CTRL-C``, then type ``ray stop --force`` to stop **all** ray processes you
 
 ### Using the Trained Models
 
-It's very easy to load the model from the experiments (see also the [Tutorial](https://mlwiz.readthedocs.io/en/latest/tutorial.html)):
-
-    from mlwiz.evaluation.util import *
-
-    config = retrieve_best_configuration('RESULTS/supervised_grid_search_toy_NCI1/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/')
-    splits_filepath = 'examples/DATA_SPLITS/CHEMICAL/NCI1/NCI1_outer10_inner1.splits'
-    device = 'cpu'
-
-    # instantiate dataset
-    dataset = instantiate_dataset_from_config(config)
-
-    # instantiate model
-    model = instantiate_model_from_config(config, dataset, config_type="supervised_config")
-
-    # load model's checkpoint, assuming the best configuration has been loaded
-    checkpoint_location = 'RESULTS/supervised_grid_search_toy_NCI1/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/best_checkpoint.pth'
-    load_checkpoint(checkpoint_location, model, device=device)
-
-    # you can now call the forward method of your model
-    y, embeddings = model(dataset[0])
+It's very easy to load the model from the experiments: see the end of the [Tutorial](https://mlwiz.readthedocs.io/en/latest/tutorial.html)) for more information!
