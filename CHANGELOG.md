@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2] Improvements
+
+## Changed
+
+- Ray always creates a new local instance when initialized, except when working with a cluster of machines.
+
+
 ## [1.0.1] Improvements
 
 ## Changed
