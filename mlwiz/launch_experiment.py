@@ -188,7 +188,7 @@ def evaluation(options: argparse.Namespace):
         print(f"Available nodes: {ray.nodes()}")
     # Or you can work on your single server
     else:
-        ray.init(num_cpus=max_cpus, num_gpus=max_gpus)
+        ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus)
         print(f"Started local ray instance.")
 
     data_splits_file = configs_dict[DATA_SPLITS_FILE]

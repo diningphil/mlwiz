@@ -1,7 +1,7 @@
 import math
 import random
 from copy import deepcopy
-from typing import Union, Callable
+from typing import Union, Callable, Sequence
 
 import numpy as np
 import torch
@@ -30,6 +30,34 @@ def seed_worker(exp_seed, worker_id):
     random.seed(exp_seed + worker_id)
     torch.manual_seed(exp_seed + worker_id)
     torch.cuda.manual_seed(exp_seed + worker_id)
+
+
+class SubsetTrain(Subset):
+    r"""
+    Extension of Pytorch Subset to differentiate between training and
+    evaluation subsets.
+
+    Args:
+        dataset (DatasetInterface): The whole Dataset
+        indices (sequence): Indices in the whole set selected for subset
+    """
+    def __init__(self, dataset: DatasetInterface, indices: Sequence[int]):
+        super().__init__(dataset, indices)
+        self._t = self.dataset.transform_train
+
+    def __getitem__(self, idx):
+        if self._t is None:
+            super(SubsetTrain, self).__getitem__(idx)
+        else:
+            if isinstance(idx, list):
+                return [self._t(self.dataset[self.indices[i]]) for i in idx]
+            return self._t(self.dataset[self.indices[idx]])
+
+
+class SubsetEval(SubsetTrain):
+    def __init__(self, dataset: DatasetInterface, indices: Sequence[int]):
+        super().__init__(dataset, indices)
+        self._t = self.dataset.transform_eval
 
 
 class DataProvider:
@@ -184,13 +212,14 @@ class DataProvider:
         return dataset
 
     def _get_loader(
-        self, indices: list, **kwargs: dict
+        self, indices: list, is_eval: bool, **kwargs: dict
     ) -> Union[torch.utils.data.DataLoader, torch_geometric.loader.DataLoader]:
         r"""
         Instantiates the data loader.
 
         Args:
             indices (sequence): Indices in the whole set selected for subset
+            is_eval: false if training, true otherwise
             kwargs (dict): a dictionary of additional arguments to be passed
                 to the dataset being loaded. Not used in the base version
 
@@ -198,11 +227,13 @@ class DataProvider:
             a Union[:class:`torch.utils.data.DataLoader`,
             :class:`torch_geometric.loader.DataLoader`] object
         """
+        subset_class = SubsetEval if is_eval else SubsetTrain
+
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
 
         dataset: DatasetInterface = self._get_dataset(**kwargs)
-        dataset = Subset(dataset, indices)
+        dataset = subset_class(dataset, indices)
 
         assert (
             self.exp_seed is not None
@@ -244,10 +275,11 @@ class DataProvider:
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
+        is_eval = False
         assert self.outer_k is not None and self.inner_k is not None
         splitter = self._get_splitter()
         indices = splitter.inner_folds[self.outer_k][self.inner_k].train_idxs
-        return self._get_loader(indices, **kwargs)
+        return self._get_loader(indices, is_eval, **kwargs)
 
     def get_inner_val(
         self, **kwargs: dict
@@ -265,10 +297,11 @@ class DataProvider:
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
+        is_eval = True
         assert self.outer_k is not None and self.inner_k is not None
         splitter = self._get_splitter()
         indices = splitter.inner_folds[self.outer_k][self.inner_k].val_idxs
-        return self._get_loader(indices, **kwargs)
+        return self._get_loader(indices, is_eval, **kwargs)
 
     def get_outer_train(
         self, **kwargs: dict
@@ -286,11 +319,12 @@ class DataProvider:
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
+        is_eval = False
         assert self.outer_k is not None
         splitter = self._get_splitter()
 
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
-        return self._get_loader(train_indices, **kwargs)
+        return self._get_loader(train_indices, is_eval, **kwargs)
 
     def get_outer_val(
         self, **kwargs: dict
@@ -308,10 +342,11 @@ class DataProvider:
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
+        is_eval = True
         assert self.outer_k is not None
         splitter = self._get_splitter()
         val_indices = splitter.outer_folds[self.outer_k].val_idxs
-        return self._get_loader(val_indices, **kwargs)
+        return self._get_loader(val_indices, is_eval, **kwargs)
 
     def get_outer_test(
         self, **kwargs: dict
@@ -329,10 +364,11 @@ class DataProvider:
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
+        is_eval = True
         assert self.outer_k is not None
         splitter = self._get_splitter()
         indices = splitter.outer_folds[self.outer_k].test_idxs
-        return self._get_loader(indices, **kwargs)
+        return self._get_loader(indices, is_eval, **kwargs)
 
     def get_dim_input_features(self) -> int:
         r"""
@@ -372,7 +408,7 @@ class IterableDataProvider(DataProvider):
     """
 
     def _get_loader(
-        self, indices: list, **kwargs: dict
+        self, indices: list, is_eval: bool, **kwargs: dict
     ) -> Union[torch.utils.data.DataLoader, torch_geometric.loader.DataLoader]:
         r"""
         Instantiates the data loader, passing to the dataset an additional
@@ -382,6 +418,7 @@ class IterableDataProvider(DataProvider):
 
         Args:
             indices (sequence): Indices in the whole set selected for subset
+            is_eval: false if training, true otherwise
             kwargs (dict): a dictionary of additional arguments to be passed
                 to the dataset being loaded. Not used in the base version
 
@@ -395,6 +432,7 @@ class IterableDataProvider(DataProvider):
         # we can deepcopy the dataset each time the loader is called,
         # because iterable datasets are not supposed to keep all data in memory
         dataset = deepcopy(self._get_dataset())
+        dataset.set_eval(is_eval)
         dataset.subset(indices)
 
         if shuffle:

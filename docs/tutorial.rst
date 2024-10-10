@@ -81,7 +81,7 @@ Here's an snippet of a potential configuration file that downloads and processes
       args:
         storage_folder: DATA/
 
-You can also apply ``transform`` and ``pre_transform`` to process the samples at runtime or at dataset creation time, respectively.
+You can also apply ``transform_train``/``transform_eval`` and ``pre_transform`` to process the samples at runtime or at dataset creation time, respectively.
 
 Once our data configuration file is ready, we can create the dataset using (for the example above)
 
