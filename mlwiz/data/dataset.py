@@ -21,12 +21,18 @@ class DatasetInterface:
     whole data. In case the dataset is too large and needs to be split into
     chunks, check :obj:`mlwiz.data.dataset.IterableDatasetInterface`
 
+    Please note that in order to use transformations you need to use classes
+    like :obj:`mlwiz.data.provider.SubsetTrain` 
+    or :obj:`mlwiz.data.provider.SubsetEval`
+
     Args:
         storage_folder (str): path to folder where to store the dataset
         raw_dataset_folder (Optional[str]): path to raw data folder where raw
             data is stored
-        transform (Optional[Callable]): transformations to apply to each
-            sample at run time
+        transform_train (Optional[Callable]): transformations to apply to each
+            sample at training time
+        transform_eval (Optional[Callable]): transformations to apply to each
+            sample at eval time
         pre_transform (Optional[Callable]): transformations to apply to each
             sample at dataset creation time
     """
@@ -35,7 +41,8 @@ class DatasetInterface:
         self,
         storage_folder: str,
         raw_dataset_folder: Optional[str] = None,
-        transform: Optional[Callable] = None,
+        transform_train: Optional[Callable] = None,
+        transform_eval: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
@@ -43,7 +50,8 @@ class DatasetInterface:
         self._name = self.__class__.__name__
         self._storage_folder = storage_folder
         self._raw_dataset_folder = raw_dataset_folder
-        self.transform = transform
+        self.transform_train = transform_train
+        self.transform_eval = transform_eval
         self.pre_transform = pre_transform
         self.dataset = None
         self._dataset_filename = f"{self.name}_processed_dataset.pt"
@@ -167,10 +175,7 @@ class DatasetInterface:
         """
         sample = self.dataset[idx]
 
-        # apply runtime preprocessing if needed
-        if self.transform is not None:
-            sample = self.transform(sample)
-
+        # NOTE runtime preprocessing is handled by DataProvider
         return sample
 
     def __iter__(self):
@@ -356,17 +361,20 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         storage_folder (str): path to root folder where to store the dataset
         raw_dataset_folder (Optional[str]): path to raw data folder where raw
             data is stored
-        transform (Optional[Callable]): transformations to apply to each
-            sample atrun time
+        transform_train (Optional[Callable]): transformations to apply to each
+            sample at training time
+        transform_eval (Optional[Callable]): transformations to apply to each
+            sample at eval time
         pre_transform (Optional[Callable]): transformations to apply to each
-            sample atdataset creation time
+            sample at dataset creation time
     """
 
     def __init__(
         self,
         storage_folder: str,
         raw_dataset_folder: Optional[str] = None,
-        transform: Optional[Callable] = None,
+        transform_train: Optional[Callable] = None,
+        transform_eval: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
@@ -375,6 +383,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         self._storage_folder = storage_folder
         self._raw_dataset_folder = raw_dataset_folder
         self._dataset_folder = Path(self._storage_folder, self._name)
+        self._eval = None
 
         # Create folders where to store processed dataset
         get_or_create_dir(self._dataset_folder)
@@ -398,7 +407,8 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         self._shuffle_subpatches = False
 
         self.pre_transform = pre_transform
-        self.transform = transform
+        self.transform_train = transform_train
+        self.transform_eval = transform_eval
 
         for u in self.dataset_filepaths:
             if not os.path.exists(u):
@@ -484,9 +494,24 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         self.start_index = start
         self.end_index = end
 
+    def set_eval(self, is_eval: bool):
+        """
+        Informs the object that we should either apply transform_train or
+            transform_eval depending on the samples
+        :param is_eval: whether the subset refers to training or evaluation
+            stages, so we can apply the proper transformations.
+            Set to false if training, true otherwise
+        :return:
+        """
+        self._eval = is_eval
+
     def subset(self, indices: List[int]):
         r"""
-        Use this method to modify the dataset by taking a subset of samples
+        Use this method to modify the dataset by taking a subset of samples.
+        WARNING: It PERMANENTLY changes the object URLs, so you have to create
+        a copy of the original object before calling this method. It is not
+        a memory intensive process to create a copy since this dataset works as
+        iterable and loads data from disk on the fly.
 
         Args:
             indices (List[int]): the indices to keep
@@ -517,12 +542,26 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             if self._shuffle_subpatches:
                 shuffle(url_data)
 
-            for i in range(len(url_data)):
-                yield (
-                    self.transform(url_data[i])
-                    if self.transform is not None
-                    else url_data[i]
-                )
+            # this is the case where the user forgets to set the _eval field,
+            # e.g., in a notebook, but it's not a problem because transforms
+            # have not been used at all
+            if self._eval is None:
+                if self.transform_train is not None or self.transform_eval is not None:
+                    raise Exception("You specified some transforms but you "
+                                    "have not called set_eval() first.")
+
+                for i in range(len(url_data)):
+                    yield url_data[i]
+
+            else:
+                transform = self.transform_eval if self._eval else self.transform_train
+
+                for i in range(len(url_data)):
+                    yield (
+                        transform(url_data[i])
+                        if transform is not None
+                        else url_data[i]
+                    )
 
     def process_dataset(self, pre_transform: Optional[Callable]):
         r"""
@@ -574,14 +613,14 @@ class ToyIterableDataset(IterableDatasetInterface):
         self,
         storage_folder: str,
         raw_dataset_folder: Optional[str] = None,
-        transform: Optional[Callable] = None,
+        transform_train: Optional[Callable] = None,
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
         super().__init__(
             storage_folder,
             raw_dataset_folder,
-            transform,
+            transform_train,
             pre_transform,
             **kwargs,
         )
