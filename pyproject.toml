@@ -12,7 +12,7 @@ keywords = ["machine-learning", "deep-learning", "experiments", "research", "eva
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: BSD License",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
 ]
 requires-python = ">=3.10"
 
