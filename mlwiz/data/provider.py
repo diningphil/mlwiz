@@ -65,7 +65,7 @@ class SubsetTrainEval(Subset):
 
     def __getitems__(self, indices: List[int]) -> List[T_co]:
         if self._t is None:
-            super().__getitems__(indices)
+            return super().__getitems__(indices)
         else:
             # add batched sampling support when parent dataset supports it.
             # see torch.utils.data._utils.fetch._MapDatasetFetcher
