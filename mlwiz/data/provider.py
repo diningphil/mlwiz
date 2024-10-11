@@ -1,7 +1,7 @@
 import math
 import random
 from copy import deepcopy
-from typing import Union, Callable, Sequence
+from typing import Union, Callable, Sequence, List, T_co
 
 import numpy as np
 import torch
@@ -54,16 +54,28 @@ class SubsetTrainEval(Subset):
             if is_eval
             else self.dataset.transform_train
         )
-        print(self._t, type(self._t))
 
     def __getitem__(self, idx):
-        print(self._t)
         if self._t is None:
             super().__getitem__(idx)
         else:
             if isinstance(idx, list):
                 return [self._t(self.dataset[self.indices[i]]) for i in idx]
             return self._t(self.dataset[self.indices[idx]])
+
+    def __getitems__(self, indices: List[int]) -> List[T_co]:
+        if self._t is None:
+            super().__getitems__(indices)
+        else:
+            # add batched sampling support when parent dataset supports it.
+            # see torch.utils.data._utils.fetch._MapDatasetFetcher
+            if callable(getattr(self.dataset, "__getitems__", None)):
+                samples = self.dataset.__getitems__(
+                    [self.indices[idx] for idx in indices]
+                )
+            else:
+                samples = [self.dataset[self.indices[idx]] for idx in indices]
+            return [self._t(s) for s in samples]
 
 
 class DataProvider:
