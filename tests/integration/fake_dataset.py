@@ -20,11 +20,11 @@ class FakeMNIST(DatasetInterface):
     def process_dataset(self) -> List[object]:
         dataset = []
         for _ in range(50):
-            dataset.append((torch.rand(1,
-                                       28,
-                                       28),
-                            torch.zeros(1, dtype=torch.long)))
+            dataset.append(
+                (torch.rand(1, 28, 28), torch.zeros(1, dtype=torch.long))
+            )
         return dataset
+
 
 class FakeMNISTTemporal(DatasetInterface):
     @property
@@ -38,10 +38,11 @@ class FakeMNISTTemporal(DatasetInterface):
     def process_dataset(self) -> List[object]:
         dataset = []
         for _ in range(50):
-            dataset.append((torch.rand((4,
-                                        4)),
-                            torch.zeros(1, dtype=torch.long)))
+            dataset.append(
+                (torch.rand((4, 4)), torch.zeros(1, dtype=torch.long))
+            )
         return dataset
+
 
 class FakeNCI1(DatasetInterface):
     @property
@@ -56,18 +57,26 @@ class FakeNCI1(DatasetInterface):
         dataset = []
         num_nodes = 5
         for _ in range(50):
-            dataset.append((Data(x=torch.rand((num_nodes,
-                                               self.dim_input_features)),
-                            edge_index=torch.tensor([[0,1,2,3,4],
-                                                     [3,4,2,0,1]])),
-                            torch.zeros(1, dtype=torch.long)))
+            dataset.append(
+                (
+                    Data(
+                        x=torch.rand((num_nodes, self.dim_input_features)),
+                        edge_index=torch.tensor(
+                            [[0, 1, 2, 3, 4], [3, 4, 2, 0, 1]]
+                        ),
+                    ),
+                    torch.zeros(1, dtype=torch.long),
+                )
+            )
         return dataset
+
 
 class FakeCora(DatasetInterface):
 
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 4
+
     @property
     def dim_target(self) -> Union[int, Tuple[int]]:
         return 2
@@ -75,12 +84,17 @@ class FakeCora(DatasetInterface):
     def process_dataset(self) -> List[object]:
         dataset = []
         num_nodes = 5
-        dataset.append((Data(x=torch.rand((num_nodes,
-                                           self.dim_input_features)),
-                             edge_index=torch.tensor([[0, 1, 2, 3, 4],
-                                                      [3, 4, 2, 0,
-                                                       1]])),
-                        torch.zeros(num_nodes, dtype=torch.long)))
+        dataset.append(
+            (
+                Data(
+                    x=torch.rand((num_nodes, self.dim_input_features)),
+                    edge_index=torch.tensor(
+                        [[0, 1, 2, 3, 4], [3, 4, 2, 0, 1]]
+                    ),
+                ),
+                torch.zeros(num_nodes, dtype=torch.long),
+            )
+        )
         return dataset
 
 

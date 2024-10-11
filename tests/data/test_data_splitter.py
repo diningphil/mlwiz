@@ -8,8 +8,12 @@ from mlwiz.data.splitter import (
     Splitter,
     SingleGraphSplitter,
 )
-from tests.integration.fake_dataset import FakeMNIST, FakeMNISTTemporal, \
-    FakeNCI1, FakeCora
+from tests.integration.fake_dataset import (
+    FakeMNIST,
+    FakeMNISTTemporal,
+    FakeNCI1,
+    FakeCora,
+)
 
 
 @pytest.fixture

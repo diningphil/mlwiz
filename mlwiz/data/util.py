@@ -4,9 +4,7 @@ import os.path as osp
 import warnings
 from typing import Callable
 
-from torchvision.transforms import Compose
-
-from mlwiz.util import s2c, dill_load, dill_save
+from mlwiz.util import s2c, dill_load, dill_save, return_class_and_args
 from mlwiz.static import STORAGE_FOLDER
 
 
@@ -59,31 +57,43 @@ def preprocess_data(options: dict):
     dataset_args = data_info.pop("args")
     storage_folder = dataset_args.get(STORAGE_FOLDER)
 
-    ################################
-
     dataset_kwargs = {}
 
-    pre_transforms_opt = data_info.pop("pre_transform", None)
-    if pre_transforms_opt is not None:
-        pre_transforms = []
-        for pre_transform in pre_transforms_opt:
-            pre_transform_class = s2c(pre_transform["class_name"])
-            args = pre_transform.pop("args", {})
-            pre_transforms.append(pre_transform_class(**args))
-        dataset_kwargs.update(pre_transform=Compose(pre_transforms))
+    pre_transform_class, pre_transform_args = return_class_and_args(
+        dataset_args, "pre_transform"
+    )
+    if pre_transform_class is not None:
+        pre_transform_args = (
+            {} if pre_transform_args is None else pre_transform_args
+        )
+        dataset_kwargs.update(
+            pre_transform=pre_transform_class(**pre_transform_args)
+        )
 
-    transforms_opt = data_info.pop("transform", None)
-    if transforms_opt is not None:
-        transforms = []
-        for transform in transforms_opt:
-            transform_class = s2c(transform["class_name"])
-            args = transform.pop("args", {})
-            transforms.append(transform_class(**args))
-        dataset_kwargs.update(transform=Compose(transforms))
+    transform_tr_class, transform_tr_args = return_class_and_args(
+        dataset_args, "transform_train"
+    )
+    if transform_tr_class is not None:
+        transform_tr_args = (
+            {} if transform_tr_args is None else transform_tr_args
+        )
+        dataset_kwargs.update(
+            transform_train=transform_tr_class(**transform_tr_args)
+        )
+
+    transform_ev_class, transform_ev_args = return_class_and_args(
+        dataset_args, "transform_eval"
+    )
+
+    if transform_ev_class is not None:
+        transform_ev_class = (
+            {} if transform_ev_class is None else transform_ev_class
+        )
+        dataset_kwargs.update(
+            transform_eval=transform_ev_class(**transform_ev_args)
+        )
 
     dataset_args.update(dataset_kwargs)
-
-    ################################
 
     dataset = dataset_class(**dataset_args)
     dataset_name = dataset.__class__.__name__

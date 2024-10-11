@@ -16,9 +16,15 @@ dataset:
   args:  # arguments to pass to the dataset class
     arg1:
     argn:
-  transform: # on the fly transforms: useful for social datasets with no node features (with an example)
+  transform_train: # on the fly transforms for training samples: useful for social datasets with no node features (with an example)
     - class_name: # dotted path to transform class
       args:
         value: 1
+  transform_eval: # on the fly transforms for validation/test samples: useful for social datasets with no node features (with an example)
+    - class_name: # dotted path to transform class
+      args:
+        value: 1
+
+
   # pre_transform:  # transform data and store it at dataset creation time
   # pre_filter:  # filter data and store it at dataset creation time

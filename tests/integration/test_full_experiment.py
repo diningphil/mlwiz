@@ -4,9 +4,13 @@ import pytest
 import yaml
 
 from mlwiz.data.util import preprocess_data
-from mlwiz.evaluation.util import retrieve_best_configuration, \
-    instantiate_dataset_from_config, instantiate_model_from_config, \
-    load_checkpoint, instantiate_data_provider_from_config
+from mlwiz.evaluation.util import (
+    retrieve_best_configuration,
+    instantiate_dataset_from_config,
+    instantiate_model_from_config,
+    load_checkpoint,
+    instantiate_data_provider_from_config,
+)
 from mlwiz.launch_experiment import evaluation
 from mlwiz.static import DEBUG, CONFIG_FILE
 
@@ -51,10 +55,13 @@ def test_experiments():
         config = MockConfig(config)
         evaluation(config)
 
-
-    config = retrieve_best_configuration('tests/tmp/RESULTS/mlp_FakeMNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/')
-    splits_filepath = 'tests/tmp/DATA_SPLITS/FakeMNIST/FakeMNIST_outer3_inner2.splits'
-    device = 'cpu'
+    config = retrieve_best_configuration(
+        "tests/tmp/RESULTS/mlp_FakeMNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/"
+    )
+    splits_filepath = (
+        "tests/tmp/DATA_SPLITS/FakeMNIST/FakeMNIST_outer3_inner2.splits"
+    )
+    device = "cpu"
 
     # instantiate dataset
     dataset = instantiate_dataset_from_config(config)
@@ -63,7 +70,7 @@ def test_experiments():
     model = instantiate_model_from_config(config, dataset)
 
     # load model's checkpoint, assuming the best configuration has been loaded
-    checkpoint_location = 'tests/tmp/RESULTS/mlp_FakeMNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/best_checkpoint.pth'
+    checkpoint_location = "tests/tmp/RESULTS/mlp_FakeMNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/best_checkpoint.pth"
     load_checkpoint(checkpoint_location, model, device=device)
 
     # you can now call the forward method of your model
@@ -72,10 +79,9 @@ def test_experiments():
     # ------------------------------------------------------------------ #
     # OPTIONAL: you can also instantiate a DataProvider to load TR/VL/TE splits specific to each fold
 
-    data_provider = instantiate_data_provider_from_config(config,
-                                                          splits_filepath,
-                                                          3,
-                                                          2)
+    data_provider = instantiate_data_provider_from_config(
+        config, splits_filepath, 3, 2
+    )
     # select outer fold 1 (indices start from 0)
     data_provider.set_outer_k(0)
     # select inner fold 1 (indices start from 0)
@@ -91,6 +97,7 @@ def test_experiments():
 
     # Please refer to the DataProvider documentation to use it properly.
     # ------------------------------------------------------------------ #
+
 
 @pytest.mark.dependency(depends=["test_experiments"])
 def test_cleanup():

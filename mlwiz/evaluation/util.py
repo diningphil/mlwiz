@@ -516,8 +516,9 @@ def load_checkpoint(
     :param device (torch.device): the device, e.g, "cpu" or "cuda"
     """
     ckpt_dict = torch.load(
-        checkpoint_path, map_location="cpu" if device == "cpu" else None,
-        weights_only = True
+        checkpoint_path,
+        map_location="cpu" if device == "cpu" else None,
+        weights_only=True,
     )
     model_state = ckpt_dict[MODEL_STATE]
 

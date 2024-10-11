@@ -29,11 +29,15 @@ the following, with an explanation of each field as a comment:
       args:  # arguments to pass to the dataset class
         arg_name1:
         arg_namen:
-      transform: # on the fly transforms
+      # pre_transform:  # transform data and store it at dataset creation time. Can be a string or a class + args as below
+      transform_train: # on the fly transforms for training data
         - class_name: mlwiz.data.transform.ConstantIfEmpty
           args:
             value: 1
-      # pre_transform:  # transform data and store it at dataset creation time
+      transform_eval: # on the fly transforms for validation and test data
+        - class_name: mlwiz.data.transform.ConstantIfEmpty
+          args:
+            value: 1
 
 
 Data Splitting
@@ -81,7 +85,7 @@ Here's an snippet of a potential configuration file that downloads and processes
       args:
         storage_folder: DATA/
 
-You can also apply ``transform`` and ``pre_transform`` to process the samples at runtime or at dataset creation time, respectively.
+You can also apply ``transform_train``/``transform_eval`` and ``pre_transform`` to process the samples at runtime or at dataset creation time, respectively.
 
 Once our data configuration file is ready, we can create the dataset using (for the example above)
 

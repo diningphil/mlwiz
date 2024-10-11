@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlwiz"
-version = "1.0.1"
+version = "1.1.0"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"
@@ -12,7 +12,7 @@ keywords = ["machine-learning", "deep-learning", "experiments", "research", "eva
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: BSD License",
-    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
 ]
 requires-python = ">=3.10"
 
