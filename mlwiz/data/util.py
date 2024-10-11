@@ -62,30 +62,36 @@ def preprocess_data(options: dict):
     pre_transform_class, pre_transform_args = return_class_and_args(
         dataset_args, "pre_transform"
     )
-    pre_transform_args = (
-        {} if pre_transform_args is None else pre_transform_args
-    )
-    dataset_kwargs.update(
-        pre_transform=pre_transform_class(**pre_transform_args)
-    )
+    if pre_transform_class is not None:
+        pre_transform_args = (
+            {} if pre_transform_args is None else pre_transform_args
+        )
+        dataset_kwargs.update(
+            pre_transform=pre_transform_class(**pre_transform_args)
+        )
 
     transform_tr_class, transform_tr_args = return_class_and_args(
         dataset_args, "transform_train"
     )
-    transform_tr_args = {} if transform_tr_args is None else transform_tr_args
-    dataset_kwargs.update(
-        transform_train=transform_tr_class(**transform_tr_args)
-    )
+    if transform_tr_class is not None:
+        transform_tr_args = (
+            {} if transform_tr_args is None else transform_tr_args
+        )
+        dataset_kwargs.update(
+            transform_train=transform_tr_class(**transform_tr_args)
+        )
 
     transform_ev_class, transform_ev_args = return_class_and_args(
         dataset_args, "transform_eval"
     )
-    transform_ev_class = (
-        {} if transform_ev_class is None else transform_ev_class
-    )
-    dataset_kwargs.update(
-        transform_eval=transform_ev_class(**transform_ev_args)
-    )
+
+    if transform_ev_class is not None:
+        transform_ev_class = (
+            {} if transform_ev_class is None else transform_ev_class
+        )
+        dataset_kwargs.update(
+            transform_eval=transform_ev_class(**transform_ev_args)
+        )
 
     dataset_args.update(dataset_kwargs)
 
