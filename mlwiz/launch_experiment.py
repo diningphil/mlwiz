@@ -7,6 +7,7 @@ import yaml
 
 from mlwiz.static import *
 
+
 def set_gpus(num_gpus: int, gpus_subset: Optional[str] = None):
     """
     Sets the visible GPUS for the experiments according to the availability

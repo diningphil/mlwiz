@@ -14,6 +14,7 @@ from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
+from mlwiz.util import s2c
 
 
 def seed_worker(exp_seed, worker_id):
@@ -32,7 +33,7 @@ def seed_worker(exp_seed, worker_id):
     torch.cuda.manual_seed(exp_seed + worker_id)
 
 
-class SubsetTrain(Subset):
+class SubsetTrainEval(Subset):
     r"""
     Extension of Pytorch Subset to differentiate between training and
     evaluation subsets.
@@ -40,24 +41,29 @@ class SubsetTrain(Subset):
     Args:
         dataset (DatasetInterface): The whole Dataset
         indices (sequence): Indices in the whole set selected for subset
+        is_eval (bool): false if training true otherwise
     """
-    def __init__(self, dataset: DatasetInterface, indices: Sequence[int]):
+
+    def __init__(
+        self, dataset: DatasetInterface, indices: Sequence[int], is_eval: bool
+    ):
         super().__init__(dataset, indices)
-        self._t = self.dataset.transform_train
+        self.is_eval = is_eval
+        self._t = (
+            self.dataset.transform_eval
+            if is_eval
+            else self.dataset.transform_train
+        )
+        print(self._t, type(self._t))
 
     def __getitem__(self, idx):
+        print(self._t)
         if self._t is None:
-            super(SubsetTrain, self).__getitem__(idx)
+            super().__getitem__(idx)
         else:
             if isinstance(idx, list):
                 return [self._t(self.dataset[self.indices[i]]) for i in idx]
             return self._t(self.dataset[self.indices[idx]])
-
-
-class SubsetEval(SubsetTrain):
-    def __init__(self, dataset: DatasetInterface, indices: Sequence[int]):
-        super().__init__(dataset, indices)
-        self._t = self.dataset.transform_eval
 
 
 class DataProvider:
@@ -227,13 +233,11 @@ class DataProvider:
             a Union[:class:`torch.utils.data.DataLoader`,
             :class:`torch_geometric.loader.DataLoader`] object
         """
-        subset_class = SubsetEval if is_eval else SubsetTrain
-
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
 
         dataset: DatasetInterface = self._get_dataset(**kwargs)
-        dataset = subset_class(dataset, indices)
+        dataset = SubsetTrainEval(dataset, indices, is_eval)
 
         assert (
             self.exp_seed is not None
@@ -322,7 +326,6 @@ class DataProvider:
         is_eval = False
         assert self.outer_k is not None
         splitter = self._get_splitter()
-
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
         return self._get_loader(train_indices, is_eval, **kwargs)
 
@@ -551,7 +554,9 @@ class SingleGraphDataProvider(DataProvider):
         # we probably need to pass run-time specific parameters, so load the
         # dataset in memory again
         # an example is the subset of urls in Iterable style datasets
-        dataset = load_dataset(self.storage_folder, self.dataset_class, **kwargs)
+        dataset = load_dataset(
+            self.storage_folder, self.dataset_class, **kwargs
+        )
 
         self.dim_input_features = dataset.dim_input_features
         self.dim_target = dataset.dim_target

@@ -3,6 +3,7 @@ from typing import Tuple, Callable
 
 import dill
 
+
 def return_class_and_args(
     config: dict, key: str, return_class_name: bool = False
 ) -> Tuple[Callable[..., object], dict]:
@@ -67,6 +68,7 @@ def dill_save(data: object, filepath: str) -> object:
     """
     with open(filepath, "wb") as file:
         return dill.dump(data, file)
+
 
 def dill_load(filepath: str) -> object:
     """

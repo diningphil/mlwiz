@@ -10,6 +10,7 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.experiment import Experiment
 from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
 
+
 class FakeTask(Experiment):
     def run_valid(self, dataset_getter, logger):
         outer_k = dataset_getter.outer_k

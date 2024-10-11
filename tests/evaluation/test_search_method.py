@@ -4,6 +4,7 @@ import yaml
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 
+
 @pytest.fixture
 def search_method_config_length():
     return [

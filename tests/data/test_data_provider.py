@@ -19,6 +19,7 @@ from tests.data.test_data_splitter import (
     single_graph_datasets,
 )
 
+
 def mock_get_dataset(cls, **kwargs):
     """
     Returns the dataset stored in the object (see main test)

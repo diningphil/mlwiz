@@ -2,6 +2,10 @@
 
 ## [1.1.0] Data Augmentation Improvements
 
+## Fixed
+
+- Bug in pre-transform and transform_train/eval not being parsed correctly
+
 ## Changed
 
 - Ray always creates a new local instance when initialized, except when working with a cluster of machines.
@@ -10,8 +14,7 @@
   Note that the `IterableDatasetInterface` has a slightly different logic here than `DatasetInterface`. 
   The latter relies on two custom `SubsetTrain` and `SubsetEval` classes used by the `DataProvider`.
 
-
-
+  
 ## [1.0.1] Improvements
 
 ## Changed

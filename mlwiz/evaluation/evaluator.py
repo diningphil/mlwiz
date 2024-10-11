@@ -26,6 +26,7 @@ from mlwiz.util import s2c, dill_load, dill_save
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
 
+
 def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
     """
     Sends a message using Telegram APIs. Markdown can be used.
@@ -779,7 +780,8 @@ class RiskAssesser:
             )
 
             training_res, validation_res, _ = dill_load(
-                fold_run_results_torch_path)
+                fold_run_results_torch_path
+            )
 
             training_loss, validation_loss = (
                 training_res[LOSS],
@@ -883,7 +885,8 @@ class RiskAssesser:
             )
 
             training_res, validation_res, _ = dill_load(
-                fold_results_torch_path)
+                fold_results_torch_path
+            )
 
             training_loss, validation_loss = (
                 training_res[LOSS],
@@ -1173,12 +1176,12 @@ class RiskAssesser:
 
                     for results, set in outer_results:
                         set_results = np.array([res[k] for res in results])
-                        assessment_results[
-                            f"{AVG}_{set}_{k}"
-                        ] = set_results.mean()
-                        assessment_results[
-                            f"{STD}_{set}_{k}"
-                        ] = set_results.std()
+                        assessment_results[f"{AVG}_{set}_{k}"] = (
+                            set_results.mean()
+                        )
+                        assessment_results[f"{STD}_{set}_{k}"] = (
+                            set_results.std()
+                        )
 
         # Send telegram update
         if self.model_configs.telegram_config is not None:

@@ -29,11 +29,15 @@ the following, with an explanation of each field as a comment:
       args:  # arguments to pass to the dataset class
         arg_name1:
         arg_namen:
-      transform: # on the fly transforms
+      # pre_transform:  # transform data and store it at dataset creation time. Can be a string or a class + args as below
+      transform_train: # on the fly transforms for training data
         - class_name: mlwiz.data.transform.ConstantIfEmpty
           args:
             value: 1
-      # pre_transform:  # transform data and store it at dataset creation time
+      transform_eval: # on the fly transforms for validation and test data
+        - class_name: mlwiz.data.transform.ConstantIfEmpty
+          args:
+            value: 1
 
 
 Data Splitting

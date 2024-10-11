@@ -8,7 +8,7 @@ import torchvision
 from torch_geometric.datasets import TUDataset, Planetoid
 
 from mlwiz.data.util import get_or_create_dir
-from mlwiz.util import dill_save, dill_load
+from mlwiz.util import dill_save, dill_load, s2c
 
 
 class DatasetInterface:
@@ -22,8 +22,7 @@ class DatasetInterface:
     chunks, check :obj:`mlwiz.data.dataset.IterableDatasetInterface`
 
     Please note that in order to use transformations you need to use classes
-    like :obj:`mlwiz.data.provider.SubsetTrain` 
-    or :obj:`mlwiz.data.provider.SubsetEval`
+    like :obj:`mlwiz.data.provider.SubsetTrainEval`
 
     Args:
         storage_folder (str): path to folder where to store the dataset
@@ -407,8 +406,8 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         self._shuffle_subpatches = False
 
         self.pre_transform = pre_transform
-        self.transform_train = transform_train
-        self.transform_eval = transform_eval
+        self.transform_train = s2c(transform_train)()
+        self.transform_eval = s2c(transform_eval)()
 
         for u in self.dataset_filepaths:
             if not os.path.exists(u):
@@ -546,15 +545,22 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             # e.g., in a notebook, but it's not a problem because transforms
             # have not been used at all
             if self._eval is None:
-                if self.transform_train is not None or self.transform_eval is not None:
-                    raise Exception("You specified some transforms but you "
-                                    "have not called set_eval() first.")
+                if (
+                    self.transform_train is not None
+                    or self.transform_eval is not None
+                ):
+                    raise Exception(
+                        "You specified some transforms but you "
+                        "have not called set_eval() first."
+                    )
 
                 for i in range(len(url_data)):
                     yield url_data[i]
 
             else:
-                transform = self.transform_eval if self._eval else self.transform_train
+                transform = (
+                    self.transform_eval if self._eval else self.transform_train
+                )
 
                 for i in range(len(url_data)):
                     yield (
