@@ -406,8 +406,8 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         self._shuffle_subpatches = False
 
         self.pre_transform = pre_transform
-        self.transform_train = s2c(transform_train)()
-        self.transform_eval = s2c(transform_eval)()
+        self.transform_train = transform_train
+        self.transform_eval = transform_eval
 
         for u in self.dataset_filepaths:
             if not os.path.exists(u):
