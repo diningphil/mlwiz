@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlwiz"
-version = "1.1.0"
+version = "1.1.1"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"

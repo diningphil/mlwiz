@@ -41,6 +41,14 @@ class RandomSearch(Grid):
                 # DICT CASE: call _dict_helper on this dict
                 elif isinstance(values, dict):
                     result[key] = self._dict_helper(deepcopy(values))
+                # LIST CASE: you should call _list_helper recursively on each
+                # element
+                elif isinstance(values, list):
+                    assert len(values) == 1, (f"Only one {key} value per "
+                                              "configuration if you do not "
+                                              "specify a sampling method")
+                    result[key] = self._dict_helper(deepcopy(values[0]))
+
 
             yield deepcopy(result)
 
@@ -51,12 +59,23 @@ class RandomSearch(Grid):
         Returns:
             A dictionary
         """
+        if type(configs) in [str, int, float, bool, None]:
+            return configs
+
         if SAMPLE_METHOD in configs:
             return self._sampler_helper(configs)
 
         for key, values in configs.items():
-            if isinstance(values, dict):
+            # BASE CASE: key is associated to an atomic value
+            if type(values) in [str, int, float, bool, None]:
+                configs[key] = values
+            elif isinstance(values, dict):
                 configs[key] = self._dict_helper(configs[key])
+            elif isinstance(values, list):
+                assert len(values) == 1, (f"Only one {key} value per "
+                                          "configuration if you do not "
+                                          "specify a sampling method")
+                configs[key] = self._dict_helper(deepcopy(values[0]))
 
         return configs
 
