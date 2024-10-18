@@ -1,19 +1,25 @@
+# Telegram Bot
+# telegram_config_file: telegram_config.yml
+
+
 # Dataset and Splits
 storage_folder: DATA
 dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  TEST
+data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+
 
 # Hardware
 device:  cpu
-max_cpus:  4
-max_gpus: 0
+max_cpus:  8
+max_gpus: 1
 gpus_per_task:  1
+# gpus_subset: 0,1,2,3,4,5,6,7,8
 
 
 # Data Loading
 dataset_getter: mlwiz.data.provider.DataProvider
 data_loader:
-  class_name: torch_geometric.loader.DataLoader
+  class_name: torch.utils.data.DataLoader
   args:
     num_workers : 0
     pin_memory: False
@@ -24,28 +30,26 @@ seed: 42
 
 
 # Experiment
-result_folder: TEST
-exp_name: TEST_GRID
+result_folder: RESULTS
+exp_name: mlp
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1
-risk_assessment_training_runs: 1
+risk_assessment_training_runs: 3
+model_selection_training_runs: 2
 
-
-grid:
+num_samples: 5
+random:
   model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
-  batch_size: 32
-  epochs: 3
+  batch_size: 512
+  epochs: 2
 
   # Model specific arguments #
 
   dim_embedding: 5
-  num_layers:
-    - 3
-    - 5
-  aggregation: mean
+  mlwiz_tests: True  # allow reshaping of MNIST dataset
 
   # ------------------------ #
 
@@ -54,13 +58,6 @@ grid:
     - class_name: mlwiz.training.callback.optimizer.Optimizer
       args:
         optimizer_class_name: torch.optim.Adam
-        lr:
-          - 0.01
-          - 0.001
-        weight_decay: 0.
-    - class_name: mlwiz.training.callback.optimizer.Optimizer
-      args:
-        optimizer_class_name: torch.optim.Adagrad
         lr:
           - 0.01
         weight_decay: 0.
@@ -74,6 +71,15 @@ grid:
       args:
         loss_1: mlwiz.training.callback.metric.MulticlassClassification
         loss_2: mlwiz.training.callback.metric.MulticlassClassification
+        losses_weights:
+          Multiclass Classification:
+            - 1.
+        accumulate_over_epoch:
+          sample_method: mlwiz.evaluation.util.choice
+          # one or the other
+          args:
+            - True
+            - False
 
 
   # Score metric (with an example of Multi Score)
@@ -84,7 +90,15 @@ grid:
         my_second_metric: mlwiz.training.callback.metric.ToyMetric
 
   # Training engine
-  engine: mlwiz.training.engine.TrainingEngine
+  engine:
+    - class_name: mlwiz.training.engine.TrainingEngine
+      args:
+        eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
+          sample_method: mlwiz.evaluation.util.choice
+          # one or the other
+          args:
+            - False  # default behavior, saves some compute time as we are generally interested in validation scores
+            - True  # re-evaluates on training set after each training epoch, might not change much loss/score values and causes overhead
 
   # Gradient clipper (optional)
   gradient_clipper: null
@@ -102,4 +116,7 @@ grid:
         checkpoint: True  # store the best checkpoint
 
   # Plotter of metrics
-  plotter: mlwiz.training.callback.plotter.Plotter
+  plotter:
+    - class_name: mlwiz.training.callback.plotter.Plotter
+      args:
+        store_on_disk: True

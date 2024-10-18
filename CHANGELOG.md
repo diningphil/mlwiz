@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.1] Random Search Fix
+
+## Fixed
+
+- Random search breaks when you need to pass args to a class
+
+## Fixed
+
 ## [1.1.0] Data Augmentation Improvements
 
 ## Fixed

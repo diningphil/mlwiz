@@ -75,13 +75,14 @@ random:
   scheduler: null
 
   # Loss metric
-  loss: mlwiz.training.callback.metric.MulticlassClassification
+  loss:
+    - mlwiz.training.callback.metric.MulticlassClassification
 
   # Score metric
-  scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-
-  # Readout (optional)
-  readout: mlwiz.model.readout.graph_readout.LinearGraphReadout
+  scorer:
+    - class_name: mlwiz.training.callback.metric.MultiScore
+      args:
+        main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
 
   # Training engine
   engine: mlwiz.training.engine.TrainingEngine
