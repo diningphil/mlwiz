@@ -1,12 +1,18 @@
 # Changelog
 
+## [1.1.2] Random Search Fix
+
+## Added
+
+- Now you can execute an arbitrary configuration first in debug mode. Just pass the argument `--debug --execute-config-id [config_id]` to the `mlwiz-exp` command.
+
+
 ## [1.1.1] Random Search Fix
 
 ## Fixed
 
 - Random search breaks when you need to pass args to a class
 
-## Fixed
 
 ## [1.1.0] Data Augmentation Improvements
 
