@@ -290,13 +290,17 @@ class RiskAssesser:
         )
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
 
-    def risk_assessment(self, debug: bool):
+    def risk_assessment(self, debug: bool, execute_config_id: int = None):
         r"""
         Performs risk assessment to evaluate the performances of a model.
 
         Args:
             debug: if ``True``, sequential execution is performed and logs are
                 printed to screen
+            execute_config_id: if debug mode is enabled, it will prioritize the
+                execution of this configuration for each model selection
+                procedure. It assumes indices start from 1.
+                Use this to debug specific configurations.
         """
         if not osp.exists(self._ASSESSMENT_FOLDER):
             os.makedirs(self._ASSESSMENT_FOLDER)
@@ -348,7 +352,9 @@ class RiskAssesser:
 
                 # Perform model selection. This determines a best config
                 # FOR EACH of the k outer folds
-                self.model_selection(kfold_folder, outer_k, debug)
+                self.model_selection(
+                    kfold_folder, outer_k, debug, execute_config_id
+                )
 
                 # Must stay separate from Ray distributed computing logic
                 if debug:
@@ -510,7 +516,13 @@ class RiskAssesser:
                         # Time to produce self._OUTER_RESULTS_FILENAME
                         self.process_final_runs(outer_k)
 
-    def model_selection(self, kfold_folder: str, outer_k: int, debug: bool):
+    def model_selection(
+        self,
+        kfold_folder: str,
+        outer_k: int,
+        debug: bool,
+        execute_config_id: int,
+    ):
         r"""
         Performs model selection.
 
@@ -519,6 +531,9 @@ class RiskAssesser:
             outer_k: the current outer fold to consider
             debug: if ``True``, sequential execution is performed and logs are
                 printed to screen
+            execute_config_id: if debug mode is enabled, it will prioritize the
+                execution of this configuration. It assumes indices start
+                from 1. Use this to debug specific configurations.
         """
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
@@ -543,8 +558,23 @@ class RiskAssesser:
 
         # if the # of configs to try is 1, simply skip model selection
         if len(self.model_configs) > 1:
+
+            _model_configs = [
+                (config_id, config)
+                for config_id, config in enumerate(self.model_configs)
+            ]
+
+            # Prioritizing executions in debug mode for debugging purposes
+            if debug and execute_config_id is not None:
+                element = _model_configs.pop(execute_config_id-1)
+                _model_configs.insert(0, element)
+                print(
+                    f"Prioritizing execution of configuration"
+                    f" {_model_configs[0][0]} as requested..."
+                )
+                print(element)
             # Launch one job for each inner_fold for each configuration
-            for config_id, config in enumerate(self.model_configs):
+            for config_id, config in _model_configs:
                 # Create a separate folder for each configuration
                 config_folder = osp.join(
                     model_selection_folder,

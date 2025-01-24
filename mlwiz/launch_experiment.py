@@ -99,6 +99,10 @@ def evaluation(options: argparse.Namespace):
     """
     kwargs = vars(options)
     debug = kwargs[DEBUG]
+    execute_config_id = kwargs.get(EXECUTE_CONFIG_ID, None)
+    if execute_config_id is not None:
+        execute_config_id = int(execute_config_id)
+
     configs_dict = yaml.load(
         open(kwargs[CONFIG_FILE], "r"), Loader=yaml.FullLoader
     )
@@ -222,7 +226,15 @@ def evaluation(options: argparse.Namespace):
         base_seed=seed,
     )
 
-    risk_assesser.risk_assessment(debug=debug)
+    if not debug and execute_config_id is not None:
+        print(
+            f"Executing config_id {execute_config_id} "
+            f"only works in debug mode, exiting..."
+        )
+        exit(0)
+    risk_assesser.risk_assessment(
+        debug=debug, execute_config_id=execute_config_id
+    )
     ray.shutdown()
 
 
@@ -238,6 +250,11 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(CONFIG_FILE_CLI_ARGUMENT, dest=CONFIG_FILE)
     parser.add_argument(
         DEBUG_CLI_ARGUMENT, action="store_true", dest=DEBUG, default=False
+    )
+    parser.add_argument(
+        EXECUTE_CONFIG_ID_CLI_ARGUMENT,
+        dest=EXECUTE_CONFIG_ID,
+        default=None,
     )
     return parser.parse_args()
 
