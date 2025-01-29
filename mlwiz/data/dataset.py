@@ -237,6 +237,11 @@ class MNIST(DatasetInterface):
 
 
 class NCI1(DatasetInterface):
+    """
+    Note: For graph datasets we still use torch.save/load, since
+    PyG >=2.6.0 specifies the safe globals (Pytorch 2.5) and torch.save/load
+    is much faster and more efficient (space/time) at storing Data objects.
+    """
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
@@ -268,6 +273,11 @@ class NCI1(DatasetInterface):
 
 
 class Cora(DatasetInterface):
+    """
+    Note: For graph datasets we still use torch.save/load, since
+    PyG >=2.6.0 specifies the safe globals (Pytorch 2.5) and torch.save/load
+    is much faster and more efficient (space/time) at storing Data objects.
+    """
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
