@@ -2,9 +2,13 @@
 requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
+[tool.setuptools]
+py-modules = ["mlwiz"]
+
+
 [project]
 name = "mlwiz"
-version = "1.1.2"
+version = "1.2.0"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"
@@ -26,8 +30,8 @@ dependencies = [
     "tqdm>=4.47.0",
     "ray>=2.6.0",
     "torchvision>=0.18.1",
-    "torch>=2.3.1",
-    "torch-geometric>=2.3.0,<=2.4.0", # todo remove upper bound as soon as the bug has been fixed (hopefully in 2.6.0) https://github.com/pyg-team/pytorch_geometric/issues/9521
+    "torch>=2.5.0",
+    "torch-geometric>=2.6.0"
 ]
 
 
