@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.2.0] More Efficient Graph Dataset Storing/Loading
+
+## Requirements
+
+- Pytorch >= 2.5.0
+- Pytorch-Geometric >= 2.6.0
+
+## Fixed
+
+- Loading and storing graphs still makes use of `torch.load` and `torch.save`. Relies on PyG defining safe_globals after the recent Pytorch update (2.4)
+
 ## [1.1.2] Random Search Fix
 
 ## Added

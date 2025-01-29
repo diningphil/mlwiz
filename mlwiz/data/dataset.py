@@ -82,11 +82,19 @@ class DatasetInterface:
 
             # store dataset
             print(f"Storing into {self.dataset_filepath}...")
-            dill_save(self.dataset, self.dataset_filepath)
+            self._save_dataset(self.dataset, self.dataset_filepath)
 
         else:
             # Simply load the dataset in memory
-            self.dataset = dill_load(self.dataset_filepath)
+            self.dataset = self._load_dataset(self.dataset_filepath)
+
+    @staticmethod
+    def _save_dataset(dataset, dataset_filepath):
+        dill_save(dataset, dataset_filepath)
+
+    @staticmethod
+    def _load_dataset(dataset_filepath):
+        return dill_load(dataset_filepath)
 
     @property
     def name(self) -> str:
@@ -229,6 +237,15 @@ class MNIST(DatasetInterface):
 
 
 class NCI1(DatasetInterface):
+
+    @staticmethod
+    def _save_dataset(dataset, dataset_filepath):
+        torch.save(dataset, dataset_filepath)
+
+    @staticmethod
+    def _load_dataset(dataset_filepath):
+        return torch.load(dataset_filepath, weights_only=False)
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 37
@@ -251,6 +268,15 @@ class NCI1(DatasetInterface):
 
 
 class Cora(DatasetInterface):
+
+    @staticmethod
+    def _save_dataset(dataset, dataset_filepath):
+        torch.save(dataset, dataset_filepath)
+
+    @staticmethod
+    def _load_dataset(dataset_filepath):
+        return torch.load(dataset_filepath, weights_only=False)
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 1433
