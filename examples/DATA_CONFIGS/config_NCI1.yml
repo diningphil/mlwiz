@@ -5,7 +5,7 @@ splitter:
     n_outer_folds: 3
     n_inner_folds: 2
     seed: 42
-    stratify: False
+    stratify: True
     shuffle: True
     inner_val_ratio: 0.1  # let's use a portion of the training set for validation at model selection time
     outer_val_ratio: 0.1  # let's use a portion of the training set for validation at risk assessment time
