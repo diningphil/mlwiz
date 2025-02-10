@@ -566,7 +566,7 @@ class RiskAssesser:
 
             # Prioritizing executions in debug mode for debugging purposes
             if debug and execute_config_id is not None:
-                element = _model_configs.pop(execute_config_id-1)
+                element = _model_configs.pop(execute_config_id - 1)
                 _model_configs.insert(0, element)
                 print(
                     f"Prioritizing execution of configuration"

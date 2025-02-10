@@ -1,11 +1,15 @@
 # Changelog
 
-## [1.2.0] More Efficient Graph Dataset Storing/Loading
+## [1.2.0] More Efficient Graph Dataset Storing/Loading and Minor Improvements
 
 ## Requirements
 
 - Pytorch >= 2.5.0
 - Pytorch-Geometric >= 2.6.0
+
+## Added
+
+- Automatic check that data splits created by any splitter do not overlap. You can skip this check by passing `--skip-data-splits-check` to `mlwiz-data`
 
 ## Fixed
 

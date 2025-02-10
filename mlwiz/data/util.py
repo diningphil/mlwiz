@@ -5,7 +5,7 @@ import warnings
 from typing import Callable
 
 from mlwiz.util import s2c, dill_load, dill_save, return_class_and_args
-from mlwiz.static import STORAGE_FOLDER
+from mlwiz.static import STORAGE_FOLDER, SKIP_SPLITS_CHECK
 
 
 def get_or_create_dir(path: str) -> str:
@@ -39,7 +39,7 @@ def check_argument(cls: object, arg_name: str) -> bool:
     return arg_name in sign.parameters.keys()
 
 
-def preprocess_data(options: dict):
+def preprocess_data(options: dict) -> dict:
     r"""
     One of the main functions of the MLWiz library. Used to create the dataset
     and its associated files that ensure the correct functioning of the
@@ -50,6 +50,7 @@ def preprocess_data(options: dict):
             defined in the data configuration file used.
 
     """
+    skip_splits_check = options.pop(SKIP_SPLITS_CHECK)
     data_info = options.pop("dataset")
     if "class_name" not in data_info:
         raise ValueError("You must specify 'class_name' in your dataset.")
@@ -131,6 +132,7 @@ def preprocess_data(options: dict):
 
         # The splitter is in charge of eventual stratifications
         splitter.split(dataset, targets=targets if has_targets else None)
+        splitter.check_splits_overlap(skip_check=skip_splits_check)
         splitter.save(splits_path)
     else:
         print("Data splits are already present, I will not overwrite them.")

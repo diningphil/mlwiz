@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.abspath("../"))
 # -- Project information -----------------------------------------------------
 
 project = "MLWiz"
-copyright = "2024, Federico Errica"
+copyright = "2024-2025, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags

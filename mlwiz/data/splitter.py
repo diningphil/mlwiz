@@ -389,6 +389,39 @@ class Splitter:
             )
             self.outer_folds.append(outer_fold)
 
+    def check_splits_overlap(self, skip_check: bool = False):
+        """
+        Checks if the splits created are non-overlapping or overlapping.
+        If overlapping, an error message is returned.
+        :param skip_check: whether to skip this check
+        """
+        if skip_check:
+            print("User asked to skip data checking data splits for overlaps.")
+        else:
+            err_msg = (
+                "Data splits overlap! Please check your splitter code for errors."
+            )
+
+            for outer_fold in self.outer_folds:
+                assert set(outer_fold.train_idxs).isdisjoint(
+                    set(outer_fold.test_idxs)
+                ), err_msg
+                assert set(outer_fold.val_idxs).isdisjoint(
+                    set(outer_fold.test_idxs)
+                ), err_msg
+                assert set(outer_fold.train_idxs).isdisjoint(
+                    set(outer_fold.val_idxs)
+                ), err_msg
+
+            for inner_fold_list in self.inner_folds:
+                for inner_fold in inner_fold_list:
+                    assert set(inner_fold.train_idxs).isdisjoint(
+                        set(inner_fold.val_idxs)
+                    ), err_msg
+                    assert (
+                        inner_fold.test_idxs is None
+                    ), "Test indices should not be present in the inner folds."
+            print('Check data splits not overlapping: passed.')
     def _splitter_args(self) -> dict:
         r"""
         Returns a dict with all the splitter's arguments for subsequent
