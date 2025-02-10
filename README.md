@@ -13,8 +13,9 @@
 
 ## [Documentation](https://mlwiz.readthedocs.io/en/stable/index.html)
 
-MLWiz is a Python library that fosters machine learning research by reducing the boilerplate code 
-to run reproducible experiments. It provides automatic management of data splitting, loading and common 
+MLWiz is a Python library that aids reproducible machine learning research.
+
+It takes care of the boilerplate code to prepare and run experiments, by providing automatic management of data splitting, loading and common 
 experimental settings. It especially handles both model selection and risk assessment procedures, by trying many different
 configurations in parallel (CPU or GPU). It is a generalized version of [PyDGN](https://github.com/diningphil/PyDGN)
 that can handle different kinds of data and models (vectors, images, time-series, graphs).
