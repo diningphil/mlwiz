@@ -82,6 +82,7 @@ grid:
       args:
         eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
           - False  # default behavior, saves some compute time as we are generally interested in validation scores
+        eval_test_every_epoch: True
 
   # Gradient clipper (optional)
   gradient_clipper: null
