@@ -105,6 +105,11 @@ class TrainingEngine(EventDispatcher):
             Default is ``1``.
         eval_training (bool): whether to re-evaluate loss and scores on the
             training set after a training epoch. Defaults to False.
+        eval_test_every_epoch (bool): whether to evaluate loss and scores on
+            the test set (if available) after each training epoch. Defaults to
+            False because one should not care about test performance until the
+            very end of risk assessment. However, set this to True if you want
+            to log test metrics during training.
         store_last_checkpoint (bool): whether to store a checkpoint at
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
@@ -125,6 +130,7 @@ class TrainingEngine(EventDispatcher):
         exp_path: str = None,
         evaluate_every: int = 1,
         eval_training: bool = False,
+        eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
     ):
         super().__init__()
@@ -142,6 +148,7 @@ class TrainingEngine(EventDispatcher):
         self.exp_path = exp_path
         self.evaluate_every = evaluate_every
         self.eval_training = eval_training
+        self.eval_test_every_epoch = eval_test_every_epoch
         self.store_last_checkpoint = store_last_checkpoint
         self.training = False
         self.logger = None
@@ -621,7 +628,7 @@ class TrainingEngine(EventDispatcher):
 
                     # Compute test output for visualization purposes only (e.g.
                     # to debug an incorrect data split for link prediction)
-                    if test_loader is not None:
+                    if test_loader is not None and self.eval_test_every_epoch:
                         test_loss, test_score, _ = self.infer(
                             test_loader, TEST
                         )
@@ -652,7 +659,7 @@ class TrainingEngine(EventDispatcher):
                     else:
                         val_msg_str = ""
 
-                    if test_loader is not None:
+                    if test_loader is not None and self.eval_test_every_epoch:
                         epoch_results[LOSSES].update(
                             {f"{TEST}_{k}": v for k, v in test_loss.items()}
                         )
