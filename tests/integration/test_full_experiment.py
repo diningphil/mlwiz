@@ -29,6 +29,7 @@ def test_datasets_creation():
             open(y, "r"),
             Loader=yaml.FullLoader,
         )
+        config[SKIP_SPLITS_CHECK] = False
         preprocess_data(config)
 
 
