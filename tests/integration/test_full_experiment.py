@@ -12,7 +12,7 @@ from mlwiz.evaluation.util import (
     instantiate_data_provider_from_config,
 )
 from mlwiz.launch_experiment import evaluation
-from mlwiz.static import DEBUG, CONFIG_FILE
+from mlwiz.static import DEBUG, CONFIG_FILE, SKIP_SPLITS_CHECK
 
 
 def test_datasets_creation():
@@ -29,6 +29,7 @@ def test_datasets_creation():
             open(y, "r"),
             Loader=yaml.FullLoader,
         )
+        config[SKIP_SPLITS_CHECK] = False
         preprocess_data(config)
 
 
@@ -52,6 +53,7 @@ def test_experiments():
         config = {}
         config[CONFIG_FILE] = config_file
         config[DEBUG] = True
+        config[SKIP_SPLITS_CHECK] = False
         config = MockConfig(config)
         evaluation(config)
 
