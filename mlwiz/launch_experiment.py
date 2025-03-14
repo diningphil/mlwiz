@@ -100,6 +100,7 @@ def evaluation(options: argparse.Namespace):
     kwargs = vars(options)
     debug = kwargs[DEBUG]
     execute_config_id = kwargs.get(EXECUTE_CONFIG_ID, None)
+    skip_config_ids = kwargs.get(SKIP_CONFIG_IDS, None)
     if execute_config_id is not None:
         execute_config_id = int(execute_config_id)
 
@@ -233,7 +234,9 @@ def evaluation(options: argparse.Namespace):
         )
         exit(0)
     risk_assesser.risk_assessment(
-        debug=debug, execute_config_id=execute_config_id
+        debug=debug,
+        execute_config_id=execute_config_id,
+        skip_config_ids=skip_config_ids
     )
     ray.shutdown()
 
@@ -256,6 +259,14 @@ def get_args() -> argparse.Namespace:
         dest=EXECUTE_CONFIG_ID,
         default=None,
     )
+    parser.add_argument(
+        SKIP_CONFIG_IDS_CLI_ARGUMENT,
+        dest=SKIP_CONFIG_IDS,
+        default=None,
+        type=int,
+        nargs='+'
+    )
+
     return parser.parse_args()
 
 
