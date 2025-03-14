@@ -11,6 +11,7 @@
 
 - Automatic check that data splits created by any splitter do not overlap. You can skip this check by passing `--skip-data-splits-check` to `mlwiz-data`
 - Added argument `eval_test_every_epoch` to TrainingEngine, which now defaults to False, to avoid evaluating on the test set at every epoch during risk assessment runs. Test metrics must not be checked during training, so this saves time. 
+- Added argument `--skip-config-ids` to skip a list of model selection configurations. This might be useful when some configurations are not terminating. So far, we have not added an option to specify outer folds. It should be used sparingly. Cannot be used together with `--execute-config-id`.
 
 ## Fixed
 
