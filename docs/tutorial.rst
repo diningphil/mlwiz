@@ -339,6 +339,73 @@ for this specific case, as the average of the 10 test scores across the external
 to you, please consider reading `Samy Bengio's lecture (Part 3) <https://bengio.abracadoudou.com/lectures/theory.pdf>`_.
 
 
+Useful Features to Know About
+------------------------------
+
+Disabling Data Splitting Automatic Checks
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Since MLWiz 1.2.0, we perform automatic checks that the training/validation/test splits are not overlapping.
+This is useful because everytime one implements a new data splitter for their own purposes, bugs may be easily introduced.
+If data split overlap is intended in your use case, you can disable the data splits checks by passing the argument
+`--skip-data-splits-check` to `mlwiz-data`.
+
+Training vs Inference Data Preprocessing
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can specify a separate preprocessing to be applied to the training data vs test data. This is useful, for instance,
+when you want to randomly flip training images but you don't want to do it at validation/test time.
+You can specify the functions associated with ``transform_train`` and ``transform_eval`` as strings in the dataset's configuration file.
+You can find an example above.
+
+Evaluating on test data at every epoch
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In general, there should not be the need to store test metrics across epochs. That's because everytime we look at test data
+we are implicitly affecting our judgement, so it is good practice to evaluate on the test only at the end of risk assessment runs.
+This is now the default MLWiz behavior; however, if you want to log test split metrics across epochs, you can specify it
+in the ``TrainingEngine`` (in the experiment configuration file) by setting the argument ``eval_test_every_epoch`` to True.
+
+
+Executing a specific configuration only (debug only!)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+When debugging a specific configuration, perhaps because it is crashing unexpectedly,
+you can focus on its execution by passing the arguments ``--debug --execute-config-id [config_id]``
+to ``mlwiz-train``. Valid IDs start from 1 to the maximum number of configurations tried.
+In general, this argument will prioritize the execution of a specific configuration whenever model selection is run for
+an outer fold. It cannot be used together with ``--skip-config-ids``.
+
+
+Skipping a set of configurations
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Sometimes, a specific configuration may take a long time to finish training, and you do not want to wait for it.
+You can skip its execution during model selection (**note: for all outer folds!**)
+by passing the argument ``--skip-config-ids [config_id1] [config_id2] ...``
+to ``mlwiz-train``. This will ignore the specified configurations across all outer folds and continue with the remaining
+experiments. It cannot be used together with ``-execute-config-id``.
+
+
+Storing logged metrics on disk
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+To store epoch-wise metrics computed during training on disk, pass the argument ``store_on_disk: True`` to the ``Plotter``
+in the experiment's configuration file. This will produce a PyTorch file called ``metrics_data.torch`` that gets updated
+at every epoch. The metrics are stored in a dictionary, with separate keys for losses and scores. I am sure you'll get
+around its structure, since I am too lazy to write it here.
+
+
+Loading and storing graphs
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+We moved to ``dill`` to save and load in-memory datasets because of some security warnings being issued by Pytorch `save` and `load` methods.
+However, using ``dill`` to load and store PyG graphs appears to be extremely inefficient. Because newer versions of PyG
+(>=2.6.0) define all the required ``safe_globals``, we decided to continue using ``torch.save`` and ``torch.load`` for graphs.
+Whenever you create your own graph dataset by subclassing ``DatasetInterface``, please make sure you override the static methods
+``_save_dataset`` and ``_load_dataset`` by calling ``torch.save`` and ``torch.load``, respectively.
+
+
 Inspecting Results
 --------------------
 
