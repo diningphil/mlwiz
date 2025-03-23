@@ -290,9 +290,12 @@ class RiskAssesser:
         )
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
 
-    def risk_assessment(self, debug: bool,
-                        execute_config_id: int = None,
-                        skip_config_ids: List[int] = None):
+    def risk_assessment(
+        self,
+        debug: bool,
+        execute_config_id: int = None,
+        skip_config_ids: List[int] = None,
+    ):
         r"""
         Performs risk assessment to evaluate the performances of a model.
 
@@ -315,7 +318,7 @@ class RiskAssesser:
         if skip_config_ids is None:
             skip_config_ids = []
         else:
-            skip_config_ids = [s-1 for s in skip_config_ids]
+            skip_config_ids = [s - 1 for s in skip_config_ids]
 
         # Show progress
         with ProgressManager(
@@ -365,9 +368,11 @@ class RiskAssesser:
                 # Perform model selection. This determines a best config
                 # FOR EACH of the k outer folds
                 self.model_selection(
-                    kfold_folder, outer_k, debug,
+                    kfold_folder,
+                    outer_k,
+                    debug,
                     execute_config_id,
-                    skip_config_ids
+                    skip_config_ids,
                 )
 
                 # Must stay separate from Ray distributed computing logic
@@ -382,7 +387,7 @@ class RiskAssesser:
                 self.wait_configs(skip_config_ids)
 
             # Produces the self._ASSESSMENT_FILENAME file
-            self.process_outer_results()
+            self.compute_risk_assessment_result()
 
     def wait_configs(self, skip_config_ids: List[int]):
         r"""
@@ -395,32 +400,14 @@ class RiskAssesser:
         # Copy the list of jobs (only for model selection atm)
         waiting = [el for el in self.outer_folds_job_list]
 
-        # Number of jobs to run for each OUTER fold
-        n_inner_runs = (
-            self.inner_folds
-            * no_model_configs
-            * self.model_selection_training_runs
-        )
-
         # Counters to keep track of what has completed
-
-        # keeps track of the model selection jobs completed for each outer fold
-        outer_completed = [0 for _ in range(self.outer_folds)]
-        # keeps track of the jobs completed for each inner fold
-        inner_completed = [
-            [0 for _ in range(no_model_configs)]
-            for _ in range(self.outer_folds)
-        ]
-        # keeps track of the model selection runs completed for each inner fold
-        inner_runs_completed = [
-            [
-                [0 for _ in range(self.inner_folds)]
-                for _ in range(no_model_configs)
-            ]
-            for _ in range(self.outer_folds)
-        ]
+        inner_runs_completed = np.zeros(
+            (self.outer_folds, no_model_configs, self.inner_folds), dtype=int
+        )
+        final_runs_completed = np.zeros(self.outer_folds, dtype=int)
 
         # keeps track of the final run jobs completed for each outer fold
+        # the max value for each position is self.risk_assessment_training_runs
         final_runs_completed = [0 for _ in range(self.outer_folds)]
 
         if skip_model_selection:
@@ -431,18 +418,18 @@ class RiskAssesser:
                 # Append the NEW jobs to the waiting list
                 waiting.extend(
                     self.final_runs_job_list[
-                        -self.risk_assessment_training_runs:
+                        -self.risk_assessment_training_runs :
                     ]
                 )
 
         # Ad-hoc code to skip configs in the evaluator
         for skipped_config_id in skip_config_ids:
-            for outer_k in range(self.outer_folds):
-                outer_completed[outer_k] += 1
+            inner_runs_completed[:, skipped_config_id, :] = (
+                self.model_selection_training_runs
+            )
 
+            for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-                    inner_completed[outer_k][skipped_config_id] = self.inner_folds * self.model_selection_training_runs
-                    inner_runs_completed[outer_k][skipped_config_id][inner_k] = self.model_selection_training_runs
 
                     self.progress_manager.update_state(
                         dict(
@@ -450,7 +437,7 @@ class RiskAssesser:
                             outer_fold=outer_k,
                             inner_fold=inner_k,
                             config_id=skipped_config_id,
-                            elapsed=0.,
+                            elapsed=0.0,
                         )
                     )
 
@@ -499,25 +486,28 @@ class RiskAssesser:
 
                     # if all inner folds completed (including their runs),
                     # process that configuration and compute its average scores
-                    inner_completed[outer_k][config_id] += 1
                     if (
-                        inner_completed[outer_k][config_id]
+                        inner_runs_completed[outer_k, config_id, :].sum()
                         == self.inner_folds
                         * self.model_selection_training_runs
                     ):
-                        self.process_config(
+                        self.process_config_results_across_inner_folds(
                             config_folder,
                             deepcopy(self.model_configs[config_id]),
                         )
 
                     # if model selection is complete, launch final runs
-                    outer_completed[outer_k] += 1
                     if (
-                        outer_completed[outer_k] == n_inner_runs
+                        inner_runs_completed[outer_k, :, :].sum()
+                        == self.inner_folds
+                        * no_model_configs
+                        * self.model_selection_training_runs
                     ):  # outer fold completed - schedule final runs
-                        self.process_inner_results(
-                            ms_exp_path, outer_k, len(self.model_configs),
-                            skip_config_ids
+                        self.compute_best_hyperparameters(
+                            ms_exp_path,
+                            outer_k,
+                            len(self.model_configs),
+                            skip_config_ids,
                         )
                         self.run_final_model(outer_k, False)
 
@@ -547,7 +537,7 @@ class RiskAssesser:
                         == self.risk_assessment_training_runs
                     ):
                         # Time to produce self._OUTER_RESULTS_FILENAME
-                        self.process_final_runs(outer_k)
+                        self.compute_final_runs_score_per_fold(outer_k)
 
     def model_selection(
         self,
@@ -555,7 +545,7 @@ class RiskAssesser:
         outer_k: int,
         debug: bool,
         execute_config_id: Optional[int],
-        skip_config_ids: List[int]
+        skip_config_ids: List[int],
     ):
         r"""
         Performs model selection.
@@ -574,9 +564,13 @@ class RiskAssesser:
                 decide it is not worth to wait for it.
         """
         if skip_config_ids is not None:
-            assert execute_config_id is None, "Cannot specify both skip_config_id and execute_config_id"
+            assert (
+                execute_config_id is None
+            ), "Cannot specify both skip_config_id and execute_config_id"
         if execute_config_id is not None:
-            assert skip_config_ids is None, "Cannot specify both skip_config_id and execute_config_id"
+            assert (
+                skip_config_ids is None
+            ), "Cannot specify both skip_config_id and execute_config_id"
 
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
@@ -609,7 +603,7 @@ class RiskAssesser:
 
             # Prioritizing executions in debug mode for debugging purposes
             if debug and execute_config_id is not None:
-                element = _model_configs.pop(execute_config_id-1)
+                element = _model_configs.pop(execute_config_id - 1)
                 _model_configs.insert(0, element)
                 print(
                     f"Prioritizing execution of configuration"
@@ -711,11 +705,15 @@ class RiskAssesser:
                     if debug:
                         self.process_model_selection_runs(fold_exp_folder, k)
                 if debug:
-                    self.process_config(config_folder, deepcopy(config))
+                    self.process_config_results_across_inner_folds(
+                        config_folder, deepcopy(config)
+                    )
             if debug:
-                self.process_inner_results(
-                    model_selection_folder, outer_k, len(self.model_configs),
-                    skip_config_ids
+                self.compute_best_hyperparameters(
+                    model_selection_folder,
+                    outer_k,
+                    len(self.model_configs),
+                    skip_config_ids,
                 )
         else:
             # Performing model selection for a single configuration is useless
@@ -824,22 +822,25 @@ class RiskAssesser:
                         final_run_torch_path,
                     )
         if debug:
-            self.process_final_runs(outer_k)
+            self.compute_final_runs_score_per_fold(outer_k)
 
-    def process_model_selection_runs(self, fold_exp_folder: str, inner_k: int):
+    def process_model_selection_runs(
+        self, inner_fold_exp_folder: str, inner_k: int
+    ):
         r"""
         Computes the average performances for the training runs about
             a specific configuration and a specific inner_fold split
 
         Args:
-            fold_exp_folder (str):
+            inner_fold_exp_folder (str): an inner fold experiment folder
+                of a specific configuration
             inner_k (int): the inner fold id
         """
         fold_results_filename = osp.join(
-            fold_exp_folder, f"fold_{str(inner_k + 1)}_results.torch"
+            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.torch"
         )
         fold_info_filename = osp.join(
-            fold_exp_folder, f"fold_{str(inner_k + 1)}_results.info"
+            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.info"
         )
         run_dict = [{} for _ in range(self.model_selection_training_runs)]
         results_dict = {}
@@ -847,7 +848,7 @@ class RiskAssesser:
         assert not self.model_selection_training_runs <= 0
         for run_id in range(self.model_selection_training_runs):
             fold_run_exp_folder = osp.join(
-                fold_exp_folder, f"run_{run_id + 1}"
+                inner_fold_exp_folder, f"run_{run_id + 1}"
             )
             fold_run_results_torch_path = osp.join(
                 fold_run_exp_folder, f"run_{run_id + 1}_results.torch"
@@ -932,7 +933,9 @@ class RiskAssesser:
             fold_results_filename,
         )
 
-    def process_config(self, config_folder: str, config: Config):
+    def process_config_results_across_inner_folds(
+        self, config_folder: str, config: Config
+    ):
         r"""
         Averages the results for each configuration across inner folds and
         stores it into a file.
@@ -1022,18 +1025,22 @@ class RiskAssesser:
         with open(config_filename, "w") as fp:
             json.dump(k_fold_dict, fp, sort_keys=False, indent=4)
 
-    def process_inner_results(
-        self, folder: str, outer_k: int, no_configurations: int,
-            skip_config_ids: List[int]
+    def compute_best_hyperparameters(
+        self,
+        folder: str,
+        outer_k: int,
+        no_configurations: int,
+        skip_config_ids: List[int],
     ):
         r"""
         Chooses the best hyper-parameters configuration using the proper
         validation mean score.
 
         Args:
-            folder (str): a folder which holds all configurations results
-                after K INNER folds
-            outer_k (int): the current outer fold to consider
+            folder (str): the model selection folder associated with
+                outer fold k
+            outer_k (int): the current outer fold to consider. Used for
+                telegram updates
             no_configurations (int): number of possible configurations
             skip_config_ids: list of configuration ids to skip
         """
@@ -1041,7 +1048,7 @@ class RiskAssesser:
         best_std_vl = float("inf")
 
         for i in range(1, no_configurations + 1):
-            if (i-1) in skip_config_ids:
+            if (i - 1) in skip_config_ids:
                 continue
             config_filename = osp.join(
                 folder, self._CONFIG_BASE + str(i), self._CONFIG_RESULTS
@@ -1088,7 +1095,7 @@ class RiskAssesser:
                 indent=4,
             )
 
-    def process_final_runs(self, outer_k: int):
+    def compute_final_runs_score_per_fold(self, outer_k: int):
         r"""
         Computes the average scores for the final runs of a specific outer fold
 
@@ -1206,7 +1213,7 @@ class RiskAssesser:
                 indent=4,
             )
 
-    def process_outer_results(self):
+    def compute_risk_assessment_result(self):
         r"""
         Aggregates Outer Folds results and compute Training and Test mean/std
         """

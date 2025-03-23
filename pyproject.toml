@@ -8,7 +8,7 @@ py-modules = ["mlwiz"]
 
 [project]
 name = "mlwiz"
-version = "1.2.0"
+version = "1.2.1"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"

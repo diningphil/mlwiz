@@ -236,7 +236,7 @@ def evaluation(options: argparse.Namespace):
     risk_assesser.risk_assessment(
         debug=debug,
         execute_config_id=execute_config_id,
-        skip_config_ids=skip_config_ids
+        skip_config_ids=skip_config_ids,
     )
     ray.shutdown()
 
@@ -264,7 +264,7 @@ def get_args() -> argparse.Namespace:
         dest=SKIP_CONFIG_IDS,
         default=None,
         type=int,
-        nargs='+'
+        nargs="+",
     )
 
     return parser.parse_args()

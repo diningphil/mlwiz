@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1] Refactoring of Evaluator
+
+## Changed
+
+- Simplified the logic of Evaluator to facilitate understanding
+
+
 ## [1.2.0] More Efficient Graph Dataset Storing/Loading and Minor Improvements
 
 ## Requirements
