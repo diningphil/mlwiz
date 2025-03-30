@@ -3,8 +3,17 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["mlwiz"]
-
+packages = [
+    "mlwiz",
+    "mlwiz.data",
+    "mlwiz.evaluation",
+    "mlwiz.experiment",
+    "mlwiz.log",
+    "mlwiz.model",
+    "mlwiz.training",
+    "mlwiz.training.callback",
+    "mlwiz.training.event",
+]
 
 [project]
 name = "mlwiz"
