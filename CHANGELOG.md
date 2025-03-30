@@ -1,6 +1,17 @@
 # Changelog
 
-## [1.2.0] More Efficient Graph Dataset Storing/Loading and Minor Improvements
+## [1.2.1] Refactoring of Evaluator
+
+## Changed
+
+- Simplified the logic of Evaluator to facilitate understanding
+
+## Fixed
+
+- We explicitly list the package modules to allow different top-level folders to coexist.
+
+
+## [1.2.0 YANKED] More Efficient Graph Dataset Storing/Loading and Minor Improvements
 
 ## Requirements
 

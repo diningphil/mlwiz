@@ -3,12 +3,21 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-py-modules = ["mlwiz"]
-
+packages = [
+    "mlwiz",
+    "mlwiz.data",
+    "mlwiz.evaluation",
+    "mlwiz.experiment",
+    "mlwiz.log",
+    "mlwiz.model",
+    "mlwiz.training",
+    "mlwiz.training.callback",
+    "mlwiz.training.event",
+]
 
 [project]
 name = "mlwiz"
-version = "1.2.0"
+version = "1.2.1"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"

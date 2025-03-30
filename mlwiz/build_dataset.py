@@ -5,8 +5,12 @@ import sys
 import yaml
 
 from mlwiz.data.util import preprocess_data
-from mlwiz.static import CONFIG_FILE_CLI_ARGUMENT, CONFIG_FILE, \
-    SKIP_SPLITS_CHECK_CLI_ARGUMENT, SKIP_SPLITS_CHECK
+from mlwiz.static import (
+    CONFIG_FILE_CLI_ARGUMENT,
+    CONFIG_FILE,
+    SKIP_SPLITS_CHECK_CLI_ARGUMENT,
+    SKIP_SPLITS_CHECK,
+)
 
 
 def get_args_dict() -> dict:

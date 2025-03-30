@@ -398,9 +398,7 @@ class Splitter:
         if skip_check:
             print("User asked to skip data checking data splits for overlaps.")
         else:
-            err_msg = (
-                "Data splits overlap! Please check your splitter code for errors."
-            )
+            err_msg = "Data splits overlap! Please check your splitter code for errors."
 
             for outer_fold in self.outer_folds:
                 assert set(outer_fold.train_idxs).isdisjoint(
@@ -421,7 +419,8 @@ class Splitter:
                     assert (
                         inner_fold.test_idxs is None
                     ), "Test indices should not be present in the inner folds."
-            print('Check data splits not overlapping: passed.')
+            print("Check data splits not overlapping: passed.")
+
     def _splitter_args(self) -> dict:
         r"""
         Returns a dict with all the splitter's arguments for subsequent
