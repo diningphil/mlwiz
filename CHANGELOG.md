@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2] Aiding Plotting
+
+## Added
+
+- Function `mlwix.evaluation.util.create_dataframe` helps you to convert lists of results for each configuration into a Pandas DataFrame. Now MLWiz depends on Pandas.
+- Jupyter notebook `Example Qualitative Analysis and Plots.ipynb` that shows how to use the above function.
+
 ## [1.2.1] Refactoring of Evaluator
 
 ## Changed

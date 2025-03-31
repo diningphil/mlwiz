@@ -3,8 +3,9 @@ import json
 import math
 import os
 import random
-from typing import List
+from typing import List, Tuple, Callable
 
+import pandas as pd
 import torch
 import tqdm
 
@@ -345,6 +346,39 @@ def retrieve_experiments(
         configs.append(exp_config)
 
     return configs
+
+
+def create_dataframe(config_list: List[dict],
+                     hyperparameters: List[Tuple[str, Callable]]):
+    """
+
+    """
+    def _finditem(obj, key):
+        if key in obj:
+            return obj[key]
+
+        for k, v in obj.items():
+            if isinstance(v, dict):
+                item = _finditem(v, key)
+                if item is not None:
+                    return item
+
+        return None
+
+    df_rows = []
+
+    for config in config_list:
+        new_row = {"exp_folder": config["exp_folder"]}
+        for hp_name, t_caster in hyperparameters:
+            cf_v = _finditem(config, hp_name)
+            new_row[hp_name] = t_caster(cf_v) if cf_v is not None else None
+
+            # Append the new row to the DataFrame
+            df_rows.append(new_row)
+
+    df = pd.DataFrame.from_records(df_rows, columns=[h[0] for h in hyperparameters])
+
+    return df
 
 
 def filter_experiments(

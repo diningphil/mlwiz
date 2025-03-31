@@ -62,6 +62,7 @@ grid:
         optimizer_class_name: torch.optim.Adam
         lr:
           - 0.01
+          - 0.001
         weight_decay: 0.
 
   # Scheduler (optional)
