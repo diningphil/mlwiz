@@ -348,8 +348,9 @@ def retrieve_experiments(
     return configs
 
 
-def create_dataframe(config_list: List[dict],
-                     key_mappings: List[Tuple[str, Callable]]):
+def create_dataframe(
+    config_list: List[dict], key_mappings: List[Tuple[str, Callable]]
+):
     """
     Creates a pandas DataFrame from a list of configuration dictionaries and key mappings.
 
@@ -369,6 +370,7 @@ def create_dataframe(config_list: List[dict],
             and the specified key_mappings. If a mapping value is missing, the corresponding
             DataFrame cell will contain `None`.
     """
+
     def _finditem(obj, key):
         if key in obj:
             return obj[key]
@@ -392,7 +394,9 @@ def create_dataframe(config_list: List[dict],
             # Append the new row to the DataFrame
             df_rows.append(new_row)
 
-    df = pd.DataFrame.from_records(df_rows, columns=[h[0] for h in key_mappings])
+    df = pd.DataFrame.from_records(
+        df_rows, columns=[h[0] for h in key_mappings]
+    )
 
     return df
 
