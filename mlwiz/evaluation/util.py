@@ -349,9 +349,25 @@ def retrieve_experiments(
 
 
 def create_dataframe(config_list: List[dict],
-                     hyperparameters: List[Tuple[str, Callable]]):
+                     key_mappings: List[Tuple[str, Callable]]):
     """
+    Creates a pandas DataFrame from a list of configuration dictionaries and key mappings.
 
+    Args:
+        config_list : List[dict]
+            A list of dictionaries, where each dictionary represents a configuration. Each configuration
+            must contain an `exp_folder` key and may include nested keys corresponding to hyperparameter names.
+
+        key_mappings : List[Tuple[str, Callable]]
+            A list of tuples where:
+            - The first element (`str`) is the hyperparameter name to extract from the configurations.
+            - The second element (`Callable`) is a transformation function to apply to the extracted value.
+
+    Returns:
+        df : pandas.DataFrame
+            A DataFrame containing rows generated from `config_list` with columns for `exp_folder`
+            and the specified key_mappings. If a mapping value is missing, the corresponding
+            DataFrame cell will contain `None`.
     """
     def _finditem(obj, key):
         if key in obj:
@@ -369,14 +385,14 @@ def create_dataframe(config_list: List[dict],
 
     for config in config_list:
         new_row = {"exp_folder": config["exp_folder"]}
-        for hp_name, t_caster in hyperparameters:
+        for hp_name, t_caster in key_mappings:
             cf_v = _finditem(config, hp_name)
             new_row[hp_name] = t_caster(cf_v) if cf_v is not None else None
 
             # Append the new row to the DataFrame
             df_rows.append(new_row)
 
-    df = pd.DataFrame.from_records(df_rows, columns=[h[0] for h in hyperparameters])
+    df = pd.DataFrame.from_records(df_rows, columns=[h[0] for h in key_mappings])
 
     return df
 
