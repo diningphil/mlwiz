@@ -395,7 +395,7 @@ def create_dataframe(
             df_rows.append(new_row)
 
     df = pd.DataFrame.from_records(
-        df_rows, columns=[h[0] for h in key_mappings]
+        df_rows, columns=[h[0] for h in key_mappings] + ["exp_folder"]
     )
 
     return df
