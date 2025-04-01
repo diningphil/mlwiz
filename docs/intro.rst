@@ -14,7 +14,7 @@ To run an experiment, you usually rely on 2 **YAML configuration files**:
   * one to pre-process the dataset and create the data splits,
   * another with information about the experiment itself and the hyper-parameters to try.
 
-**MLWiz** is a minimal, but extended version of [PyDGN](https://github.com/diningphil/PyDGN).
+**MLWiz** is a minimal, but extended version of PyDGN (https://github.com/diningphil/PyDGN).
 
 Installation:
 *******************
