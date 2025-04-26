@@ -263,8 +263,6 @@ def get_args() -> argparse.Namespace:
         SKIP_CONFIG_IDS_CLI_ARGUMENT,
         dest=SKIP_CONFIG_IDS,
         default=None,
-        type=int,
-        nargs="+",
     )
 
     return parser.parse_args()
