@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3] Minor Fixes
+
+## Fixed
+
+- Fixed bug when using `--execute-config-id` and `--skip-config-ids`
+
+
 ## [1.2.2] Aiding Plotting
 
 ## Added
