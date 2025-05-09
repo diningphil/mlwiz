@@ -113,6 +113,6 @@ def test_evaluator():
     assert ass_results["std_test_main_score"] == outer_test_results.std()
 
 
-@pytest.mark.dependency(depends=["test_experiments"])
+@pytest.mark.dependency(depends=["test_evaluator"])
 def test_cleanup():
     rmtree("tests/tmp/")
