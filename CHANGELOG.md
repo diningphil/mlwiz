@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.2.4] Minor Fixes
+
+## Changed
+
+- No need to specify a metric name any longer. Now it is taken from the class name directly.
+
+## Fixed
+
+- Changed name of metric from MeanAverageLoss to MeanAbsoluteLoss
+
 ## [1.2.3] Minor Fixes
 
 ## Fixed

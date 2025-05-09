@@ -60,11 +60,9 @@ class Metric(Module, EventHandler):
     def name(self) -> str:
         """
         The name of the loss to be used in configuration files and displayed
-        on Tensorboard
+        on Tensorboard. It is the same as the class name.
         """
-        raise NotImplementedError(
-            "You should subclass Metric and implement this method!"
-        )
+        return self.__class__.__name__
 
     def get_main_metric_name(self) -> str:
         """
@@ -444,14 +442,6 @@ class MultiScore(Metric):
             self._istantiate_scorer(score) for score in extra_scorers.values()
         ]
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Multi Score"
-
     def _istantiate_scorer(self, scorer):
         """
         Istantiate a scorer with its own arguments (if any are given)
@@ -692,14 +682,6 @@ class AdditiveLoss(Metric):
         else:
             # all losses are simply added together
             self.losses_weights = {loss.name: 1.0 for loss in self.losses}
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Additive Loss"
 
     def _instantiate_loss(self, loss):
         """
@@ -951,14 +933,6 @@ class Classification(Metric):
         )
         self.metric = None
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Classification Metric"
-
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1023,14 +997,6 @@ class Regression(Metric):
             **kwargs,
         )
         self.metric = None
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Regression Metric"
 
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
@@ -1097,14 +1063,6 @@ class MulticlassClassification(Classification):
         )
         self.metric = CrossEntropyLoss(reduction=reduction)
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Multiclass Classification"
-
 
 class MeanSquareError(Regression):
     r"""
@@ -1130,18 +1088,10 @@ class MeanSquareError(Regression):
         )
         self.metric = MSELoss(reduction=reduction)
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Mean Square Error"
 
-
-class MeanAverageError(Regression):
+class MeanAbsoluteError(Regression):
     r"""
-    Wrapper around :class:`torch.nn.MSELoss`
+    Wrapper around :class:`torch.nn.L1Loss`
     """
 
     def __init__(
@@ -1163,27 +1113,11 @@ class MeanAverageError(Regression):
         )
         self.metric = L1Loss(reduction=reduction)
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Mean Average Error"
-
 
 class MulticlassAccuracy(Metric):
     """
     Implements multiclass classification accuracy.
     """
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Multiclass Accuracy"
 
     @staticmethod
     def _get_correct(output):
@@ -1238,13 +1172,6 @@ class MulticlassAccuracy(Metric):
 
 
 class AllocatedGPUMemory(Metric):
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "GPU Memory Allocated (MBs)"
 
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
@@ -1264,14 +1191,6 @@ class ToyMetric(Metric):
     r"""
     Implements a toy metric.
     """
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Toy Metric"
 
     @staticmethod
     def _get_correct(output):
@@ -1318,14 +1237,6 @@ class SingleGraphMulticlassClassification(MulticlassClassification):
     Wrapper around :class:`torch.nn.CrossEntropyLoss`
     """
 
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Single Graph Multiclass Classification"
-
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -1340,14 +1251,6 @@ class SingleGraphMulticlassAccuracy(MulticlassAccuracy):
     r"""
     Wrapper around :class:`torch.nn.CrossEntropyLoss`
     """
-
-    @property
-    def name(self) -> str:
-        """
-        The name of the loss to be used in configuration files and displayed
-        on Tensorboard
-        """
-        return "Single Graph Multiclass Accuracy"
 
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]

@@ -72,7 +72,7 @@ random:
         loss_1: mlwiz.training.callback.metric.MulticlassClassification
         loss_2: mlwiz.training.callback.metric.MulticlassClassification
         losses_weights:
-          Multiclass Classification:
+          MulticlassClassification:
             - 1.
         accumulate_over_epoch:
           sample_method: mlwiz.evaluation.util.choice
