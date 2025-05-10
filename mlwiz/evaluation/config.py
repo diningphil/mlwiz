@@ -1,5 +1,5 @@
-import json
 
+import json
 
 class Config:
     r"""
@@ -13,25 +13,25 @@ class Config:
     def __init__(self, config_dict: dict):
         self.config_dict = config_dict
 
-    def __getattr__(self, attr):
+    def __getattr__(self, attr: str):
         """
         Returns the item associated with the key in the dictionary
         """
         return self.config_dict[attr]
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str):
         """
         Returns the item associated with the key in the dictionary
         """
         return self.config_dict[item]
 
-    def __contains__(self, item):
+    def __contains__(self, item: str) -> bool:
         """
         Returns true if the dictionary contains a key, false otherwise
         """
         return item in self.config_dict
 
-    def __len__(self):
+    def __len__(self) -> int:
         """
         Returns the number of keys in the dictionary
         """
@@ -43,7 +43,7 @@ class Config:
         """
         return iter(self.config_dict)
 
-    def get(self, key: str, default: object):
+    def get(self, key: str, default: object = None) -> object:
         """
         Returns the key from the dictionary if present, otherwise the default
         value specified
@@ -53,11 +53,11 @@ class Config:
             default (`object`): the default object
 
         Returns:
-            a value from the dictionaryu
+            a value from the dictionary
         """
         return self.config_dict.get(key, default)
 
-    def keys(self):
+    def keys(self) -> set:
         r"""
         Invokes the `keys()` method of the configuration dictionary
 
@@ -66,7 +66,7 @@ class Config:
         """
         return self.config_dict.keys()
 
-    def items(self):
+    def items(self) -> list:
         r"""
         Invokes the `items()` method of the configuration dictionary
 
@@ -75,7 +75,7 @@ class Config:
         """
         return self.config_dict.items()
 
-    def __str__(self):
+    def __str__(self) -> str:
         """
         Computes an indented json representation of the dictionary
         """

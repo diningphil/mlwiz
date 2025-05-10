@@ -7,12 +7,26 @@ from mlwiz.training.event.state import State
 
 
 class FakeModel(ModelInterface):
+    """
+    A fake model class that implements the `ModelInterface` interface.
+    """
+
     def __init__(self):
+        """
+        Initializes a new instance of the `FakeModel` class.
+        """
         super().__init__(0, 0, None)
         self.lin = Linear(10, 10)
 
 
 def test_early_stopping_patience():
+    """
+    Tests the `PatienceEarlyStopper` class with different parameters.
+
+    This function iterates over `use_as_loss` and `patience` values to test the behavior of the `PatienceEarlyStopper` class.
+    For each combination, it creates an instance of the `PatienceEarlyStopper`, initializes a `State` object with a `FakeModel`, updates the state with epoch results,
+    and checks the behavior of the `PatienceEarlyStopper` during the training loop.
+    """
     for use_as_loss in [False, True]:
         for patience in [2, 10]:
             early_stopper = PatienceEarlyStopper(

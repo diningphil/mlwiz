@@ -4,6 +4,9 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.util import s2c
 from mlwiz.static import *
 
+from typing import Iterator, Dict, Any
+
+
 
 class RandomSearch(Grid):
     r"""
@@ -21,13 +24,13 @@ class RandomSearch(Grid):
         self.num_samples = configs_dict[NUM_SAMPLES]
         super().__init__(configs_dict)
 
-    def _gen_helper(self, cfgs_dict):
+    def _gen_helper(self, cfgs_dict: dict) -> Iterator[Dict[str, Any]]:
         r"""
         Takes a dictionary of key:list pairs and computes all possible
         combinations.
 
         Returns:
-            A list of al possible configurations in the form of dictionaries
+            A list of all possible configurations in the form of dictionaries
         """
         keys = cfgs_dict.keys()
         param = list(keys)[0]
@@ -53,7 +56,7 @@ class RandomSearch(Grid):
 
             yield deepcopy(result)
 
-    def _dict_helper(self, configs):
+    def _dict_helper(self, configs: dict):
         r"""
         Recursively parses a dictionary
 
@@ -82,7 +85,7 @@ class RandomSearch(Grid):
 
         return configs
 
-    def _sampler_helper(self, configs):
+    def _sampler_helper(self, configs: dict):
         r"""
         Samples possible hyperparameter(s) and returns it
         (them, in this case as a dict)
@@ -115,7 +118,7 @@ class RandomSearch(Grid):
             self.hparams = self._gen_configs()
         return len(self.hparams)
 
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
         """
         Gets a specific configuration indexed by an id
         """

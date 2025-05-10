@@ -8,6 +8,18 @@ from mlwiz.training.event.state import State
 
 
 class FakeMetric(Metric):
+    r"""
+    This is a fake metric class for testing purposes. It is designed to be used in machine learning workflows as a placeholder or a reference for implementing new metrics.
+
+    Parameters:
+        use_as_loss (bool, optional): Whether this metric should be used as a loss function. Defaults to False.
+        reduction (str, optional): How the metric should be reduced. Supported values are 'mean' and 'sum'. Defaults to 'mean'.
+        accumulate_over_epoch (bool, optional): Whether the metric should be computed over the whole dataset rather than averaged across minibatches. Defaults to True.
+        force_cpu (bool, optional): Whether the metric should force execution on the CPU. Defaults to True.`
+        device (str, optional): The device on which the metric should be executed. Defaults to 'cpu'.
+        **kwargs: Additional keyword arguments to pass to the parent class.
+    """
+
     def __init__(
         self,
         use_as_loss: bool = False,
@@ -35,26 +47,33 @@ class FakeMetric(Metric):
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Get predictions and targets that will be passed to compute_metric.
+
+        Parameters:
+            targets (torch.Tensor): The target values.
+            *outputs: Output of the model.
+
+        Returns:
+            tuple: A tuple containing the predictions and targets.
+        """
         pred = torch.arange(self.num_nodes).float() + float(self.called)
         return pred, torch.zeros(1)
 
     def compute_metric(
         self, targets: torch.Tensor, predictions: torch.Tensor
     ) -> torch.tensor:
+        """
+        Compute the metric value based on the targets and predictions.
+
+        Parameters:
+            targets (torch.Tensor): The target values.
+            predictions (torch.Tensor): The predicted values.
+
+        Returns:
+            torch.tensor: The computed metric value.
+        """
         return predictions.mean()
-
-
-@pytest.fixture
-def fake_metric():
-    def metric_init_fun(
-        use_as_loss, reduction, accumulate_over_epoch, force_cpu
-    ):
-        return FakeMetric(
-            use_as_loss, reduction, accumulate_over_epoch, force_cpu
-        )
-
-    # Return how many times the fake metric will be summed over
-    return metric_init_fun
 
 
 def test_metric(fake_metric):
@@ -143,7 +162,20 @@ def test_metric(fake_metric):
                         )
 
 
+
 class FakeAdditiveLoss(AdditiveLoss):
+    """
+    A fake Additive Loss class for testing purposes.
+
+    Args:
+        use_as_loss (bool, optional): Whether to use this loss as a loss function. Defaults to False.
+        reduction (str, optional): How to reduce the loss. Options are "mean", "sum", or "none". Defaults to "mean".
+        accumulate_over_epoch (bool, optional): Whether to accumulate the loss over an epoch. Defaults to True.
+        force_cpu (bool, optional): Whether to force the loss to be calculated on the CPU. Defaults to True.
+        device (str, optional): The device to use for the loss calculation. Defaults to "cpu".
+        **losses: Additional keyword arguments to pass to the parent class.
+    """
+
     def __init__(
         self,
         use_as_loss: bool = False,
@@ -166,6 +198,12 @@ class FakeAdditiveLoss(AdditiveLoss):
 
     @property
     def name(self) -> str:
+        """
+        The name of the loss.
+
+        Returns:
+            str: The name of the loss.
+        """
         return "Fake Additive Loss"
 
 
@@ -277,6 +315,18 @@ def test_additive_loss(fake_additive_loss):
 
 
 class FakeMultiScore(MultiScore):
+    """
+    A Fake Multi Score class that simulates the MultiScore class with additional properties and methods.
+
+    Parameters:
+        use_as_loss (bool): If True, the score is used as a loss.
+        reduction (str): The reduction method for the scores.
+        accumulate_over_epoch (bool): If True, the scores are accumulated over an epoch.
+        force_cpu (bool): If True, the scores are forced to be on the CPU.
+        device (str): The device to use for the scores.
+        main_scorer (Metric): The main scorer for the scores.
+        **extra_scorers (dict): Additional scorers to be used.
+    """
     def __init__(
         self,
         use_as_loss: bool = False,
@@ -301,6 +351,12 @@ class FakeMultiScore(MultiScore):
 
     @property
     def name(self) -> str:
+        """
+        Returns the name of the score.
+
+        Returns:
+            str: The name of the score.
+        """
         return "Fake Multi Score"
 
 
