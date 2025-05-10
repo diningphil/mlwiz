@@ -162,7 +162,6 @@ def test_metric(fake_metric):
                         )
 
 
-
 class FakeAdditiveLoss(AdditiveLoss):
     """
     A fake Additive Loss class for testing purposes.
@@ -327,6 +326,7 @@ class FakeMultiScore(MultiScore):
         main_scorer (Metric): The main scorer for the scores.
         **extra_scorers (dict): Additional scorers to be used.
     """
+
     def __init__(
         self,
         use_as_loss: bool = False,

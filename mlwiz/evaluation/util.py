@@ -582,3 +582,141 @@ def load_checkpoint(
         model_state[param] = model_state[param].to(device)
 
     model.load_state_dict(model_state)
+
+
+def get_scores_from_outer_results(
+    exp_folder, outer_fold_id, metric_key="main_score"
+) -> dict:
+    """
+    Extracts scores from the configuration dictionary.
+    Args:
+        exp_folder (str): The path to the experiment folder.
+        outer_fold_id (int): The ID of the outer fold, from 1 on.
+        metric_key (str): The key for the metric to extract. Default is 'main_score'.
+    """
+    config_dict = json.load(
+        open(
+            os.path.join(
+                exp_folder,
+                f"MODEL_ASSESSMENT/OUTER_FOLD_{outer_fold_id}/outer_results.json",
+            ),
+            "rb",
+        )
+    )
+
+    # Extract scores for the specified metric from the config dictionary
+    scores = {
+        "training": config_dict["outer_train"][metric_key],
+        "validation": config_dict["outer_validation"][metric_key],
+        "test": config_dict["outer_test"][metric_key],
+        "training_std": config_dict["outer_train"][metric_key + "_std"],
+        "validation_std": config_dict["outer_validation"][metric_key + "_std"],
+        "test_std": config_dict["outer_test"][metric_key + "_std"],
+    }
+
+    return scores
+
+
+def get_scores_from_assessment_results(
+    exp_folder, metric_key="main_score"
+) -> dict:
+    """
+    Extracts scores from the configuration dictionary.
+    Args:
+        exp_folder (str): The path to the experiment folder.
+        metric_key (str): The key for the metric to extract. Default is 'main_score'.
+    """
+    config_dict = json.load(
+        open(
+            os.path.join(
+                exp_folder, f"MODEL_ASSESSMENT/assessment_results.json"
+            ),
+            "rb",
+        )
+    )
+
+    suffix = "_score" if metric_key != "main_score" else ""
+    # Extract scores for the specified metric from the config dictionary
+    scores = {
+        "training": config_dict["avg_training_" + metric_key + suffix],
+        "validation": config_dict["avg_validation_" + metric_key + suffix],
+        "test": config_dict["avg_test_" + metric_key + suffix],
+        "training_std": config_dict["std_training_" + metric_key + suffix],
+        "validation_std": config_dict["std_validation_" + metric_key + suffix],
+        "test_std": config_dict["std_test_" + metric_key + suffix],
+    }
+
+    return scores
+
+
+def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
+    # Pivot the table: index=model, columns=dataset, values=training (training_std)
+    float_format = f".{no_decimals}f"
+
+    def format_entry(x, mode="test"):
+        return f"{round(x[f'{mode}'],no_decimals):{float_format}} ({round(x[f'{mode}_std'],no_decimals):{float_format}})"
+
+    # Apply the formatting row-wise
+    df["formatted"] = df.apply(format_entry, axis=1)
+
+    # Pivot to desired shape
+    if model_as_row:
+        pivot_df = df.pivot(index="model", columns="dataset", values="formatted")
+    else:
+        pivot_df = df.pivot(index="dataset", columns="model", values="formatted")
+
+    # Reset index to have 'model' as a column
+    pivot_df = pivot_df.reset_index()
+
+    # Generate LaTeX
+    latex = pivot_df.to_latex(index=False, escape=False, na_rep="--")
+    return latex
+
+
+def create_latex_table_from_assessment_results(
+    exp_metadata, metric_key="main_score", no_decimals="2", 
+    model_as_row=True, use_single_outer_fold=False
+) -> str:
+    """
+    Creates a LaTeX table from a list of experiment folders, each containing assessment results.
+    Args:
+        exp_metadata (list[tuple(str,str,str)]): A list of (paths to the experiment folder, model name, dataset name).
+        metric_key (str): The key for the metric to extract. Default is 'main_score'.
+        no_decimals (int): The number of rounded decimal places to display in the LaTeX table.
+        model_as_row (bool): If True, models are rows and datasets are columns. If False, the opposite.
+        use_single_outer_fold (bool): If True, only the first outer fold is used. This is useful
+            because when the number of outer folds is 1, the std in the assessment file is 0,
+            therefore we want to recover the std across the final runs of the unique outer fold.
+    """
+    # Initialize a list to store the data frames
+    dataframes = []
+
+    # Loop through each experiment folder
+    for exp_folder, model, dataset in exp_metadata:
+
+        # Load the assessment results from the JSON file
+        if not use_single_outer_fold:
+            assessment_results = get_scores_from_assessment_results(
+                exp_folder, metric_key
+            )
+        else:
+            assessment_results = get_scores_from_outer_results(
+                exp_folder, 1, metric_key
+            )
+
+        assessment_results["model"] = model
+        assessment_results["dataset"] = dataset
+
+        # Convert the dictionary to a DataFrame with a single row
+        df = pd.DataFrame(assessment_results, index=[0])
+
+        # Append the DataFrame to the list
+        dataframes.append(df)
+
+    # Concatenate all the DataFrames into a single DataFrame
+    combined_df = pd.concat(dataframes, ignore_index=True)
+
+    # Create a LaTeX table from the DataFrame
+    latex_table = _df_to_latex_table(combined_df, no_decimals=no_decimals, model_as_row=model_as_row)
+
+    return latex_table

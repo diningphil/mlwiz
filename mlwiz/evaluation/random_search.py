@@ -7,7 +7,6 @@ from mlwiz.static import *
 from typing import Iterator, Dict, Any
 
 
-
 class RandomSearch(Grid):
     r"""
     Class that implements random-search. It computes all possible
