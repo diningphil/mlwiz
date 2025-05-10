@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.5] Automatic Latex Results Table
+
+## Added
+
+- New function `mlwiz.evaluation.util.create_latex_table_from_assessment_results` that automatically produces a Latex Table with datasets as columns and models as rows, or viceversa.
+
 ## [1.2.4] Minor Fixes
 
 ## Added

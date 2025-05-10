@@ -31,7 +31,7 @@ seed: 42
 
 # Experiment
 result_folder: RESULTS
-exp_name: mlp
+exp_name: mlprandom
 experiment: mlwiz.experiment.Experiment
 higher_results_are_better: True
 evaluate_every: 1

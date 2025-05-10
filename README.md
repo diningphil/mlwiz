@@ -30,7 +30,7 @@ Requires at least Python 3.10. Simply run
 
 #### Build dataset and data splits
 
-    mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml [--debug]
+    mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml
 
 #### Launch experiments
 

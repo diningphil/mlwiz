@@ -76,6 +76,21 @@ class FakeMetric(Metric):
         return predictions.mean()
 
 
+@pytest.fixture
+def fake_metric():
+    def metric_init_fun(
+        use_as_loss, reduction, accumulate_over_epoch, force_cpu
+    ):
+        return FakeMetric(
+            use_as_loss,
+            reduction,
+            accumulate_over_epoch,
+            force_cpu
+        )
+
+    # Return how many times the fake metric will be summed over
+    return metric_init_fun
+
 def test_metric(fake_metric):
     """
     Check that batch/epoch loss/scores are correctly computed in terms of
@@ -160,7 +175,6 @@ def test_metric(fake_metric):
                             if use_as_loss
                             else state.epoch_score[metric.name]
                         )
-
 
 
 class FakeAdditiveLoss(AdditiveLoss):
@@ -327,6 +341,7 @@ class FakeMultiScore(MultiScore):
         main_scorer (Metric): The main scorer for the scores.
         **extra_scorers (dict): Additional scorers to be used.
     """
+
     def __init__(
         self,
         use_as_loss: bool = False,
