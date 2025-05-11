@@ -306,13 +306,13 @@ Once our experiment configuration file is ready, we can launch an experiment usi
 
 .. code-block:: bash
 
-    mlwiz-train --config-file examples/MODEL_CONFIGS/config_MLP.yml
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
 
 or
 
 .. code-block:: bash
 
-    mlwiz-train --config-file examples/MODEL_CONFIGS/config_MLP.yml
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
 
 
 And we are up and running!
@@ -372,7 +372,7 @@ Executing a specific configuration only (debug only!)
 
 When debugging a specific configuration, perhaps because it is crashing unexpectedly,
 you can focus on its execution by passing the arguments ``--debug --execute-config-id [config_id]``
-to ``mlwiz-train``. Valid IDs start from 1 to the maximum number of configurations tried.
+to ``mlwiz-exp``. Valid IDs start from 1 to the maximum number of configurations tried.
 In general, this argument will prioritize the execution of a specific configuration whenever model selection is run for
 an outer fold. It cannot be used together with ``--skip-config-ids``.
 
@@ -383,7 +383,7 @@ Skipping a set of configurations
 Sometimes, a specific configuration may take a long time to finish training, and you do not want to wait for it.
 You can skip its execution during model selection (**note: for all outer folds!**)
 by passing the argument ``--skip-config-ids [config_id1] [config_id2] ...``
-to ``mlwiz-train``. This will ignore the specified configurations across all outer folds and continue with the remaining
+to ``mlwiz-exp``. This will ignore the specified configurations across all outer folds and continue with the remaining
 experiments. It cannot be used together with ``-execute-config-id``.
 
 
@@ -482,7 +482,7 @@ Filtering Configurations for Post-processing of Results
 ----------------------------------------------------------
 
 You can use some utilities we provide to focus on a specific set of configurations after your experiments are terminated.
-Assuming you run `mlwiz-train --config-file examples/MODEL_CONFIGS/config_MLP.yml` inside the MLWiz repo, you can
+Assuming you run `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` inside the MLWiz repo, you can
 then do something like
 
 .. code-block:: python3
