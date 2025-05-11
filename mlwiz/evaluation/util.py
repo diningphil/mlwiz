@@ -665,7 +665,7 @@ def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
     else:
         pivot_df = df.pivot(index="dataset", columns="model", values="formatted")
 
-    # Reset index to have 'model' as a column
+    # Reset index to have 'model' or 'dataset' as a column
     pivot_df = pivot_df.reset_index()
 
     # Generate LaTeX
