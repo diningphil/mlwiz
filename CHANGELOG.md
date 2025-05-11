@@ -18,7 +18,7 @@
 
 ## Fixed
 
-- Changed name of metric from MeanAverageLoss to MeanAbsoluteLoss
+- Changed name of metric from MeanAverageError to MeanAbsoluteError
 
 ## [1.2.3] Minor Fixes
 
