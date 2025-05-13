@@ -1,9 +1,10 @@
 # Changelog
 
-## [1.2.5] Automatic Latex Results Table
+## [1.2.5] More Utilities
 
 ## Added
 
+- New command `mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files>"` to duplicate the experiment configuration file of one model across many datasets, using the already defined configuration files.
 - New function `mlwiz.evaluation.util.create_latex_table_from_assessment_results` that automatically produces a Latex Table with datasets as columns and models as rows, or viceversa.
 
 ## [1.2.4] Minor Fixes

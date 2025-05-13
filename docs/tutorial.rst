@@ -350,6 +350,16 @@ This is useful because everytime one implements a new data splitter for their ow
 If data split overlap is intended in your use case, you can disable the data splits checks by passing the argument
 `--skip-data-splits-check` to `mlwiz-data`.
 
+
+Duplicating Same Model Configuration File Across Datasets
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can duplicate the same model configuration file across datasets by calling
+`mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files>"` 
+which replaces some keywords in `<base_exp_config>` using information contained in the dataset configuratio files.
+
+The new files have format `<exp_name>_<dataset_name>.yml` and are stored in the current working directory.
+
 Training vs Inference Data Preprocessing
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -495,6 +505,19 @@ then do something like
     filtered_configs = filter_experiments(configs, logic='OR', parameters={'Multiclass Classification': 1, 'lr': 0.001})
     print(len(filtered_configs))  # will return 24
 
+
+Converting Results to a DataFrame for Post-processing
+----------------------------------------------------------
+
+Additionally, if you want to convert the list of configurations to a pandas DataFrame, you can use the
+``create_dataframe`` utility. This is useful if you want to perform some post-processing of the results, such as
+
+.. code-block:: python3
+    configs_df = create_dataframe(config_list=filtered_configs,
+                                  key_mappings=[("dim_embedding", int), ("num_layers", int), 
+                                                ("lr", float), ("avg_validation_score", float)])
+
+You can specify the type or a function that processes the value of the key in the configuration file, so that it is ready for later plotting for instance.
 
 
 Loading Model for Inspection in a Notebook

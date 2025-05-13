@@ -52,3 +52,4 @@ dependencies = [
 [project.scripts]
 mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
+mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
