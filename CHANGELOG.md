@@ -1,13 +1,11 @@
 # Changelog
 
-## [1.2.6] Experiment time improvement and fixed file extensions
+## [1.2.5] More Utilities, experiment time improvement and fixed file extensions
 
 ## Fixed
 
 - the total time taken to run experiments now reads from the `experiment.log` file, to account for multiple restarts 
 - fixed the extensions of result files that now use dill rather than torch 
-
-## [1.2.5] More Utilities
 
 ## Added
 
