@@ -1,0 +1,74 @@
+{
+    "outer_k": 1,
+    "inner_k": 0,
+    "run_id": 0,
+    "exp_seed": 1812140441,
+    "model": "mlwiz.model.MLP",
+    "checkpoint": true,
+    "shuffle": true,
+    "batch_size": 512,
+    "epochs": 2,
+    "dim_embedding": 5,
+    "mlwiz_tests": true,
+    "optimizer": {
+        "class_name": "mlwiz.training.callback.optimizer.Optimizer",
+        "args": {
+            "optimizer_class_name": "torch.optim.Adam",
+            "lr": 0.01,
+            "weight_decay": 0.0
+        }
+    },
+    "scheduler": null,
+    "loss": {
+        "class_name": "mlwiz.training.callback.metric.AdditiveLoss",
+        "args": {
+            "loss_1": "mlwiz.training.callback.metric.MulticlassClassification",
+            "loss_2": "mlwiz.training.callback.metric.MulticlassClassification",
+            "losses_weights": {
+                "MulticlassClassification": 1.0
+            },
+            "accumulate_over_epoch": true
+        }
+    },
+    "scorer": {
+        "class_name": "mlwiz.training.callback.metric.MultiScore",
+        "args": {
+            "main_scorer": "mlwiz.training.callback.metric.MulticlassAccuracy",
+            "my_second_metric": "mlwiz.training.callback.metric.ToyMetric"
+        }
+    },
+    "engine": {
+        "class_name": "mlwiz.training.engine.TrainingEngine",
+        "args": {
+            "eval_training": false
+        }
+    },
+    "gradient_clipper": null,
+    "early_stopper": {
+        "class_name": "mlwiz.training.callback.early_stopping.PatienceEarlyStopper",
+        "args": {
+            "patience": 10,
+            "monitor": "validation_main_score",
+            "mode": "max",
+            "checkpoint": true
+        }
+    },
+    "plotter": {
+        "class_name": "mlwiz.training.callback.plotter.Plotter",
+        "args": {
+            "store_on_disk": true
+        }
+    },
+    "dataset_getter": "mlwiz.data.provider.DataProvider",
+    "data_loader": "torch.utils.data.DataLoader",
+    "data_loader_args": {
+        "num_workers": 0,
+        "pin_memory": false
+    },
+    "dataset_class": "tests.integration.fake_dataset.FakeMNIST",
+    "storage_folder": "tests/tmp/DATA",
+    "device": "cpu",
+    "experiment": "mlwiz.experiment.Experiment",
+    "higher_results_are_better": true,
+    "evaluate_every": 1
+}

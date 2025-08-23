@@ -82,14 +82,12 @@ def fake_metric():
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
         return FakeMetric(
-            use_as_loss,
-            reduction,
-            accumulate_over_epoch,
-            force_cpu
+            use_as_loss, reduction, accumulate_over_epoch, force_cpu
         )
 
     # Return how many times the fake metric will be summed over
     return metric_init_fun
+
 
 def test_metric(fake_metric):
     """

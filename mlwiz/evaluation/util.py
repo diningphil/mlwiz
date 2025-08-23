@@ -661,9 +661,13 @@ def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
 
     # Pivot to desired shape
     if model_as_row:
-        pivot_df = df.pivot(index="model", columns="dataset", values="formatted")
+        pivot_df = df.pivot(
+            index="model", columns="dataset", values="formatted"
+        )
     else:
-        pivot_df = df.pivot(index="dataset", columns="model", values="formatted")
+        pivot_df = df.pivot(
+            index="dataset", columns="model", values="formatted"
+        )
 
     # Reset index to have 'model' or 'dataset' as a column
     pivot_df = pivot_df.reset_index()
@@ -674,8 +678,11 @@ def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
 
 
 def create_latex_table_from_assessment_results(
-    exp_metadata, metric_key="main_score", no_decimals="2", 
-    model_as_row=True, use_single_outer_fold=False
+    exp_metadata,
+    metric_key="main_score",
+    no_decimals="2",
+    model_as_row=True,
+    use_single_outer_fold=False,
 ) -> str:
     """
     Creates a LaTeX table from a list of experiment folders, each containing assessment results.
@@ -717,6 +724,8 @@ def create_latex_table_from_assessment_results(
     combined_df = pd.concat(dataframes, ignore_index=True)
 
     # Create a LaTeX table from the DataFrame
-    latex_table = _df_to_latex_table(combined_df, no_decimals=no_decimals, model_as_row=model_as_row)
+    latex_table = _df_to_latex_table(
+        combined_df, no_decimals=no_decimals, model_as_row=model_as_row
+    )
 
     return latex_table

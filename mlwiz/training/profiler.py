@@ -166,5 +166,6 @@ class Profiler:
 
         total_time = datetime.timedelta(seconds=total_time_experiment)
         profile_str += f"Total time of the experiment: {str(total_time)} \n \n"
+        profile_str += f"Total time of the experiment in seconds: {str(total_time_experiment)} \n \n"
         profile_str += f'{"*" * 60}'
         return profile_str

@@ -436,7 +436,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
                 |__ experiment.log  # log file with profiling information
                 |__ best_checkpoint.pth  # torch dict holding the "best" checkpoint information according to the early stopper used
                 |__ last_checkpoint.pth  # torch dict holding the checkpoint information of the last epoch (top ``checkpoint`` keyword set to true)
-                |__ run_2_results.torch  # torch dict holding the results of the 2nd final run on the 5th outer fold.
+                |__ run_2_results.dill  # dict holding the results of the 2nd final run on the 5th outer fold.
             |__ final_run_3
             |__ MODEL_SELECTION  # files regarding the model selection inside the 5th outer fold
                 |__ winner_config.json  # contains the "best model" across the inner folds (in this case just 1 inner fold) for the 5th fold to be used in the final training runs
@@ -452,7 +452,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
                             |__ last_checkpoint.pth
                         |__ run_2
                         |__ fold_1_results.info  # torch dict holding detailed results of the 2 runs of 3rd configuration on 1st inner fold.
-                        |__ fold_1_results.torch  # torch dict holding summary results of the 1st fold results of the 3rd configuration, needed to compute config_results.json
+                        |__ fold_1_results.dill  # dict holding summary results of the 1st fold results of the 3rd configuration, needed to compute config_results.json
                     |__ INNER_FOLD_2
                 |__ config_4
         ...

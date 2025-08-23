@@ -1,5 +1,6 @@
 import json
 import operator
+import re
 import os
 import os.path as osp
 import random
@@ -48,6 +49,21 @@ def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
     return response.json()
 
 
+def extract_and_sum_elapsed_seconds(file_path):
+    # Open the file and read its contents
+    with open(file_path, "r") as f:
+        content = f.read()
+
+    # Find all instances of the pattern "Total time of the experiment in seconds: [SECONDS] \n"
+    matches = re.findall(
+        r"Total time of the experiment in seconds: (\d+(?:\.\d+)?) \n", content
+    )
+    # Convert the matches to floats and sum them together
+    total_seconds = sum(map(float, matches))
+
+    return total_seconds
+
+
 @ray.remote(
     num_cpus=1,
     num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
@@ -92,11 +108,12 @@ def run_valid(
             and time elapsed
     """
     if not osp.exists(fold_results_torch_path):
-        start = time.time()
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
             train_res, val_res = experiment.run_valid(dataset_getter, logger)
-            elapsed = time.time() - start
+            elapsed = extract_and_sum_elapsed_seconds(
+                osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
+            )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
             print(
@@ -160,12 +177,13 @@ def run_test(
     """
     if not osp.exists(final_run_torch_path):
         try:
-            start = time.time()
             experiment = experiment_class(
                 best_config[CONFIG], final_run_exp_path, exp_seed
             )
             res = experiment.run_test(dataset_getter, logger)
-            elapsed = time.time() - start
+            elapsed = extract_and_sum_elapsed_seconds(
+                osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+            )
             train_res, val_res, test_res = res
             dill_save(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
@@ -626,7 +644,7 @@ class RiskAssesser:
                         config_folder, self._INNER_FOLD_BASE + str(k + 1)
                     )
                     fold_results_torch_path = osp.join(
-                        fold_exp_folder, f"fold_{str(k + 1)}_results.torch"
+                        fold_exp_folder, f"fold_{str(k + 1)}_results.dill"
                     )
 
                     # Tell the data provider to take data relative
@@ -639,7 +657,7 @@ class RiskAssesser:
                         )
                         fold_run_results_torch_path = osp.join(
                             fold_run_exp_folder,
-                            f"run_{run_id+1}_results.torch",
+                            f"run_{run_id+1}_results.dill",
                         )
 
                         # Use pre-computed random seed for the experiment
@@ -649,7 +667,7 @@ class RiskAssesser:
                         dataset_getter.set_exp_seed(exp_seed)
 
                         logger = Logger(
-                            osp.join(fold_run_exp_folder, "experiment.log"),
+                            osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE),
                             mode="a",
                             debug=debug,
                         )
@@ -682,7 +700,6 @@ class RiskAssesser:
                             self.outer_folds_job_list.append(future)
                         else:  # debug mode
                             if not osp.exists(fold_run_results_torch_path):
-                                start = time.time()
                                 experiment = self.experiment_class(
                                     config, fold_run_exp_folder, exp_seed
                                 )
@@ -692,7 +709,11 @@ class RiskAssesser:
                                 ) = experiment.run_valid(
                                     dataset_getter, logger
                                 )
-                                elapsed = time.time() - start
+                                elapsed = extract_and_sum_elapsed_seconds(
+                                    osp.join(
+                                        fold_run_exp_folder, EXPERIMENT_LOGFILE
+                                    )
+                                )
                                 dill_save(
                                     (
                                         training_score,
@@ -766,7 +787,7 @@ class RiskAssesser:
         for i in range(self.risk_assessment_training_runs):
             final_run_exp_path = osp.join(outer_folder, f"final_run{i + 1}")
             final_run_torch_path = osp.join(
-                final_run_exp_path, f"run_{i + 1}_results.torch"
+                final_run_exp_path, f"run_{i + 1}_results.dill"
             )
 
             # Use pre-computed random seed for the experiment
@@ -776,7 +797,7 @@ class RiskAssesser:
             # Retrain with the best configuration and test
             # Set up a log file for this experiment (run in a separate process)
             logger = Logger(
-                osp.join(final_run_exp_path, "experiment.log"),
+                osp.join(final_run_exp_path, EXPERIMENT_LOGFILE),
                 mode="a",
                 debug=debug,
             )
@@ -814,7 +835,9 @@ class RiskAssesser:
                         best_config[CONFIG], final_run_exp_path, exp_seed
                     )
                     res = experiment.run_test(dataset_getter, logger)
-                    elapsed = time.time() - start
+                    elapsed = extract_and_sum_elapsed_seconds(
+                        osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+                    )
 
                     training_res, val_res, test_res = res
                     dill_save(
@@ -837,7 +860,7 @@ class RiskAssesser:
             inner_k (int): the inner fold id
         """
         fold_results_filename = osp.join(
-            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.torch"
+            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.dill"
         )
         fold_info_filename = osp.join(
             inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.info"
@@ -851,7 +874,7 @@ class RiskAssesser:
                 inner_fold_exp_folder, f"run_{run_id + 1}"
             )
             fold_run_results_torch_path = osp.join(
-                fold_run_exp_folder, f"run_{run_id + 1}_results.torch"
+                fold_run_exp_folder, f"run_{run_id + 1}_results.dill"
             )
 
             training_res, validation_res, _ = dill_load(
@@ -958,7 +981,7 @@ class RiskAssesser:
                 config_folder, self._INNER_FOLD_BASE + str(k + 1)
             )
             fold_results_torch_path = osp.join(
-                fold_exp_folder, f"fold_{str(k + 1)}_results.torch"
+                fold_exp_folder, f"fold_{str(k + 1)}_results.dill"
             )
 
             training_res, validation_res, _ = dill_load(
@@ -1119,7 +1142,7 @@ class RiskAssesser:
                     outer_folder, f"final_run{i + 1}"
                 )
                 final_run_torch_path = osp.join(
-                    final_run_exp_path, f"run_{i + 1}_results.torch"
+                    final_run_exp_path, f"run_{i + 1}_results.dill"
                 )
                 res = dill_load(final_run_torch_path)
 
