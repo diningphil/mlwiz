@@ -423,7 +423,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
 
 .. code-block::
 
-    supervised_grid_search_toy_PROTEINS
+    mlp_MNIST
     |__ MODEL_ASSESSMENT
         |__ assessment_results.json  # contains the risk assessment results (average of the outer fold results)
         |__ OUTER_FOLD_1
@@ -537,7 +537,7 @@ We provide utilities to use your model immediately after experiments end to run 
     dataset = instantiate_dataset_from_config(config)
 
     # instantiate model
-    model = instantiate_model_from_config(config, dataset, config_type="supervised_config")
+    model = instantiate_model_from_config(config, dataset)
 
     # load model's checkpoint, assuming the best configuration has been loaded
     checkpoint_location = 'RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/best_checkpoint.pth'
@@ -591,3 +591,4 @@ to specify your telegram configuration file by adding:
 
 And that's all you have to do to start receiving messages when the model selection/final runs for a specific fold end!
 You will also receive a message when the experiment terminates with the test score.
+

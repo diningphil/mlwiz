@@ -1,5 +1,13 @@
 # Changelog
 
+
+## [1.2.6] Minor Fixes
+
+## Fixed
+
+- Typos in tutorial
+- Printing of config_id to be executed in debug mode
+
 ## [1.2.5] More Utilities, experiment time improvement and fixed file extensions
 
 ## Fixed
