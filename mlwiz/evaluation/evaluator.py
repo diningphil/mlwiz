@@ -625,7 +625,7 @@ class RiskAssesser:
                 _model_configs.insert(0, element)
                 print(
                     f"Prioritizing execution of configuration"
-                    f" {_model_configs[0][0]} as requested..."
+                    f" {_model_configs[0][0]+1} as requested..."
                 )
                 print(element)
             # Launch one job for each inner_fold for each configuration
