@@ -391,8 +391,8 @@ def create_dataframe(
             cf_v = _finditem(config, hp_name)
             new_row[hp_name] = t_caster(cf_v) if cf_v is not None else None
 
-            # Append the new row to the DataFrame
-            df_rows.append(new_row)
+        # Append the new row to the DataFrame
+        df_rows.append(new_row)
 
     df = pd.DataFrame.from_records(
         df_rows, columns=[h[0] for h in key_mappings] + ["exp_folder"]
