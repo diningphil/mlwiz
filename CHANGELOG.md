@@ -7,6 +7,7 @@
 
 - Typos in tutorial
 - Printing of config_id to be executed in debug mode
+- fix in `create_dataframe` utility that was duplicating entries
 
 ## [1.2.5] More Utilities, experiment time improvement and fixed file extensions
 
