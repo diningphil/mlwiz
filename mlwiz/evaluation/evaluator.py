@@ -643,9 +643,6 @@ class RiskAssesser:
                     fold_exp_folder = osp.join(
                         config_folder, self._INNER_FOLD_BASE + str(k + 1)
                     )
-                    fold_results_torch_path = osp.join(
-                        fold_exp_folder, f"fold_{str(k + 1)}_results.dill"
-                    )
 
                     # Tell the data provider to take data relative
                     # to a specific INNER split

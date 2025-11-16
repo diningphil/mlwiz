@@ -1,7 +1,7 @@
 # Changelog
 
 
-## [1.2.6] Minor Fixes
+## [1.2.6] Fixes
 
 ## Fixed
 
