@@ -416,6 +416,38 @@ class DataProvider:
         return self.dim_target
 
 
+# Define a worker_init_fn that configures each dataset copy differently
+# this is called only when num_workers is set to a value > 0
+def _iterable_worker_init_fn(worker_id: int):
+    """
+    Set the seeds for the worker and computes the range of
+    samples ids to fetch.
+    """
+    worker_info = torch.utils.data.get_worker_info()
+    num_workers = worker_info.num_workers
+    assert num_workers > 0
+
+    # Set the random seed
+    seed_worker(worker_id, self.exp_seed)
+
+    # Get the dataset and overall length
+    dataset = (
+        worker_info.dataset
+    )  # the dataset copy in this worker process
+    dataset_length = len(
+        dataset
+    )  # dynamic, already refers to the subset of urls!
+
+    per_worker = int(
+        math.ceil((dataset_length) / float(worker_info.num_workers))
+    )
+
+    start = worker_id * per_worker
+    end = worker_id * per_worker + per_worker
+
+    # configure the dataset to only process the split workload
+    dataset.splice(start, end)
+
 class IterableDataProvider(DataProvider):
     r"""
     A DataProvider object that allows to fetch data from an Iterable-style
@@ -458,45 +490,13 @@ class IterableDataProvider(DataProvider):
             self.exp_seed is not None
         ), "DataLoader's seed has not been specified! Is this a bug?"
 
-        # Define a worker_init_fn that configures each dataset copy differently
-        # this is called only when num_workers is set to a value > 0
-        def worker_init_fn(worker_id: int):
-            """
-            Set the seeds for the worker and computes the range of
-            samples ids to fetch.
-            """
-            worker_info = torch.utils.data.get_worker_info()
-            num_workers = worker_info.num_workers
-            assert num_workers > 0
-
-            # Set the random seed
-            seed_worker(worker_id, self.exp_seed)
-
-            # Get the dataset and overall length
-            dataset = (
-                worker_info.dataset
-            )  # the dataset copy in this worker process
-            dataset_length = len(
-                dataset
-            )  # dynamic, already refers to the subset of urls!
-
-            per_worker = int(
-                math.ceil((dataset_length) / float(worker_info.num_workers))
-            )
-
-            start = worker_id * per_worker
-            end = worker_id * per_worker + per_worker
-
-            # configure the dataset to only process the split workload
-            dataset.splice(start, end)
-
         kwargs.update(self.data_loader_args)
 
         dataloader = self.data_loader_class(
             dataset,
             sampler=None,
             collate_fn=Collater(None, None),
-            worker_init_fn=worker_init_fn,
+            worker_init_fn=_iterable_worker_init_fn,
             batch_size=batch_size,
             **kwargs,
         )
