@@ -418,7 +418,7 @@ class DataProvider:
 
 # Define a worker_init_fn that configures each dataset copy differently
 # this is called only when num_workers is set to a value > 0
-def _iterable_worker_init_fn(worker_id: int):
+def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
     """
     Set the seeds for the worker and computes the range of
     samples ids to fetch.
@@ -428,7 +428,7 @@ def _iterable_worker_init_fn(worker_id: int):
     assert num_workers > 0
 
     # Set the random seed
-    seed_worker(worker_id, self.exp_seed)
+    seed_worker(worker_id, exp_seed)
 
     # Get the dataset and overall length
     dataset = (
@@ -496,7 +496,7 @@ class IterableDataProvider(DataProvider):
             dataset,
             sampler=None,
             collate_fn=Collater(None, None),
-            worker_init_fn=_iterable_worker_init_fn,
+            worker_init_fn=lambda x: _iterable_worker_init_fn(x, self.exp_seed),
             batch_size=batch_size,
             **kwargs,
         )
