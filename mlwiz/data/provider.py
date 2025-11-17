@@ -16,6 +16,8 @@ from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
 from mlwiz.util import s2c
 
+import functools
+
 
 def seed_worker(exp_seed, worker_id):
     r"""
@@ -496,7 +498,7 @@ class IterableDataProvider(DataProvider):
             dataset,
             sampler=None,
             collate_fn=Collater(None, None),
-            worker_init_fn=lambda x: _iterable_worker_init_fn(x, self.exp_seed),
+            worker_init_fn=functools.partial(_iterable_worker_init_fn, exp_seed=self.exp_seed),
             batch_size=batch_size,
             **kwargs,
         )
