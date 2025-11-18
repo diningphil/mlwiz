@@ -38,12 +38,14 @@ evaluate_every: 1
 risk_assessment_training_runs: 3
 model_selection_training_runs: 2
 
+training_timeout_seconds: 20
+
 grid:
   model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
   batch_size: 512
-  epochs: 2
+  epochs: 400
 
   # Model specific arguments #
 

@@ -74,6 +74,7 @@ class EngineCallback(EventHandler):
                 OPTIMIZER_STATE: getattr(state, OPTIMIZER_STATE, None),
                 SCHEDULER_STATE: getattr(state, SCHEDULER_STATE, None),
                 STOP_TRAINING: state.stop_training,
+                LAST_RUN_ELAPSED_TIME: state.current_elapsed_time,
             }
             last_ckpt.update(state.epoch_results)
             atomic_save(

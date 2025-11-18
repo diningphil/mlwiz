@@ -518,6 +518,7 @@ class TrainingEngine(EventDispatcher):
         max_epochs: int = 100,
         zero_epoch: bool = False,
         logger: Logger = None,
+        training_timeout_seconds: int = -1,
     ) -> Tuple[
         dict,
         dict,
@@ -587,8 +588,21 @@ class TrainingEngine(EventDispatcher):
             # In case we already have a trained model
             epoch = self.state.initial_epoch
 
+            last_run_elapsed_time = self.state.current_elapsed_time
+
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
+
+                if training_timeout_seconds > 0:
+                    # update the current time including the time of the last run
+                    self.state.update(current_elapsed_time=self.profiler.total_elapsed_time.seconds + last_run_elapsed_time)                    
+                    
+                    if self.state.current_elapsed_time >= training_timeout_seconds:
+                        msg = f"Skipping training of new epoch {epoch+1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
+                        log(msg, logger)
+                        self.state.update(stop_training=True)
+                        break
+
                 self.state.update(epoch=epoch)
                 self.state.update(return_embeddings_embeddings=False)
 
@@ -789,6 +803,8 @@ class TrainingEngine(EventDispatcher):
             map_location="cpu" if self.device == "cpu" else None,
             weights_only=True,
         )
+
+        self.state.update(current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME])
 
         self.state.update(
             initial_epoch=int(ckpt_dict[EPOCH]) + 1 if not zero_epoch else 0

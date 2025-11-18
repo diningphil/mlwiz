@@ -25,6 +25,7 @@ class State:
         self.stop_training = False
         self.return_embeddings_embeddings = False
         self.set = None
+        self.current_elapsed_time = 0
 
     def __getitem__(self, name):
         """

@@ -26,6 +26,7 @@ BEST_CONFIG = "best_config"
 OUTER_TRAIN = "outer_train"
 OUTER_VALIDATION = "outer_validation"
 OUTER_TEST = "outer_test"
+TRAINING_TIME_SECONDS = "training_timeout_seconds"
 
 # SPLITTER
 DATA_SPLITTER_BASE_PATH = "mlwiz.data.splitter."
@@ -52,6 +53,7 @@ SCHEDULER_STATE = "scheduler_state"
 BEST_EPOCH = "best_epoch"
 BEST_EPOCH_RESULTS = "best_epoch_results"
 EPOCH = "epoch"
+LAST_RUN_ELAPSED_TIME = 'last_run_elapsed_time'
 STOP_TRAINING = "stop_training"
 LAST_CHECKPOINT_FILENAME = "last_checkpoint.pth"
 BEST_CHECKPOINT_FILENAME = "best_checkpoint.pth"
