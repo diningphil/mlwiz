@@ -12,7 +12,7 @@ from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
 
 
 class FakeTask(Experiment):
-    def run_valid(self, dataset_getter, logger):
+    def run_valid(self, dataset_getter, training_timeout_seconds, logger):
         outer_k = dataset_getter.outer_k
         inner_k = dataset_getter.inner_k
 
@@ -26,7 +26,7 @@ class FakeTask(Experiment):
 
         return train_res, val_res
 
-    def run_test(self, dataset_getter, logger):
+    def run_test(self, dataset_getter, training_timeout_seconds, logger):
         outer_k = dataset_getter.outer_k
 
         train_loss = {MAIN_LOSS: outer_k}
