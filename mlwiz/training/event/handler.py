@@ -114,7 +114,7 @@ class EventHandler:
         Pre-condition:
             * The following fields have been initialized:
                 * ``state.epoch``: the current epoch
-                * ``state.return_embeddings_embeddings``:
+                * ``state.return_embeddings``:
                     do/don't return node_embeddings for each graph
                     at the end of the epoch
 

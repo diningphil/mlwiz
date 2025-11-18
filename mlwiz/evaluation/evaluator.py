@@ -80,6 +80,7 @@ def run_valid(
     fold_exp_folder: str,
     fold_results_torch_path: str,
     exp_seed: int,
+    training_timeout_seconds: int,
     logger: Logger,
 ) -> Tuple[int, int, int, int, float]:
     r"""
@@ -100,6 +101,7 @@ def run_valid(
         fold_results_torch_path (str): path where to store the
             results of the experiment
         exp_seed (int): seed of the experiment
+        training_timeout_seconds (int): timeout for the experiment in seconds
         logger (:class:`~mlwiz.log.logger.Logger`): a logger to log
             information in the appropriate file
 
@@ -110,7 +112,7 @@ def run_valid(
     if not osp.exists(fold_results_torch_path):
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
-            train_res, val_res = experiment.run_valid(dataset_getter, logger)
+            train_res, val_res = experiment.run_valid(dataset_getter, training_timeout_seconds, logger)
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
             )
@@ -149,6 +151,7 @@ def run_test(
     final_run_exp_path: str,
     final_run_torch_path: str,
     exp_seed: int,
+    training_timeout_seconds: int,
     logger: Logger,
 ) -> Tuple[int, int, float]:
     r"""
@@ -169,6 +172,7 @@ def run_test(
         final_run_torch_path (str): path where to store the results
             of the experiment
         exp_seed (int): seed of the experiment
+        training_timeout_seconds (int): timeout for the experiment in seconds
         logger (:class:`~mlwiz.log.logger.Logger`): a logger to log
             information in the appropriate file
 
@@ -180,7 +184,7 @@ def run_test(
             experiment = experiment_class(
                 best_config[CONFIG], final_run_exp_path, exp_seed
             )
-            res = experiment.run_test(dataset_getter, logger)
+            res = experiment.run_test(dataset_getter, training_timeout_seconds, logger)
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
             )
@@ -232,6 +236,8 @@ class RiskAssesser:
             experiment. Can be < ``1``.
         base_seed (int): Seed used to generate experiments seeds.
             Used to replicate results. Default is ``42``
+        training_timeout_seconds (int): optional timeout limit per 
+            experiment in seconds
     """
 
     def __init__(
@@ -247,6 +253,7 @@ class RiskAssesser:
         higher_is_better: bool,
         gpus_per_task: float,
         base_seed: int = 42,
+        training_timeout_seconds: int = -1,
     ):
         # REPRODUCIBILITY:
         # https://pytorch.org/docs/stable/notes/randomness.html
@@ -265,6 +272,7 @@ class RiskAssesser:
         self.model_configs = model_configs
         self.risk_assessment_training_runs = risk_assessment_training_runs
         self.model_selection_training_runs = model_selection_training_runs
+        self.training_timeout_seconds = training_timeout_seconds
         self.higher_is_better = higher_is_better
         if higher_is_better:
             self.operator = operator.gt
@@ -692,6 +700,7 @@ class RiskAssesser:
                                 fold_run_exp_folder,
                                 fold_run_results_torch_path,
                                 exp_seed,
+                                self.training_timeout_seconds,
                                 logger,
                             )
                             self.outer_folds_job_list.append(future)
@@ -704,7 +713,7 @@ class RiskAssesser:
                                     training_score,
                                     validation_score,
                                 ) = experiment.run_valid(
-                                    dataset_getter, logger
+                                    dataset_getter, self.training_timeout_seconds, logger
                                 )
                                 elapsed = extract_and_sum_elapsed_seconds(
                                     osp.join(
@@ -822,6 +831,7 @@ class RiskAssesser:
                     final_run_exp_path,
                     final_run_torch_path,
                     exp_seed,
+                    self.training_timeout_seconds,
                     logger,
                 )
                 self.final_runs_job_list.append(future)
@@ -831,7 +841,7 @@ class RiskAssesser:
                     experiment = self.experiment_class(
                         best_config[CONFIG], final_run_exp_path, exp_seed
                     )
-                    res = experiment.run_test(dataset_getter, logger)
+                    res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger)
                     elapsed = extract_and_sum_elapsed_seconds(
                         osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
                     )

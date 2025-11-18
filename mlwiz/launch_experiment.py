@@ -225,6 +225,9 @@ def evaluation(options: argparse.Namespace):
         higher_is_better=search.higher_results_are_better,
         gpus_per_task=gpus_per_task,
         base_seed=seed,
+        training_timeout_seconds=configs_dict.get(
+            TRAINING_TIME_SECONDS, -1
+        ),
     )
 
     if not debug and execute_config_id is not None:

@@ -1,6 +1,10 @@
 # Changelog
 
-## [1.3.0]
+## [1.2.7] Out-of-time (OOT) experiments
+
+## Added
+
+- You can now specify the max time (in seconds) for a single experiment run in the configuration file using the key `training_timeout_seconds`. By default, this is clearly disabled (set to -1). This also handles the case when experiments are stopped and resumed (of course, checkpointing has to be enabled otherwise the state is not carried over)
 
 ## [1.2.6] Fixes
 

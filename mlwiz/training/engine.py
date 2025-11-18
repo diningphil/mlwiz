@@ -337,7 +337,7 @@ class TrainingEngine(EventDispatcher):
         # EngineCallback will store the outputs in state.batch_outputs
         output = self.state.batch_outputs
 
-        if len(output) > 1 and self.state.return_embeddings_embeddings:
+        if len(output) > 1 and self.state.return_embeddings:
             # Embeddings should be in position 2 of the output
             embeddings = output[1]
 
@@ -518,6 +518,7 @@ class TrainingEngine(EventDispatcher):
         max_epochs: int = 100,
         zero_epoch: bool = False,
         logger: Logger = None,
+        training_timeout_seconds: int = -1,
     ) -> Tuple[
         dict,
         dict,
@@ -587,10 +588,23 @@ class TrainingEngine(EventDispatcher):
             # In case we already have a trained model
             epoch = self.state.initial_epoch
 
+            last_run_elapsed_time = self.state.current_elapsed_time
+
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
+
+                if training_timeout_seconds > 0:
+                    # update the current time including the time of the last run
+                    self.state.update(current_elapsed_time=self.profiler.total_elapsed_time.seconds + last_run_elapsed_time)                    
+                    
+                    if self.state.current_elapsed_time >= training_timeout_seconds:
+                        msg = f"Skipping training of new epoch {epoch+1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
+                        log(msg, logger)
+                        self.state.update(stop_training=True)
+                        break
+
                 self.state.update(epoch=epoch)
-                self.state.update(return_embeddings_embeddings=False)
+                self.state.update(return_embeddings=False)
 
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
@@ -702,7 +716,7 @@ class TrainingEngine(EventDispatcher):
                 self.state.update(best_epoch_results={BEST_EPOCH: epoch})
                 ber = self.state.best_epoch_results
 
-            self.state.update(return_embeddings_embeddings=True)
+            self.state.update(return_embeddings=True)
 
             # Compute training output
             train_loss, train_score, train_embeddings_tuple = self.infer(
@@ -737,7 +751,7 @@ class TrainingEngine(EventDispatcher):
 
             self._dispatch(EventHandler.ON_FIT_END, self.state)
 
-            self.state.update(return_embeddings_embeddings=False)
+            self.state.update(return_embeddings=False)
 
             log(
                 f"Chosen is Epoch {ber[BEST_EPOCH] + 1} "
@@ -789,6 +803,8 @@ class TrainingEngine(EventDispatcher):
             map_location="cpu" if self.device == "cpu" else None,
             weights_only=True,
         )
+
+        self.state.update(current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME])
 
         self.state.update(
             initial_epoch=int(ckpt_dict[EPOCH]) + 1 if not zero_epoch else 0
