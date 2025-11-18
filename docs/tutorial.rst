@@ -140,6 +140,7 @@ explanation of each field as a comment:
     evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
     risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
     model_selection_training_runs:  # how many training runs to perform for each hyper-parameter configuration in a specific inner fold
+    training_timeout_seconds:  # optional max time (in seconds) for a single training run (-1 disables the timeout)
 
     # Grid Search
     # if only 1 configuration is selected, any inner model selection will be skipped
@@ -271,6 +272,13 @@ our results:
     evaluate_every: 3
     risk_assessment_training_runs: 3
     model_selection_training_runs: 2
+    training_timeout_seconds: -1  # set to a positive value to enforce a per-run time budget
+
+By default MLWiz will run each training session until either the configured number of epochs is reached or the early
+stopper halts it. If you need to cap the wall-clock time of each run, set ``training_timeout_seconds`` to a positive
+value. The :class:`~mlwiz.training.engine.TrainingEngine` tracks the elapsed time (including previous attempts when
+resuming from checkpoints) and stops scheduling additional epochs once the limit is reached, logging the reason for the
+interruption. Keeping checkpointing enabled lets you safely resume from where the timeout was triggered.
 
 
 Grid Search
@@ -355,7 +363,7 @@ Duplicating Same Model Configuration File Across Datasets
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 You can duplicate the same model configuration file across datasets by calling
-`mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files>"` 
+`mlwiz-config-duplicator --base-exp-config <base_exp_config> --data-config-files <data_config_files>"` 
 which replaces some keywords in `<base_exp_config>` using information contained in the dataset configuratio files.
 
 The new files have format `<exp_name>_<dataset_name>.yml` and are stored in the current working directory.
@@ -513,11 +521,45 @@ Additionally, if you want to convert the list of configurations to a pandas Data
 ``create_dataframe`` utility. This is useful if you want to perform some post-processing of the results, such as
 
 .. code-block:: python3
+
     configs_df = create_dataframe(config_list=filtered_configs,
                                   key_mappings=[("dim_embedding", int), ("num_layers", int), 
                                                 ("lr", float), ("avg_validation_score", float)])
 
 You can specify the type or a function that processes the value of the key in the configuration file, so that it is ready for later plotting for instance.
+
+
+Exporting Assessment Results to LaTeX
+----------------------------------------------------------
+
+When you need a publication-ready table summarizing multiple experiments, rely on the helper located in
+``mlwiz/experiment/util.py``. The function ``create_latex_table_from_assessment_results`` accepts a list of
+``(experiment_folder, model_name, dataset_name)`` tuples, reads the aggregated assessment JSON files, and formats them
+as a LaTeX table that already includes the corresponding standard deviations.
+
+.. code-block:: python3
+
+    from mlwiz.experiment.util import create_latex_table_from_assessment_results
+
+    experiments = [
+        ("RESULTS/mlp_MNIST", "MLP", "MNIST"),
+        ("RESULTS/dgn_PROTEINS", "DGN", "PROTEINS"),
+    ]
+
+    latex_table = create_latex_table_from_assessment_results(
+        experiments,
+        metric_key="main_score",
+        no_decimals=3,
+        model_as_row=True,
+        use_single_outer_fold=False,
+    )
+
+    print(latex_table)
+
+You can change ``metric_key`` to any metric stored in the assessment files, customize the rounding through
+``no_decimals``, and decide whether models or datasets are rendered as rows with ``model_as_row``. Setting
+``use_single_outer_fold=True`` is handy when the experiment only used a single outer fold and you still want the final
+runs' standard deviation to be reported in the LaTeX output.
 
 
 Loading Model for Inspection in a Notebook
