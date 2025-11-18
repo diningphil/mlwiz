@@ -337,7 +337,7 @@ class TrainingEngine(EventDispatcher):
         # EngineCallback will store the outputs in state.batch_outputs
         output = self.state.batch_outputs
 
-        if len(output) > 1 and self.state.return_embeddings_embeddings:
+        if len(output) > 1 and self.state.return_embeddings:
             # Embeddings should be in position 2 of the output
             embeddings = output[1]
 
@@ -604,7 +604,7 @@ class TrainingEngine(EventDispatcher):
                         break
 
                 self.state.update(epoch=epoch)
-                self.state.update(return_embeddings_embeddings=False)
+                self.state.update(return_embeddings=False)
 
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
@@ -716,7 +716,7 @@ class TrainingEngine(EventDispatcher):
                 self.state.update(best_epoch_results={BEST_EPOCH: epoch})
                 ber = self.state.best_epoch_results
 
-            self.state.update(return_embeddings_embeddings=True)
+            self.state.update(return_embeddings=True)
 
             # Compute training output
             train_loss, train_score, train_embeddings_tuple = self.infer(
@@ -751,7 +751,7 @@ class TrainingEngine(EventDispatcher):
 
             self._dispatch(EventHandler.ON_FIT_END, self.state)
 
-            self.state.update(return_embeddings_embeddings=False)
+            self.state.update(return_embeddings=False)
 
             log(
                 f"Chosen is Epoch {ber[BEST_EPOCH] + 1} "
