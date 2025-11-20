@@ -539,7 +539,7 @@ as a LaTeX table that already includes the corresponding standard deviations.
 
 .. code-block:: python3
 
-    from mlwiz.experiment.util import create_latex_table_from_assessment_results
+    from mlwiz.evaluation.util import create_latex_table_from_assessment_results
 
     experiments = [
         ("RESULTS/mlp_MNIST", "MLP", "MNIST"),
@@ -633,4 +633,5 @@ to specify your telegram configuration file by adding:
 
 And that's all you have to do to start receiving messages when the model selection/final runs for a specific fold end!
 You will also receive a message when the experiment terminates with the test score.
+
 
