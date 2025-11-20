@@ -635,15 +635,14 @@ def get_scores_from_assessment_results(
         )
     )
 
-    suffix = "_score" if metric_key != "main_score" else ""
     # Extract scores for the specified metric from the config dictionary
     scores = {
-        "training": config_dict["avg_training_" + metric_key + suffix],
-        "validation": config_dict["avg_validation_" + metric_key + suffix],
-        "test": config_dict["avg_test_" + metric_key + suffix],
-        "training_std": config_dict["std_training_" + metric_key + suffix],
-        "validation_std": config_dict["std_validation_" + metric_key + suffix],
-        "test_std": config_dict["std_test_" + metric_key + suffix],
+        "training": config_dict["avg_training_" + metric_key],
+        "validation": config_dict["avg_validation_" + metric_key],
+        "test": config_dict["avg_test_" + metric_key],
+        "training_std": config_dict["std_training_" + metric_key],
+        "validation_std": config_dict["std_validation_" + metric_key],
+        "test_std": config_dict["std_test_" + metric_key],
     }
 
     return scores
