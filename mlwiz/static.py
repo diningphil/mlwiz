@@ -69,6 +69,7 @@ MODEL_STATE_DICT = "model_state_dict"
 OPTIMIZER_STATE_DICT = "optimizer_state_dict"
 AVG = "avg"
 STD = "std"
+CI = "ci"
 READOUT = "readout"
 
 # SET UP

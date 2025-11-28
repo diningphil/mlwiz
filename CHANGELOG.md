@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.0]
+
+## Added
+
+- Computation of 95% confidence interval in addition to the standard deviation
+- Utility computation of statistical significance between models using `mlwiz.evaluation.util.compare_statistical_significance`. See the tutorial for more info.
+
+
 ## [1.2.7] Out-of-time (OOT) experiments
 
 ## Added

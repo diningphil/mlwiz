@@ -64,6 +64,17 @@ def extract_and_sum_elapsed_seconds(file_path):
     return total_seconds
 
 
+def _mean_std_ci(values: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Computes mean, std, and 95% confidence interval for the provided values.
+    """
+    mean = float(values.mean())
+    std = float(values.std())
+    se = std / np.sqrt(len(values))
+    half_width = 1.96 * se
+    return mean, std, half_width
+
+
 @ray.remote(
     num_cpus=1,
     num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
@@ -936,12 +947,10 @@ class RiskAssesser:
                         for i in range(self.model_selection_training_runs)
                     ]
                 )
-                results_dict[f"{set_type}_{key}{suffix}"] = float(
-                    set_res.mean()
-                )
-                results_dict[f"{STD}_{set_type}_{key}{suffix}"] = float(
-                    set_res.std()
-                )
+                mean, std, ci = _mean_std_ci(set_res)
+                results_dict[f"{set_type}_{key}{suffix}"] = mean
+                results_dict[f"{STD}_{set_type}_{key}{suffix}"] = std
+                results_dict[f"{CI}_{set_type}_{key}{suffix}"] = ci
 
         results_dict.update({MODEL_SELECTION_TRAINING_RUNS: run_dict})
 
@@ -1045,12 +1054,10 @@ class RiskAssesser:
                         for i in range(self.inner_folds)
                     ]
                 )
-                k_fold_dict[f"{AVG}_{set_type}_{key}{suffix}"] = float(
-                    set_res.mean()
-                )
-                k_fold_dict[f"{STD}_{set_type}_{key}{suffix}"] = float(
-                    set_res.std()
-                )
+                mean, std, ci = _mean_std_ci(set_res)
+                k_fold_dict[f"{AVG}_{set_type}_{key}{suffix}"] = mean
+                k_fold_dict[f"{STD}_{set_type}_{key}{suffix}"] = std
+                k_fold_dict[f"{CI}_{set_type}_{key}{suffix}"] = ci
 
         with open(config_filename, "w") as fp:
             json.dump(k_fold_dict, fp, sort_keys=False, indent=4)
@@ -1197,18 +1204,16 @@ class RiskAssesser:
                                 if (key != MAIN_LOSS and key != MAIN_SCORE)
                                 else ""
                             )
-                            set_dict[key + suffix] = np.mean(
+                            values = np.array(
                                 [
                                     float(set_run[key])
                                     for set_run in set_results
                                 ]
                             )
-                            set_dict[key + f"{suffix}_{STD}"] = np.std(
-                                [
-                                    float(set_run[key])
-                                    for set_run in set_results
-                                ]
-                            )
+                            mean, std, ci = _mean_std_ci(values)
+                            set_dict[key + suffix] = mean
+                            set_dict[key + f"{suffix}_{STD}"] = std
+                            set_dict[key + f"{suffix}_{CI}"] = ci
 
         # Send telegram update
         if (
@@ -1270,7 +1275,10 @@ class RiskAssesser:
                 ].keys():  # train keys are the same as valid and test keys
                     # Do not want to average std of different final runs in
                     # different outer folds
-                    if k[-3:] == STD:
+                    if (
+                        k.endswith(STD)
+                        or k.endswith(CI)
+                    ):
                         continue
 
                     # there may be different optimal losses for each outer
@@ -1291,12 +1299,10 @@ class RiskAssesser:
 
                     for results, set in outer_results:
                         set_results = np.array([res[k] for res in results])
-                        assessment_results[f"{AVG}_{set}_{k}"] = (
-                            set_results.mean()
-                        )
-                        assessment_results[f"{STD}_{set}_{k}"] = (
-                            set_results.std()
-                        )
+                        mean, std, ci  = _mean_std_ci(set_results)
+                        assessment_results[f"{AVG}_{set}_{k}"] = mean
+                        assessment_results[f"{STD}_{set}_{k}"] = std
+                        assessment_results[f"{CI}_{set}_{k}"] = ci
 
         # Send telegram update
         if self.model_configs.telegram_config is not None:

@@ -52,7 +52,6 @@ autodoc_mock_imports = [
     "PyYAML",
     "requests",
     "tensorboard",
-    "tqdm",
     "ogb",
     "aioredis",
     "ray",

@@ -562,6 +562,39 @@ You can change ``metric_key`` to any metric stored in the assessment files, cust
 runs' standard deviation to be reported in the LaTeX output.
 
 
+Comparing Statistical Significance Between Models
+----------------------------------------------------------
+
+When you need to quantify whether a highlighted model is statistically better than others, use the helper
+``compare_statistical_significance``. It automatically chooses the right samples: if multiple outer folds are present,
+it uses the outer-fold averages; otherwise it falls back to the final runs of the single outer fold. A Welch t-test
+is applied with a 95% confidence level by default.
+
+.. code-block:: python3
+
+    from mlwiz.evaluation.util import compare_statistical_significance
+
+    reference = ("RESULTS/mlp_MNIST", "MLP", "MNIST")
+    competitors = [
+        ("RESULTS/baseline1_MNIST", "B1", "MNIST"),
+        ("RESULTS/baseline2_MNIST", "B2", "MNIST"),
+    ]
+
+    df = compare_statistical_significance(
+        highlighted_exp_metadata=reference,
+        other_exp_metadata=competitors,
+        metric_key="main_score",
+        set_key="test",
+        confidence_level=0.95,
+    )
+
+    print(df)
+
+The resulting DataFrame includes mean/std/CI for the reference and each competitor, the sample source (outer fold means
+or final runs), the p-value of the two-sided test, and a boolean flag indicating if the difference is significant at the
+requested confidence level.
+
+
 Loading Model for Inspection in a Notebook
 ----------------------------------------------
 

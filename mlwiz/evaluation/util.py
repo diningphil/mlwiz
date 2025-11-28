@@ -5,7 +5,9 @@ import os
 import random
 from typing import List, Tuple, Callable
 
+import numpy as np
 import pandas as pd
+from scipy import stats
 import torch
 import tqdm
 
@@ -13,7 +15,7 @@ from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.provider import DataProvider
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
-from mlwiz.util import return_class_and_args, s2c
+from mlwiz.util import dill_load, return_class_and_args, s2c
 
 
 def clear_screen():
@@ -728,3 +730,200 @@ def create_latex_table_from_assessment_results(
     )
 
     return latex_table
+
+
+def _list_outer_fold_ids(exp_folder: str) -> List[int]:
+    assessment_folder = os.path.join(exp_folder, MODEL_ASSESSMENT)
+    if not os.path.isdir(assessment_folder):
+        raise FileNotFoundError(
+            f"Missing MODEL_ASSESSMENT folder in experiment {exp_folder}"
+        )
+
+    outer_folds = []
+    for entry in os.listdir(assessment_folder):
+        if entry.startswith("OUTER_FOLD_"):
+            try:
+                outer_folds.append(int(entry.split("_")[-1]))
+            except ValueError:
+                continue
+
+    return sorted(outer_folds)
+
+
+def _load_final_run_metric_samples(
+    exp_folder: str, outer_fold_id: int, set_key: str, metric_key: str
+) -> np.ndarray:
+    samples = []
+    run_id = 1
+    set_key = set_key.lower()
+
+    while True:
+        run_results_path = os.path.join(
+            exp_folder,
+            MODEL_ASSESSMENT,
+            f"OUTER_FOLD_{outer_fold_id}",
+            f"final_run{run_id}",
+            f"run_{run_id}_results.dill",
+        )
+
+        if not os.path.exists(run_results_path):
+            break
+
+        training_res, validation_res, test_res, _ = dill_load(
+            run_results_path
+        )
+
+        set_results = {
+            TRAINING: training_res,
+            VALIDATION: validation_res,
+            TEST: test_res,
+        }[set_key]
+
+        score_dict = set_results[SCORE] if SCORE in set_results else set_results
+
+        if metric_key not in score_dict:
+            raise KeyError(
+                f"Metric '{metric_key}' not found in final run results at {run_results_path}"
+            )
+
+        samples.append(float(score_dict[metric_key]))
+        run_id += 1
+
+    if len(samples) == 0:
+        raise ValueError(
+            f"No final run results found for outer fold {outer_fold_id} in {exp_folder}"
+        )
+
+    return np.array(samples, dtype=float)
+
+
+def _collect_metric_samples(
+    exp_folder: str, metric_key: str, set_key: str
+) -> Tuple[np.ndarray, str]:
+    set_key = set_key.lower()
+    if set_key not in [TRAINING, VALIDATION, TEST]:
+        raise ValueError(
+            f"set_key must be one of {[TRAINING, VALIDATION, TEST]}, received '{set_key}'"
+        )
+
+    outer_fold_ids = _list_outer_fold_ids(exp_folder)
+
+    if len(outer_fold_ids) == 0:
+        raise ValueError(f"No outer folds found in experiment {exp_folder}")
+
+    if len(outer_fold_ids) == 1:
+        return (
+            _load_final_run_metric_samples(
+                exp_folder, outer_fold_ids[0], set_key, metric_key
+            ),
+            "final_runs",
+        )
+
+    samples = np.array(
+        [
+            get_scores_from_outer_results(
+                exp_folder, outer_fold_id, metric_key
+            )[set_key]
+            for outer_fold_id in outer_fold_ids
+        ],
+        dtype=float,
+    )
+
+    return samples, "outer_fold_means"
+
+
+def _summarize_samples(samples: np.ndarray, confidence_level: float):
+    mean = float(samples.mean())
+    std = float(samples.std())
+    z_value = stats.norm.ppf(0.5 + confidence_level / 2.0)
+    ci_half_width = float(z_value * std / math.sqrt(len(samples)))
+    return mean, std, ci_half_width
+
+
+def statistical_significance(
+    highlighted_exp_metadata: Tuple[str, str, str],
+    other_exp_metadata: List[Tuple[str, str, str]],
+    metric_key: str = "main_score",
+    set_key: str = TEST,
+    confidence_level: float = 0.95,
+) -> pd.DataFrame:
+    """
+    Compares the statistical significance of a highlighted model against
+    a list of other experiments using a Welch's t-test.
+
+    Args:
+        highlighted_exp_metadata (tuple[str, str, str]):
+            (experiment_folder, model_name, dataset_name) for the reference model.
+        other_exp_metadata (list[tuple[str, str, str]]):
+            List of (experiment_folder, model_name, dataset_name) for the
+            models to compare against the highlighted one.
+        metric_key (str): The metric to compare. Default is "main_score".
+        set_key (str): Which dataset split to consider: "training",
+            "validation", or "test". Default is "test".
+        confidence_level (float): Confidence level for CI computation and
+            significance test. Default is 0.95.
+
+    Returns:
+        pandas.DataFrame: Each row contains the mean/std/CI for the highlighted
+        and compared models plus the p-value (two-sided) and a boolean flag
+        indicating whether the difference is statistically significant at the
+        provided confidence level.
+
+    Notes:
+        - If multiple outer folds are present, their averaged scores are used
+          as samples.
+        - If only one outer fold exists, the scores of the final runs are
+          used as samples.
+    """
+
+    set_key = set_key.lower()
+    alpha = 1 - confidence_level
+
+    ref_folder, ref_model, ref_dataset = highlighted_exp_metadata
+    ref_samples, ref_source = _collect_metric_samples(
+        ref_folder, metric_key, set_key
+    )
+    ref_mean, ref_std, ref_ci = _summarize_samples(
+        ref_samples, confidence_level
+    )
+
+    results = []
+    for exp_folder, model, dataset in other_exp_metadata:
+        comp_samples, comp_source = _collect_metric_samples(
+            exp_folder, metric_key, set_key
+        )
+        comp_mean, comp_std, comp_ci = _summarize_samples(
+            comp_samples, confidence_level
+        )
+
+        ttest_res = stats.ttest_ind(ref_samples, comp_samples, equal_var=False)
+        p_value = (
+            float(ttest_res.pvalue)
+            if not math.isnan(ttest_res.pvalue)
+            else 1.0
+        )
+
+        results.append(
+            {
+                "metric": metric_key,
+                "set": set_key,
+                "reference_model": ref_model,
+                "reference_dataset": ref_dataset,
+                "reference_sample_source": ref_source,
+                "reference_samples": len(ref_samples),
+                "reference_mean": ref_mean,
+                "reference_std": ref_std,
+                "reference_ci": ref_ci,
+                "model": model,
+                "dataset": dataset,
+                "sample_source": comp_source,
+                "samples": len(comp_samples),
+                "mean": comp_mean,
+                "std": comp_std,
+                "ci": comp_ci,
+                "p_value": p_value,
+                "statistically_significant": bool(p_value < alpha),
+            }
+        )
+
+    return pd.DataFrame(results)

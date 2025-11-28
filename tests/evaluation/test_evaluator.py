@@ -1,12 +1,13 @@
 import json
-import pytest
 from shutil import rmtree
 
 import numpy as np
+import pytest
 import yaml
 
 from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
+from mlwiz.evaluation.util import compare_statistical_significance
 from mlwiz.experiment import Experiment
 from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
 
@@ -91,6 +92,11 @@ def test_evaluator():
 
         assert ms_results["avg_training_loss"] == inner_train_results.mean()
         assert ms_results["avg_validation_loss"] == inner_val_results.mean()
+        
+        half_width = 1.96 * inner_train_results.std() / np.sqrt(len(inner_train_results))
+        assert ms_results["ci_training_loss"] == pytest.approx(
+            half_width
+        )
 
     outer_train_results = np.array([float(i) for i in range(10)])
     outer_val_results = np.array([float(i) + 1 for i in range(10)])
@@ -111,6 +117,20 @@ def test_evaluator():
     assert ass_results["std_training_main_score"] == outer_train_results.std()
     assert ass_results["std_validation_main_score"] == outer_val_results.std()
     assert ass_results["std_test_main_score"] == outer_test_results.std()
+
+    half_width_train = 1.96 * outer_train_results.std() / np.sqrt(len(outer_train_results))
+    half_width_val = 1.96 * outer_val_results.std() / np.sqrt(len(outer_val_results))
+    half_width_test = 1.96 * outer_test_results.std() / np.sqrt(len(outer_test_results))
+
+    assert ass_results["ci_training_main_score"] == pytest.approx(
+        half_width_train
+    )
+    assert ass_results["ci_validation_main_score"] == pytest.approx(
+        half_width_val
+    )
+    assert ass_results["ci_test_main_score"] == pytest.approx(
+        half_width_test
+    )
 
 
 @pytest.mark.dependency(depends=["test_evaluator"])
