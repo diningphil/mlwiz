@@ -81,6 +81,31 @@ class ProgressManager:
 
         self.times = [{} for _ in range(len(self.pbars))]
 
+    @staticmethod
+    def batch_iterator(
+        total_batches: int, desc: str, disable: bool, leave: bool = False
+    ):
+        """
+        Returns an iterable over batches, optionally wrapped by tqdm.
+
+        Args:
+            total_batches (int): number of batches to iterate over
+            desc (str): description to show in the progress bar
+            disable (bool): whether to disable tqdm rendering
+            leave (bool): whether to leave the bar on screen
+
+        Returns:
+            an iterable usable in for-loops
+        """
+        if disable:
+            return range(total_batches)
+        return tqdm.tqdm(
+            range(total_batches),
+            desc=desc,
+            unit="batch",
+            leave=leave,
+        )
+
     def _init_selection_pbar(self, i: int, j: int):
         """
         Initializes the progress bar for model selection

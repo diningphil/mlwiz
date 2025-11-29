@@ -9,7 +9,7 @@ import torch_geometric
 from torch.utils.data import SequentialSampler
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from tqdm import tqdm
+from mlwiz.evaluation.util import ProgressManager
 
 import mlwiz
 from mlwiz.data.provider import SingleGraphDataProvider, IterableDataProvider
@@ -405,10 +405,9 @@ class TrainingEngine(EventDispatcher):
         self.state.update(loader_iterable=iter(loader))
 
         # Loop over data
-        for id_batch in tqdm(
-            range(len(loader)),
+        for id_batch in ProgressManager.batch_iterator(
+            total_batches=len(loader),
             desc=f"Epoch {self.state.epoch+1}, {self.state.set} set",
-            unit="batch",
             disable=not self.logger.debug,
             leave=False,
         ):
