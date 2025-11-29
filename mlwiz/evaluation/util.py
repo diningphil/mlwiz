@@ -125,6 +125,8 @@ class ProgressManager:
             if ProgressManager._epoch_message is not None:
                 print("", flush=True)
                 print(ProgressManager._epoch_message, end="", flush=True)
+                # there are three prints before this, so the cursor is now
+                # on the line below the epoch message
                 ProgressManager._move_cursor_up()
                 ProgressManager._move_cursor_up()
                 ProgressManager._move_cursor_up()

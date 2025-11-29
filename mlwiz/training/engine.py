@@ -37,6 +37,16 @@ def log(msg, logger: Logger):
         logger.log(msg)
 
 
+def fmt(x, decimals=2, sci_decimals=2):
+    """Format number with fixed-point unless it's small, then scientific."""
+    thresh = 10 ** (-decimals-1)
+    x = float(x)
+    if x == 0.0:
+        return f"{0:.{decimals}f}"
+    if abs(x) < thresh:
+        return f"{x:.{sci_decimals}e}"
+    return f"{x:.{decimals}f}"
+
 def reorder(obj: List[object], perm: List[int]):
     """
     Reorders a list of objects in ascending order according to the indices
@@ -683,16 +693,37 @@ class TrainingEngine(EventDispatcher):
                         )
                     else:
                         test_msg_str = ""
+                  
+                    # Message for Progress Manager
+                    tr_loss = fmt(train_loss[MAIN_LOSS].item())
+                    tr_score = fmt(train_score[MAIN_SCORE].item())
+                    if validation_loader is not None:
+                        val_loss = fmt(val_loss[MAIN_LOSS].item())
+                        val_score = fmt(val_score[MAIN_SCORE].item())
+                    else:
+                        val_loss = "N/A"
+                        val_score = "N/A"
+                    if test_loader is not None and self.eval_test_every_epoch:
+                        test_loss = fmt(test_loss[MAIN_LOSS].item())
+                        test_score = fmt(test_score[MAIN_SCORE].item())
+                    else:
+                        test_loss = "N/A"
+                        test_score = "N/A"
+                    progress_manager_msg = [
+                        f"Epoch: {epoch + 1}",
+                        f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss}",
+                        f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}",
+                    ]
+                    ProgressManager.print_epoch_message(
+                        progress_manager_msg, disable=not logger.debug
+                    )
 
                     # Log performances
-                    msg = (
+                    logger_msg = (
                         f"Epoch: {epoch + 1}, TR loss: {train_loss} "
                         f"TR score: {train_score}" + val_msg_str + test_msg_str
                     )
-                    ProgressManager.print_epoch_message(
-                        msg, disable=not logger.debug
-                    )
-                    log(msg, logger)
+                    log(logger_msg, logger)
 
                 # Update state with the result of this epoch
                 self.state.update(epoch_results=epoch_results)
