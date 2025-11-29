@@ -45,6 +45,9 @@ class ProgressManager:
             Default is ``True``
     """
 
+    _has_epoch_message = False
+    _epoch_message = None
+
     # Possible vars of ``bar_format``:
     #       * ``l_bar, bar, r_bar``,
     #       * ``n, n_fmt, total, total_fmt``,
@@ -65,10 +68,11 @@ class ProgressManager:
         self.pbars = []
         self.show = show
 
+        clear_screen()
+        
         if not self.show:
             return
-
-        clear_screen()
+        
         self.show_header()
         for i in range(self.outer_folds):
             for j in range(self.inner_folds):
@@ -83,7 +87,7 @@ class ProgressManager:
 
     @staticmethod
     def batch_iterator(
-        total_batches: int, desc: str, disable: bool, leave: bool = False
+        total_batches: int, desc: str, disable: bool
     ):
         """
         Returns an iterable over batches, optionally wrapped by tqdm.
@@ -92,19 +96,77 @@ class ProgressManager:
             total_batches (int): number of batches to iterate over
             desc (str): description to show in the progress bar
             disable (bool): whether to disable tqdm rendering
-            leave (bool): whether to leave the bar on screen
 
         Returns:
             an iterable usable in for-loops
         """
         if disable:
             return range(total_batches)
-        return tqdm.tqdm(
-            range(total_batches),
-            desc=desc,
-            unit="batch",
-            leave=leave,
+        return ProgressManager._manual_progress_iterator(
+            total_batches, desc
         )
+
+    @staticmethod
+    def _manual_progress_iterator(total_batches: int, desc: str):
+        """
+        Simple progress bar printer for debug mode, avoids tqdm dependency.
+        """
+
+        def _print_progress(done: int):
+            ProgressManager._clear_current_line() 
+            total = max(total_batches, 1)
+            progress = min(done, total)
+            filled = int(30 * progress / total)
+            bar = "#" * filled + "-" * (30 - filled)
+            percentage = int(progress / total * 100)
+            msg = f"{desc}: [{bar}] {percentage:3d}% ({progress}/{total})"
+            print(msg, end="", flush=True)
+
+            if ProgressManager._epoch_message is not None:
+                print("", flush=True)
+                print(ProgressManager._epoch_message, end="", flush=True)
+                ProgressManager._move_cursor_up()
+                ProgressManager._move_cursor_up()
+                ProgressManager._move_cursor_up()
+
+        _print_progress(0)
+        
+        for idx in range(total_batches):
+            yield idx
+            _print_progress(idx + 1)
+
+
+    @staticmethod
+    def _move_cursor_up():
+        """
+        Moves cursor one line up without clearing it.
+        """
+        print("\033[F", end="", flush=True)
+
+    @staticmethod
+    def _move_cursor_down():
+        """
+        Moves cursor one line down without adding a newline.
+        """
+        print("\033[E", end="", flush=True)
+
+    @staticmethod
+    def _clear_current_line():
+        """
+        Clears the current line in the terminal.
+        """
+        print("\r\033[K", end="", flush=True)
+
+
+    @staticmethod
+    def print_epoch_message(msg: str, disable: bool):
+        """
+        Prints an epoch summary line managed by the ProgressManager.
+        """
+        if disable:
+            return
+        
+        ProgressManager._epoch_message = msg
 
     def _init_selection_pbar(self, i: int, j: int):
         """

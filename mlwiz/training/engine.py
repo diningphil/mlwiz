@@ -409,7 +409,6 @@ class TrainingEngine(EventDispatcher):
             total_batches=len(loader),
             desc=f"Epoch {self.state.epoch+1}, {self.state.set} set",
             disable=not self.logger.debug,
-            leave=False,
         ):
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
@@ -689,6 +688,9 @@ class TrainingEngine(EventDispatcher):
                     msg = (
                         f"Epoch: {epoch + 1}, TR loss: {train_loss} "
                         f"TR score: {train_score}" + val_msg_str + test_msg_str
+                    )
+                    ProgressManager.print_epoch_message(
+                        msg, disable=not logger.debug
                     )
                     log(msg, logger)
 
