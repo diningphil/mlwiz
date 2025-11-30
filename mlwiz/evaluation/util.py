@@ -6,7 +6,6 @@ import os
 import random
 from typing import List, Tuple, Callable
 
-import ray
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -29,7 +28,6 @@ def clear_screen():
     # wiping scrollback/history.
     print("\033[2J\033[H", end="", flush=True)
 
-@ray.remote
 class ProgressManager:
     r"""
     Class that is responsible for drawing progress bars.
@@ -177,9 +175,11 @@ class ProgressManager:
                     self._store_last_run_message(msg)
                     self._last_progress_msg = ""
                     self._header_run_message = ""
-                    self._clear_line()
-                    self._cursor_up()
-                    self._flush_buffer()
+
+                    if self.debug:
+                        self._clear_line()
+                        self._cursor_up()
+                        self._flush_buffer()
 
                 elif type in {RUN_FAILED}:
                     self._store_last_run_message(msg)

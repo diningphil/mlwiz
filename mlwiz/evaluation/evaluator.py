@@ -4,6 +4,7 @@ import re
 import os
 import os.path as osp
 import random
+import threading
 import time
 from copy import deepcopy
 from typing import Tuple, Callable, Union, List, Optional
@@ -445,7 +446,7 @@ class RiskAssesser:
             print("Cannot create Ray Queue, progress UI disabled.")
 
         # Show progress
-        progress_manager = ProgressManager.remote(
+        progress_manager = ProgressManager(
             self.outer_folds,
             self.inner_folds,
             len(self.model_configs),
@@ -455,7 +456,10 @@ class RiskAssesser:
         )
 
         # Start listening to the progress queue
-        progress_manager.update_state.remote()
+        progress_thread = threading.Thread(
+            target=progress_manager.update_state, daemon=True
+        )
+        progress_thread.start()
 
         # NOTE: Pre-computing seeds in advance simplifies the code
         # Pre-compute in advance the seeds for model selection to aid
@@ -516,7 +520,9 @@ class RiskAssesser:
         # Produces the self._ASSESSMENT_FILENAME file
         self.compute_risk_assessment_result()
 
-        ray.kill(progress_manager)
+        if self.progress_queue is not None:
+            self.progress_queue.put(None)
+        progress_thread.join()
 
     def wait_configs(self, skip_config_ids: List[int]):
         r"""
