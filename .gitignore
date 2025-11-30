@@ -60,6 +60,7 @@ venv.bak/
 DATA/**
 DATA_SPLITS/**
 RESULTS/**
+tests/tmp
 
 # Weights & Biases
 wandb/
