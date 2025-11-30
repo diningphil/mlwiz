@@ -74,3 +74,54 @@
 }
 Epoch: 1, TR loss: {'MulticlassClassification': tensor(0.0062), 'AdditiveLoss': tensor(0.0123), 'main_loss': tensor(0.0123)} TR score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)}, VL loss: {'MulticlassClassification': tensor(0.0059), 'AdditiveLoss': tensor(0.0118), 'main_loss': tensor(0.0118)} VL score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)}
 Epoch: 2, TR loss: {'MulticlassClassification': tensor(3.5167e-06), 'AdditiveLoss': tensor(7.0333e-06), 'main_loss': tensor(7.0333e-06)} TR score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)}, VL loss: {'MulticlassClassification': tensor(3.2537e-06), 'AdditiveLoss': tensor(6.5074e-06), 'main_loss': tensor(6.5074e-06)} VL score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)}
+Chosen is Epoch 2 TR loss: {'MulticlassClassification': tensor(3.5167e-06), 'AdditiveLoss': tensor(7.0333e-06), 'main_loss': tensor(7.0333e-06)} TR score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)}, VL loss: {'MulticlassClassification': tensor(3.2537e-06), 'AdditiveLoss': tensor(6.5074e-06), 'main_loss': tensor(6.5074e-06)} VL score: {'MulticlassAccuracy': tensor(100.), 'ToyMetric': tensor([100.]), 'main_score': tensor(100.)} TE loss: N/A TE score: N/A
+************************* Profiler ************************* 
+ 
+Threshold: 1e-05 
+ 
+AdditiveLoss 
+ 
+	 on_backward --> Avg: 0.0010822415351867676 s, Total: 0:00:00.008658 
+	 on_eval_epoch_end --> Avg: 0.0006668567657470703 s, Total: 0:00:00.004001 
+	 on_training_epoch_end --> Avg: 0.0005433559417724609 s, Total: 0:00:00.001087 
+	 on_compute_metrics --> Avg: 0.000500481469290597 s, Total: 0:00:00.017517 
+	 on_eval_epoch_start --> Avg: 2.376238505045573e-05 s, Total: 0:00:00.000143 
+	 on_training_epoch_start --> Avg: 2.2172927856445312e-05 s, Total: 0:00:00.000044 
+	 on_training_batch_end --> Avg: 1.7195940017700195e-05 s, Total: 0:00:00.000138 
+	 on_eval_batch_start --> Avg: 1.2362444842303241e-05 s, Total: 0:00:00.000334 
+	 on_training_batch_start --> Avg: 1.1801719665527344e-05 s, Total: 0:00:00.000094 
+
+MultiScore 
+ 
+	 on_eval_epoch_end --> Avg: 0.00018588701883951822 s, Total: 0:00:00.001115 
+	 on_training_epoch_end --> Avg: 0.00015974044799804688 s, Total: 0:00:00.000319 
+	 on_compute_metrics --> Avg: 6.760869707380022e-05 s, Total: 0:00:00.002366 
+	 on_eval_epoch_start --> Avg: 1.9073486328125e-05 s, Total: 0:00:00.000114 
+	 on_training_epoch_start --> Avg: 1.71661376953125e-05 s, Total: 0:00:00.000034 
+
+Optimizer 
+ 
+	 on_epoch_end --> Avg: 0.0010837316513061523 s, Total: 0:00:00.002167 
+	 on_training_batch_end --> Avg: 0.0009239614009857178 s, Total: 0:00:00.007392 
+	 on_training_batch_start --> Avg: 8.806586265563965e-05 s, Total: 0:00:00.000705 
+
+PatienceEarlyStopper 
+ 
+	 on_epoch_end --> Avg: 0.008555173873901367 s, Total: 0:00:00.017110 
+
+Plotter 
+ 
+	 on_epoch_end --> Avg: 0.03026270866394043 s, Total: 0:00:00.060525 
+	 on_fit_end --> Avg: 0.0022509098052978516 s, Total: 0:00:00.002251 
+
+EngineCallback 
+ 
+	 on_forward --> Avg: 0.2012753690992083 s, Total: 0:00:07.044638 
+	 on_epoch_end --> Avg: 0.008273601531982422 s, Total: 0:00:00.016547 
+	 on_fetch_data --> Avg: 0.00031804357256208146 s, Total: 0:00:00.011132 
+
+Total time of the experiment: 0:00:07.198432 
+ 
+Total time of the experiment in seconds: 7.198432207107544 
+ 
+************************************************************

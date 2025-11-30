@@ -48,7 +48,7 @@ class MLP(ModelInterface):
         Returns:
             a tuple (output, embedddings)
         """
-        time.sleep(0.2)  # simulate some delay
+        # time.sleep(0.2)  # simulate some delay
         # for testing
         if self._testing:
             if data.shape[1] == 1:

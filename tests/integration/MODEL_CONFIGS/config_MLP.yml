@@ -42,7 +42,7 @@ grid:
   model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
-  batch_size: 4
+  batch_size: 512
   epochs: 2
 
   # Model specific arguments #
