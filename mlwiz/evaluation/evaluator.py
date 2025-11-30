@@ -10,6 +10,7 @@ from typing import Tuple, Callable, Union, List, Optional
 
 import numpy as np
 import ray
+from ray.util.queue import Queue
 import requests
 import torch
 from torch.utils.data import ConcatDataset
@@ -93,6 +94,7 @@ def run_valid(
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
+    progress_queue=None,
 ) -> Tuple[int, int, int, int, float]:
     r"""
     Ray job that performs a model selection run and returns bookkeeping
@@ -123,17 +125,55 @@ def run_valid(
     if not osp.exists(fold_results_torch_path):
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
-            train_res, val_res = experiment.run_valid(dataset_getter, training_timeout_seconds, logger)
+            
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                if progress_queue is None:
+                    return
+
+                payload = dict(payload)  # shallow copy
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: dataset_getter.inner_k,
+                        CONFIG_ID: config_id,
+                        RUN_ID: run_id,
+                        IS_FINAL: False,
+                    }
+                )
+                progress_queue.put(payload)
+
+            train_res, val_res = experiment.run_valid(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=_report_progress,
+            )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
             )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
-            print(
-                f"There has been an issue with configuration "
-                f"in {fold_exp_folder}!"
-            )
-            print(e)
+            # print(
+            #     f"There has been an issue with configuration "
+            #     f"in {fold_exp_folder}!"
+            # )
+            # print(e)
+            if progress_queue is not None:
+                progress_queue.put(
+                    dict(
+                        type=RUN_FAILED,
+                        OUTER_FOLD=dataset_getter.outer_k,
+                        INNER_FOLD=dataset_getter.inner_k,
+                        CONFIG_ID=config_id,
+                        RUN_ID=run_id,
+                        IS_FINAL=False,
+                        EPOCH=0,
+                        TOTAL_EPOCHS=0,
+                        message=[f"Run failed: {e}"],
+                    )
+                )
             elapsed = -1
     else:
         _, _, elapsed = dill_load(fold_results_torch_path)
@@ -164,6 +204,7 @@ def run_test(
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
+    progress_queue: Queue =None,
 ) -> Tuple[int, int, float]:
     r"""
     Ray job that performs a risk assessment run and returns bookkeeping
@@ -195,7 +236,31 @@ def run_test(
             experiment = experiment_class(
                 best_config[CONFIG], final_run_exp_path, exp_seed
             )
-            res = experiment.run_test(dataset_getter, training_timeout_seconds, logger)
+
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                if progress_queue is None:
+                    return
+
+                payload = dict(payload)  # shallow copy
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: None,
+                        CONFIG_ID: best_config["best_config_id"],
+                        RUN_ID: run_id,
+                        IS_FINAL: True,
+                    }
+                )
+                progress_queue.put(payload)
+
+            res = experiment.run_test(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=_report_progress,
+            )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
             )
@@ -204,9 +269,23 @@ def run_test(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
         except Exception as e:
-            print(f"There has been an issue in {final_run_exp_path}!")
-            print(e)
-            elapse = -1
+            # print(f"There has been an issue in {final_run_exp_path}!")
+            # print(e)
+            if progress_queue is not None:
+                progress_queue.put(
+                    dict(
+                        type=RUN_FAILED,
+                        OUTER_FOLD=dataset_getter.outer_k,
+                        INNER_FOLD=None,
+                        CONFIG_ID=best_config["best_config_id"],
+                        RUN_ID=run_id,
+                        IS_FINAL=True,
+                        EPOCH=0,
+                        TOTAL_EPOCHS=0,
+                        message=[f"Run failed: {e}"],
+                    )
+                )
+            elapsed = -1
     else:
         res = dill_load(final_run_torch_path)
         elapsed = res[-1]
@@ -313,6 +392,7 @@ class RiskAssesser:
         # Used to keep track of the scheduled jobs
         self.outer_folds_job_list = []
         self.final_runs_job_list = []
+        self.progress_queue = None
 
         # telegram config
         tc = model_configs.telegram_config
@@ -357,6 +437,15 @@ class RiskAssesser:
         else:
             skip_config_ids = [s - 1 for s in skip_config_ids]
 
+        self.progress_queue = None
+        if not debug:
+            try:
+                self.progress_queue = Queue()
+            except Exception:
+                # If the queue cannot be created, fall back to global-only view
+                print("Cannot create Ray Queue, progress UI disabled.")
+                self.progress_queue = None
+
         # Show progress
         with ProgressManager(
             self.outer_folds,
@@ -364,8 +453,8 @@ class RiskAssesser:
             len(self.model_configs),
             self.risk_assessment_training_runs,
             show=not debug,
+            progress_queue=self.progress_queue,
         ) as progress_manager:
-            self.progress_manager = progress_manager
 
             # NOTE: Pre-computing seeds in advance simplifies the code
             # Pre-compute in advance the seeds for model selection to aid
@@ -467,14 +556,17 @@ class RiskAssesser:
 
             for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-
-                    self.progress_manager.update_state(
+                    
+                    self.progress_queue.put(
                         dict(
                             type=END_CONFIG,
                             outer_fold=outer_k,
                             inner_fold=inner_k,
                             config_id=skipped_config_id,
                             elapsed=0.0,
+                            message=[f"Outer fold {outer_k+1}, "
+                                     f"inner fold {inner_k+1}, "
+                                     f"configuration {skipped_config_id+1} skipped."],
                         )
                     )
 
@@ -508,13 +600,16 @@ class RiskAssesser:
                         inner_runs_completed[outer_k][config_id][inner_k]
                         == self.model_selection_training_runs
                     ):
-                        self.progress_manager.update_state(
+                        self.progress_queue.put(
                             dict(
                                 type=END_CONFIG,
                                 outer_fold=outer_k,
                                 inner_fold=inner_k,
                                 config_id=config_id,
                                 elapsed=elapsed,
+                                message=[f"Outer fold {outer_k+1}, "
+                                         f"inner fold {inner_k+1}, "
+                                         f"configuration {config_id+1} completed."],
                             )
                         )
                         self.process_model_selection_runs(
@@ -559,12 +654,14 @@ class RiskAssesser:
                     future in self.final_runs_job_list
                 ):  # Risk ass. final runs
                     outer_k, run_id, elapsed = ray.get(future)
-                    self.progress_manager.update_state(
+                    self.progress_queue.put(
                         dict(
                             type=END_FINAL_RUN,
                             outer_fold=outer_k,
                             run_id=run_id,
                             elapsed=elapsed,
+                            message=[f"Outer fold {outer_k+1}, "
+                                     f"final run {run_id+1} completed."],
                         )
                     )
 
@@ -713,6 +810,7 @@ class RiskAssesser:
                                 exp_seed,
                                 self.training_timeout_seconds,
                                 logger,
+                                self.progress_queue,
                             )
                             self.outer_folds_job_list.append(future)
                         else:  # debug mode
@@ -844,6 +942,7 @@ class RiskAssesser:
                     exp_seed,
                     self.training_timeout_seconds,
                     logger,
+                    self.progress_queue,
                 )
                 self.final_runs_job_list.append(future)
             else:

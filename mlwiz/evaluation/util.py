@@ -1,3 +1,4 @@
+import builtins
 import datetime
 import json
 import math
@@ -5,6 +6,7 @@ import os
 import random
 from typing import List, Tuple, Callable
 
+import ray
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -22,15 +24,11 @@ def clear_screen():
     """
     Clears the CLI interface.
     """
-    try:
-        os.system("clear")
-    except Exception as e:
-        try:
-            os.system("cls")
-        except Exception:
-            pass
+    # Mimic Ctrl+L: clear visible screen and move cursor to top without
+    # wiping scrollback/history.
+    print("\033[2J\033[H", end="", flush=True)
 
-
+@ray.remote
 class ProgressManager:
     r"""
     Class that is responsible for drawing progress bars.
@@ -41,12 +39,12 @@ class ProgressManager:
         no_configs (int): number of possible configurations in model selection
         final_runs (int): number of final runs per outer fold once the
             best model has been selected
-        show (bool): whether to show the progress bar or not.
-            Default is ``True``
+        debug (bool): whether to run in debug mode (no tqdm, simple prints)
+        progress_queue (ray.util.Queue): the queue used to receive progress
+            messages from different workers
     """
-
-    _has_epoch_message = False
-    _epoch_message = None
+    # Keep a reference to the original print so Ray monkeypatching does not affect us
+    _print = staticmethod(builtins.print)
 
     # Possible vars of ``bar_format``:
     #       * ``l_bar, bar, r_bar``,
@@ -58,7 +56,7 @@ class ProgressManager:
     #       * ``postfix, unit_divisor, remaining, remaining_s``
 
     def __init__(
-        self, outer_folds, inner_folds, no_configs, final_runs, show=True
+        self, outer_folds, inner_folds, no_configs, final_runs, debug=True, progress_queue=None
     ):
         self.ncols = 100
         self.outer_folds = outer_folds
@@ -66,76 +64,51 @@ class ProgressManager:
         self.no_configs = no_configs
         self.final_runs = final_runs
         self.pbars = []
-        self.show = show
+        self.debug = debug
+        self.progress_queue = progress_queue
+
+        # Keep track of the latest message per individual run
+        # Structured as [outer][inner][config][run] -> msg
+        self.last_run_messages = {}
+        # Keep track of the latest message for final runs
+        # Structured as [outer][run] -> msg
+        self.final_run_messages = {}
 
         clear_screen()
         
-        if not self.show:
-            return
-        
-        self.show_header()
-        for i in range(self.outer_folds):
-            for j in range(self.inner_folds):
-                self.pbars.append(self._init_selection_pbar(i, j))
+        if not self.debug:
+            self.show_header()
+            for i in range(self.outer_folds):
+                for j in range(self.inner_folds):
+                    self.pbars.append(self._init_selection_pbar(i, j))
 
-        for i in range(self.outer_folds):
-            self.pbars.append(self._init_assessment_pbar(i))
+            for i in range(self.outer_folds):
+                self.pbars.append(self._init_assessment_pbar(i))
 
-        self.show_footer()
+            self.show_footer()
 
-        self.times = [{} for _ in range(len(self.pbars))]
+            self.times = [{} for _ in range(len(self.pbars))]
 
-    @staticmethod
-    def batch_iterator(
-        total_batches: int, desc: str, disable: bool
-    ):
-        """
-        Returns an iterable over batches, optionally wrapped by tqdm.
-
-        Args:
-            total_batches (int): number of batches to iterate over
-            desc (str): description to show in the progress bar
-            disable (bool): whether to disable tqdm rendering
-
-        Returns:
-            an iterable usable in for-loops
-        """
-        if disable:
-            return range(total_batches)
-        return ProgressManager._manual_progress_iterator(
-            total_batches, desc
-        )
 
     @staticmethod
-    def _manual_progress_iterator(total_batches: int, desc: str):
+    def _print_train_progress_bar(batch_id: int, total_batches: int, epoch: int, desc: str):
         """
         Simple progress bar printer for debug mode, avoids tqdm dependency.
         """
+        total = max(total_batches, 1)
+        progress = min(batch_id, total)
+        filled = int(30 * progress / total)
+        bar = "#" * filled + "-" * (30 - filled)
+        percentage = int(progress / total * 100)
+        msg = f"{desc} Epoch {epoch}: [{bar}] {percentage:3d}% ({progress}/{total})"
+        ProgressManager._print(msg, end="", flush=True)
+        if batch_id== 2 and epoch == 50:
+            exit(0)
 
-        def _print_progress(done: int):
-            ProgressManager._clear_current_line() 
-            total = max(total_batches, 1)
-            progress = min(done, total)
-            filled = int(30 * progress / total)
-            bar = "#" * filled + "-" * (30 - filled)
-            percentage = int(progress / total * 100)
-            msg = f"{desc}: [{bar}] {percentage:3d}% ({progress}/{total})"
-            print(msg, end="", flush=True)
 
-            if ProgressManager._epoch_message is not None:
-                print("", flush=True)
-                print(ProgressManager._epoch_message, end="", flush=True)
-                # there are three prints before this, so the cursor is now
-                # on the line below the epoch message
-                ProgressManager._move_cursor_up()
-                ProgressManager._move_cursor_up()
-                ProgressManager._move_cursor_up()
-
-        _print_progress(0)
-        
-        for idx in range(total_batches):
-            yield idx
-            _print_progress(idx + 1)
+    @staticmethod
+    def _print_epoch_progress(epoch_message: str):    
+        ProgressManager._print(epoch_message, end="", flush=True)
 
 
     @staticmethod
@@ -143,32 +116,21 @@ class ProgressManager:
         """
         Moves cursor one line up without clearing it.
         """
-        print("\033[F", end="", flush=True)
+        ProgressManager._print("\033[F", end="", flush=True)
 
     @staticmethod
     def _move_cursor_down():
         """
         Moves cursor one line down without adding a newline.
         """
-        print("\033[E", end="", flush=True)
+        ProgressManager._print("\033[E", end="", flush=True)
 
     @staticmethod
     def _clear_current_line():
         """
         Clears the current line in the terminal.
         """
-        print("\r\033[K", end="", flush=True)
-
-
-    @staticmethod
-    def print_epoch_message(msg: str, disable: bool):
-        """
-        Prints an epoch summary line managed by the ProgressManager.
-        """
-        if disable:
-            return
-        
-        ProgressManager._epoch_message = msg
+        ProgressManager._print("\r\033[K", end="", flush=True)
 
     def _init_selection_pbar(self, i: int, j: int):
         """
@@ -224,7 +186,7 @@ class ProgressManager:
         \033[A --> move cursor up one line
         \033[<N>A --> move cursor up N lines
         """
-        print(
+        ProgressManager._print(
             f'\033[F\033[A{"*" * ((self.ncols - 21) // 2 + 1)} '
             f'Experiment Progress {"*" * ((self.ncols - 21) // 2)}\n'
         )
@@ -239,109 +201,154 @@ class ProgressManager:
         """
         Refreshes the progress bar
         """
+        if self.debug:
+            pass
+        else:
+            self.show_header()
+            for i, pbar in enumerate(self.pbars):
+                # When resuming, do not consider completed exp. (delta approx. < 1)
+                completion_times = [
+                    delta
+                    for k, (delta, completed) in self.times[i].items()
+                    if completed and delta > 1
+                ]
 
-        self.show_header()
-        for i, pbar in enumerate(self.pbars):
-            # When resuming, do not consider completed exp. (delta approx. < 1)
-            completion_times = [
-                delta
-                for k, (delta, completed) in self.times[i].items()
-                if completed and delta > 1
-            ]
+                if len(completion_times) > 0:
+                    min_seconds = min(completion_times)
+                    max_seconds = max(completion_times)
+                    mean_seconds = sum(completion_times) / len(completion_times)
+                else:
+                    min_seconds = 0
+                    max_seconds = 0
+                    mean_seconds = 0
 
-            if len(completion_times) > 0:
-                min_seconds = min(completion_times)
-                max_seconds = max(completion_times)
-                mean_seconds = sum(completion_times) / len(completion_times)
-            else:
-                min_seconds = 0
-                max_seconds = 0
-                mean_seconds = 0
+                mean_time = str(datetime.timedelta(seconds=mean_seconds)).split(
+                    "."
+                )[0]
+                min_time = str(datetime.timedelta(seconds=min_seconds)).split(".")[
+                    0
+                ]
+                max_time = str(datetime.timedelta(seconds=max_seconds)).split(".")[
+                    0
+                ]
 
-            mean_time = str(datetime.timedelta(seconds=mean_seconds)).split(
-                "."
-            )[0]
-            min_time = str(datetime.timedelta(seconds=min_seconds)).split(".")[
-                0
-            ]
-            max_time = str(datetime.timedelta(seconds=max_seconds)).split(".")[
-                0
-            ]
+                pbar.set_postfix_str(
+                    f"min:{min_time}|avg:{mean_time}|max:{max_time}"
+                )
 
-            pbar.set_postfix_str(
-                f"min:{min_time}|avg:{mean_time}|max:{max_time}"
-            )
+                pbar.refresh()
+            self.show_footer()
 
-            pbar.refresh()
-        self.show_footer()
-
-    def update_state(self, msg: dict):
+    def update_state(self):
         """
         Updates the state of the progress bar (different from showing it
-        on screen, see :func:`refresh`) once a message is received
-
-        Args:
-            msg (dict): message with updates to be parsed
+        on screen, see :func:`refresh`) once a message is sent to 
+        the progress queue
         """
-        if not self.show:
+        if self.progress_queue is None:
+            ProgressManager._print('ProgressManager: cannot update the UI, no progress queue provided...')
             return
 
         try:
-            type = msg.get("type")
+            while True:
+                msg = self.progress_queue.get()
 
-            if type == END_CONFIG:
+                if msg is None:
+                    break
+
+                type = msg.get("type")
+
                 outer_fold = msg.get(OUTER_FOLD)
                 inner_fold = msg.get(INNER_FOLD)
                 config_id = msg.get(CONFIG_ID)
-                position = outer_fold * self.inner_folds + inner_fold
-                elapsed = msg.get(ELAPSED)
-                configs_times = self.times[position]
-                # Compute delta t for a specific config
-                configs_times[config_id] = (
-                    elapsed,
-                    True,
-                )  # (time.time() - configs_times[config_id][0], True)
-                # Update progress bar
-                self.pbars[position].update()
-                self.refresh()
-            elif type == END_FINAL_RUN:
-                outer_fold = msg.get(OUTER_FOLD)
                 run_id = msg.get(RUN_ID)
-                position = self.outer_folds * self.inner_folds + outer_fold
-                elapsed = msg.get(ELAPSED)
-                configs_times = self.times[position]
-                # Compute delta t for a specific config
-                configs_times[run_id] = (
-                    elapsed,
-                    True,
-                )  # (time.time() - configs_times[run_id][0], True)
-                # Update progress bar
-                self.pbars[position].update()
-                self.refresh()
-            else:
-                raise Exception(
-                    f"Cannot parse type of message {type}, fix this."
-                )
+                is_final = msg.get(IS_FINAL)
+
+                if type == START_CONFIG and self.debug:
+                    if inner_fold is None:
+                        ProgressManager._print(f'Risk assessment run {run_id} started for outer fold {outer_fold}...', flush=True)
+                    else:
+                        ProgressManager._print(f'Model selection run {run_id} started for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}...', flush=True)
+
+                elif type == BATCH_PROGRESS:
+                    if self.debug:
+                        batch_id = msg.get(BATCH)
+                        total_batches = msg.get(TOTAL_BATCHES)
+                        epoch = msg.get(EPOCH)
+                        desc = msg.get("message")
+                        
+                        # at the start of training/evaluation epoch, do not do anything
+                        if batch_id >= 0:
+                            ProgressManager._move_cursor_up()
+                            ProgressManager._clear_current_line()
+                        self._print_train_progress_bar(batch_id, total_batches, epoch, desc)
+
+                elif type in {RUN_PROGRESS, RUN_FAILED, RUN_COMPLETED}:
+                    self._store_last_run_message(msg)
+                    if self.debug:
+                        ProgressManager._move_cursor_down()
+                        # ProgressManager._clear_current_line()
+                        self._print_epoch_progress(msg.get("message"))
+                        ProgressManager._move_cursor_up()
+                        pass
+
+                elif type == END_CONFIG:
+                    position = outer_fold * self.inner_folds + inner_fold
+                    elapsed = msg.get(ELAPSED)
+                    configs_times = self.times[position]
+                    # Compute delta t for a specific config
+                    configs_times[config_id] = (
+                        elapsed,
+                        True,
+                    )  # (time.time() - configs_times[config_id][0], True)
+                    # Update progress bar
+                    self.pbars[position].update()
+                    self.refresh()
+                elif type == END_FINAL_RUN:
+                    position = self.outer_folds * self.inner_folds + outer_fold
+                    elapsed = msg.get(ELAPSED)
+                    configs_times = self.times[position]
+                    # Compute delta t for a specific config
+                    configs_times[run_id] = (
+                        elapsed,
+                        True,
+                    )  # (time.time() - configs_times[run_id][0], True)
+                    # Update progress bar
+                    self.pbars[position].update()
+                    self.refresh()
+                else:
+                    raise Exception(
+                        f"Cannot parse type of message {type}, fix this."
+                    )
 
         except Exception as e:
-            print(e)
+            ProgressManager._print(e)
             return
 
-    def __enter__(self):
+    def _store_last_run_message(self, msg: dict):
         """
-        Needed when Progress Manager is used as context manager.
-        Does nothing besides returning self.
+        Stores the latest progress message for a specific run.
         """
-        return self
+        outer = msg.get(OUTER_FOLD)
+        run = msg.get(RUN_ID)
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
-        """
-        Needed when Progress Manager is used as context manager.
-        Closes the progress bar.
-        """
-        for pbar in self.pbars:
-            pbar.close()
+        if msg.get(IS_FINAL, False):
+            if outer not in self.final_run_messages:
+                self.final_run_messages[outer] = {}
+            self.final_run_messages[outer][run] = msg
+            return
 
+        inner = msg.get(INNER_FOLD)
+        config = msg.get(CONFIG_ID)
+
+        if outer not in self.last_run_messages:
+            self.last_run_messages[outer] = {}
+        if inner not in self.last_run_messages[outer]:
+            self.last_run_messages[outer][inner] = {}
+        if config not in self.last_run_messages[outer][inner]:
+            self.last_run_messages[outer][inner][config] = {}
+
+        self.last_run_messages[outer][inner][config][run] = msg
 
 """
 Various options for random search model selection
