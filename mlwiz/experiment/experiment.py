@@ -208,7 +208,13 @@ class Experiment:
         )
         return engine
 
-    def run_valid(self, dataset_getter, training_timeout_seconds, logger):
+    def run_valid(
+        self,
+        dataset_getter,
+        training_timeout_seconds,
+        logger,
+        progress_callback: Callable[[dict], None] = None,
+    ):
         r"""
         This function returns the training and validation results
         for a `model selection run`.
@@ -277,13 +283,20 @@ class Experiment:
             max_epochs=self.model_config["epochs"],
             logger=logger,
             training_timeout_seconds=training_timeout_seconds,
+            progress_callback=progress_callback,
         )
 
         train_res = {LOSS: train_loss, SCORE: train_score}
         val_res = {LOSS: val_loss, SCORE: val_score}
         return train_res, val_res
 
-    def run_test(self, dataset_getter, training_timeout_seconds, logger):
+    def run_test(
+        self,
+        dataset_getter,
+        training_timeout_seconds,
+        logger,
+        progress_callback: Callable[[dict], None] = None,
+    ):
         """
         This function returns the training, validation and test results
         for a `final run`.
@@ -358,6 +371,7 @@ class Experiment:
             max_epochs=self.model_config["epochs"],
             logger=logger,
             training_timeout_seconds=training_timeout_seconds,
+            progress_callback=progress_callback,
         )
 
         train_res = {LOSS: train_loss, SCORE: train_score}

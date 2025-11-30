@@ -438,82 +438,85 @@ class RiskAssesser:
             skip_config_ids = [s - 1 for s in skip_config_ids]
 
         self.progress_queue = None
-        if not debug:
-            try:
-                self.progress_queue = Queue()
-            except Exception:
-                # If the queue cannot be created, fall back to global-only view
-                print("Cannot create Ray Queue, progress UI disabled.")
-                self.progress_queue = None
+        try:
+            self.progress_queue = Queue()
+        except Exception:
+            # If the queue cannot be created, fall back to global-only view
+            print("Cannot create Ray Queue, progress UI disabled.")
 
         # Show progress
-        with ProgressManager(
+        progress_manager = ProgressManager.remote(
             self.outer_folds,
             self.inner_folds,
             len(self.model_configs),
             self.risk_assessment_training_runs,
-            show=not debug,
+            debug=debug,
             progress_queue=self.progress_queue,
-        ) as progress_manager:
+        )
 
-            # NOTE: Pre-computing seeds in advance simplifies the code
-            # Pre-compute in advance the seeds for model selection to aid
-            # replicability
-            self.model_selection_seeds = [
+        # Start listening to the progress queue
+        progress_manager.update_state.remote()
+
+        # NOTE: Pre-computing seeds in advance simplifies the code
+        # Pre-compute in advance the seeds for model selection to aid
+        # replicability
+        self.model_selection_seeds = [
+            [
                 [
                     [
-                        [
-                            random.randrange(2**32 - 1)
-                            for _ in range(self.model_selection_training_runs)
-                        ]
-                        for _ in range(self.inner_folds)
+                        random.randrange(2**32 - 1)
+                        for _ in range(self.model_selection_training_runs)
                     ]
-                    for _ in range(len(self.model_configs))
+                    for _ in range(self.inner_folds)
                 ]
-                for _ in range(self.outer_folds)
+                for _ in range(len(self.model_configs))
             ]
-            # Pre-compute in advance the seeds for the final runs to aid
-            # replicability
-            self.final_runs_seeds = [
-                [
-                    random.randrange(2**32 - 1)
-                    for _ in range(self.risk_assessment_training_runs)
-                ]
-                for _ in range(self.outer_folds)
+            for _ in range(self.outer_folds)
+        ]
+        # Pre-compute in advance the seeds for the final runs to aid
+        # replicability
+        self.final_runs_seeds = [
+            [
+                random.randrange(2**32 - 1)
+                for _ in range(self.risk_assessment_training_runs)
             ]
+            for _ in range(self.outer_folds)
+        ]
 
-            for outer_k in range(self.outer_folds):
-                # Create a separate folder for each experiment
-                kfold_folder = osp.join(
-                    self._ASSESSMENT_FOLDER,
-                    self._OUTER_FOLD_BASE + str(outer_k + 1),
-                )
-                if not osp.exists(kfold_folder):
-                    os.makedirs(kfold_folder)
+        for outer_k in range(self.outer_folds):
+            # Create a separate folder for each experiment
+            kfold_folder = osp.join(
+                self._ASSESSMENT_FOLDER,
+                self._OUTER_FOLD_BASE + str(outer_k + 1),
+            )
+            if not osp.exists(kfold_folder):
+                os.makedirs(kfold_folder)
 
-                # Perform model selection. This determines a best config
-                # FOR EACH of the k outer folds
-                self.model_selection(
-                    kfold_folder,
-                    outer_k,
-                    debug,
-                    execute_config_id,
-                    skip_config_ids,
-                )
+            # Perform model selection. This determines a best config
+            # FOR EACH of the k outer folds
+            self.model_selection(
+                kfold_folder,
+                outer_k,
+                debug,
+                execute_config_id,
+                skip_config_ids,
+            )
 
-                # Must stay separate from Ray distributed computing logic
-                if debug:
-                    self.run_final_model(outer_k, True)
+            # Must stay separate from Ray distributed computing logic
+            if debug:
+                self.run_final_model(outer_k, True)
 
-            # We launched all model selection jobs, now it is time to wait
-            if not debug:
-                # This will also launch the final runs jobs once the model
-                # selection for a specific outer folds is completed.
-                # It returns when everything has completed
-                self.wait_configs(skip_config_ids)
+        # We launched all model selection jobs, now it is time to wait
+        if not debug:
+            # This will also launch the final runs jobs once the model
+            # selection for a specific outer folds is completed.
+            # It returns when everything has completed
+            self.wait_configs(skip_config_ids)
 
-            # Produces the self._ASSESSMENT_FILENAME file
-            self.compute_risk_assessment_result()
+        # Produces the self._ASSESSMENT_FILENAME file
+        self.compute_risk_assessment_result()
+
+        ray.kill(progress_manager)
 
     def wait_configs(self, skip_config_ids: List[int]):
         r"""
@@ -818,11 +821,30 @@ class RiskAssesser:
                                 experiment = self.experiment_class(
                                     config, fold_run_exp_folder, exp_seed
                                 )
+
+                                # This is used to comunicate with the progress manager
+                                # to display the UI
+                                def _report_progress(payload: dict):
+                                    if self.progress_queue is None:
+                                        return
+
+                                    payload = dict(payload)  # shallow copy
+                                    payload.update(
+                                        {
+                                            OUTER_FOLD: dataset_getter.outer_k,
+                                            INNER_FOLD: dataset_getter.inner_k,
+                                            CONFIG_ID: config_id,
+                                            RUN_ID: run_id,
+                                            IS_FINAL: False,
+                                        }
+                                    )
+                                    self.progress_queue.put(payload)
+
                                 (
                                     training_score,
                                     validation_score,
                                 ) = experiment.run_valid(
-                                    dataset_getter, self.training_timeout_seconds, logger
+                                    dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress
                                 )
                                 elapsed = extract_and_sum_elapsed_seconds(
                                     osp.join(
@@ -947,11 +969,29 @@ class RiskAssesser:
                 self.final_runs_job_list.append(future)
             else:
                 if not osp.exists(final_run_torch_path):
-                    start = time.time()
                     experiment = self.experiment_class(
                         best_config[CONFIG], final_run_exp_path, exp_seed
                     )
-                    res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger)
+
+                    # This is used to comunicate with the progress manager
+                    # to display the UI
+                    def _report_progress(payload: dict):
+                        if self.progress_queue is None:
+                            return
+
+                        payload = dict(payload)  # shallow copy
+                        payload.update(
+                            {
+                                OUTER_FOLD: dataset_getter.outer_k,
+                                INNER_FOLD: None,
+                                CONFIG_ID: best_config["best_config_id"],
+                                RUN_ID: i,
+                                IS_FINAL: True,
+                            }
+                        )
+                        self.progress_queue.put(payload)
+
+                    res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress)
                     elapsed = extract_and_sum_elapsed_seconds(
                         osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
                     )

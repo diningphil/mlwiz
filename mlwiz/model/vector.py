@@ -1,5 +1,6 @@
 from typing import List, Optional, Tuple, Union
 
+import time
 import torch
 import torchvision
 from torch import relu
@@ -47,6 +48,7 @@ class MLP(ModelInterface):
         Returns:
             a tuple (output, embedddings)
         """
+        time.sleep(0.05)  # simulate some delay
         # for testing
         if self._testing:
             if data.shape[1] == 1:
