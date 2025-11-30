@@ -12,6 +12,7 @@ import pandas as pd
 from scipy import stats
 import torch
 import tqdm
+import time
 
 from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.provider import DataProvider
@@ -73,7 +74,9 @@ class ProgressManager:
         self.final_run_messages = {}
 
         # used to combine printing of multiple information in debug mode
-        self._last_progress_msg = ""        
+        self._header_run_message = ""
+        self._last_progress_msg = ""     
+        self._moves_buffer = ""   
 
         clear_screen()
         
@@ -101,17 +104,14 @@ class ProgressManager:
         bar = "#" * filled + "-" * (30 - filled)
         percentage = int(progress / total * 100)
         msg = f"{desc} Epoch {epoch}: [{bar}] {percentage:3d}% ({progress}/{total})"
-        print(msg, end="\n", flush=True)
+
+        if self._header_run_message != "":
+            msg = self._header_run_message + "\n" + msg
         if self._last_progress_msg != "":
-            print(self._last_progress_msg, end="", flush=True)
-        if batch_id== 2 and epoch == 50:
-            exit(0)
+            msg = msg + "\n" + self._last_progress_msg
 
-
-    @staticmethod
-    def _print_epoch_progress(epoch_message: str):    
-        print(epoch_message, end="", flush=True)
-
+        self._append_to_buffer(msg)
+        self._flush_buffer()
 
 
     def update_state(self):
@@ -139,11 +139,11 @@ class ProgressManager:
                 run_id = msg.get(RUN_ID)
                 is_final = msg.get(IS_FINAL)
 
-                if type == START_CONFIG and self.debug:
+                if type == START_CONFIG:
                     if inner_fold is None:
-                        print(f'Risk assessment run {run_id} started for outer fold {outer_fold}...', flush=True)
+                        self._header_run_message = f"Risk assessment run {run_id} started for outer fold {outer_fold}..."
                     else:
-                        print(f'Model selection run {run_id} started for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}...', flush=True)
+                        self._header_run_message = f"Model selection run {run_id} started for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}..."
 
                 elif type == BATCH_PROGRESS:
                     if self.debug:
@@ -152,13 +152,20 @@ class ProgressManager:
                         epoch = msg.get(EPOCH)
                         desc = msg.get("message")
                         
-                        # at the start of training/evaluation epoch, do not do anything
+                        # if there is only one line (no progress msg), do not move up
+                        # ow you mess the cursor's position up
+                        if self._header_run_message != "":
+                            self._clear_line()
+                            self._cursor_up()
                         if self._last_progress_msg != "":
-                            ProgressManager._clear_current_line()
-                            ProgressManager._move_cursor_up()
-                        ProgressManager._clear_current_line()
-                        ProgressManager._move_cursor_up()
+                            self._clear_line()
+                            self._cursor_up()
+
+                        self._clear_line()
+                        self._cursor_up()
                         self._print_train_progress_bar(batch_id, total_batches, epoch, desc)
+                        
+                        
 
                 elif type == RUN_PROGRESS:
                     self._store_last_run_message(msg)
@@ -169,6 +176,10 @@ class ProgressManager:
                 elif type == RUN_COMPLETED:
                     self._store_last_run_message(msg)
                     self._last_progress_msg = ""
+                    self._header_run_message = ""
+                    self._clear_line()
+                    self._cursor_up()
+                    self._flush_buffer()
 
                 elif type in {RUN_FAILED}:
                     self._store_last_run_message(msg)
@@ -206,26 +217,39 @@ class ProgressManager:
             print(e)
             return
 
-    @staticmethod
-    def _move_cursor_up():
+    def _cursor_up(self):
         """
         Moves cursor one line up without clearing it.
         """
-        print("\033[F", end="", flush=True)
+        self._moves_buffer += "\033[F"
 
-    @staticmethod
-    def _move_cursor_down():
+    def _cursor_down(self):
         """
         Moves cursor one line down without adding a newline.
         """
-        print("\033[E", end="", flush=True)
-
-    @staticmethod
-    def _clear_current_line():
+        self._moves_buffer += "\033[E"
+   
+    def _clear_line(self):
         """
         Clears the current line in the terminal.
         """
-        print("\r\033[K", end="", flush=True)
+        self._moves_buffer += "\r\033[K"
+
+    def _append_to_buffer(self, msg: str):
+        """
+        Clears the moves buffer.
+        """
+        self._moves_buffer += msg
+
+    def _clear_moves_buffer(self):
+        """
+        Clears the moves buffer.
+        """
+        self._moves_buffer = ""
+
+    def _flush_buffer(self):
+        print(self._moves_buffer, end="", flush=True)
+        self._clear_moves_buffer()
 
     def _init_selection_pbar(self, i: int, j: int):
         """

@@ -1,0 +1,127 @@
+{
+    "outer_k": 0,
+    "inner_k": 0,
+    "run_id": 0,
+    "exp_seed": 2746317213,
+    "model": "mlwiz.model.MLP",
+    "checkpoint": true,
+    "shuffle": true,
+    "batch_size": 4,
+    "epochs": 2,
+    "dim_embedding": 5,
+    "mlwiz_tests": true,
+    "optimizer": {
+        "class_name": "mlwiz.training.callback.optimizer.Optimizer",
+        "args": {
+            "optimizer_class_name": "torch.optim.Adam",
+            "lr": 0.01,
+            "weight_decay": 0.0
+        }
+    },
+    "scheduler": null,
+    "loss": {
+        "class_name": "mlwiz.training.callback.metric.AdditiveLoss",
+        "args": {
+            "loss_1": "mlwiz.training.callback.metric.MulticlassClassification",
+            "loss_2": "mlwiz.training.callback.metric.MulticlassClassification",
+            "losses_weights": {
+                "MulticlassClassification": 1.0
+            },
+            "accumulate_over_epoch": true
+        }
+    },
+    "scorer": {
+        "class_name": "mlwiz.training.callback.metric.MultiScore",
+        "args": {
+            "main_scorer": "mlwiz.training.callback.metric.MulticlassAccuracy",
+            "my_second_metric": "mlwiz.training.callback.metric.ToyMetric"
+        }
+    },
+    "engine": {
+        "class_name": "mlwiz.training.engine.TrainingEngine",
+        "args": {
+            "eval_training": false
+        }
+    },
+    "gradient_clipper": null,
+    "early_stopper": {
+        "class_name": "mlwiz.training.callback.early_stopping.PatienceEarlyStopper",
+        "args": {
+            "patience": 10,
+            "monitor": "validation_main_score",
+            "mode": "max",
+            "checkpoint": true
+        }
+    },
+    "plotter": {
+        "class_name": "mlwiz.training.callback.plotter.Plotter",
+        "args": {
+            "store_on_disk": true
+        }
+    },
+    "dataset_getter": "mlwiz.data.provider.DataProvider",
+    "data_loader": "torch.utils.data.DataLoader",
+    "data_loader_args": {
+        "num_workers": 0,
+        "pin_memory": false
+    },
+    "dataset_class": "tests.integration.fake_dataset.FakeMNIST",
+    "storage_folder": "tests/tmp/DATA",
+    "device": "cpu",
+    "experiment": "mlwiz.experiment.Experiment",
+    "higher_results_are_better": true,
+    "evaluate_every": 1
+}
+Epoch: 1, TR loss: {'MulticlassClassification': tensor(1.0540), 'AdditiveLoss': tensor(2.1080), 'main_loss': tensor(2.1080)} TR score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)}, VL loss: {'MulticlassClassification': tensor(0.9590), 'AdditiveLoss': tensor(1.9179), 'main_loss': tensor(1.9179)} VL score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)}
+Epoch: 2, TR loss: {'MulticlassClassification': tensor(0.9179), 'AdditiveLoss': tensor(1.8358), 'main_loss': tensor(1.8358)} TR score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)}, VL loss: {'MulticlassClassification': tensor(0.8518), 'AdditiveLoss': tensor(1.7035), 'main_loss': tensor(1.7035)} VL score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)}
+Chosen is Epoch 2 TR loss: {'MulticlassClassification': tensor(0.8518), 'AdditiveLoss': tensor(1.7037), 'main_loss': tensor(1.7037)} TR score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)}, VL loss: {'MulticlassClassification': tensor(0.8518), 'AdditiveLoss': tensor(1.7035), 'main_loss': tensor(1.7035)} VL score: {'MulticlassAccuracy': tensor(0.), 'ToyMetric': tensor([100.]), 'main_score': tensor(0.)} TE loss: N/A TE score: N/A
+************************* Profiler ************************* 
+ 
+Threshold: 1e-05 
+ 
+AdditiveLoss 
+ 
+	 on_training_epoch_end --> Avg: 0.0013756752014160156 s, Total: 0:00:00.002751 
+	 on_backward --> Avg: 0.0011873841285705566 s, Total: 0:00:00.009499 
+	 on_eval_epoch_end --> Avg: 0.0007696747779846191 s, Total: 0:00:00.003079 
+	 on_compute_metrics --> Avg: 0.0005273112544307003 s, Total: 0:00:00.014237 
+	 on_training_epoch_start --> Avg: 2.562999725341797e-05 s, Total: 0:00:00.000051 
+	 on_eval_epoch_start --> Avg: 2.014636993408203e-05 s, Total: 0:00:00.000081 
+	 on_eval_batch_end --> Avg: 1.6664203844572368e-05 s, Total: 0:00:00.000317 
+	 on_eval_batch_start --> Avg: 1.2372669420744243e-05 s, Total: 0:00:00.000235 
+	 on_training_batch_end --> Avg: 1.0788440704345703e-05 s, Total: 0:00:00.000086 
+
+MultiScore 
+ 
+	 on_eval_epoch_end --> Avg: 0.00022870302200317383 s, Total: 0:00:00.000915 
+	 on_training_epoch_end --> Avg: 0.00019478797912597656 s, Total: 0:00:00.000390 
+	 on_compute_metrics --> Avg: 7.337111013906974e-05 s, Total: 0:00:00.001981 
+	 on_training_epoch_start --> Avg: 1.8835067749023438e-05 s, Total: 0:00:00.000038 
+	 on_eval_epoch_start --> Avg: 1.621246337890625e-05 s, Total: 0:00:00.000065 
+
+Optimizer 
+ 
+	 on_epoch_end --> Avg: 0.0015507936477661133 s, Total: 0:00:00.003102 
+	 on_training_batch_end --> Avg: 0.0009304583072662354 s, Total: 0:00:00.007444 
+	 on_training_batch_start --> Avg: 8.040666580200195e-05 s, Total: 0:00:00.000643 
+
+PatienceEarlyStopper 
+ 
+	 on_epoch_end --> Avg: 0.008931398391723633 s, Total: 0:00:00.017863 
+
+Plotter 
+ 
+	 on_epoch_end --> Avg: 0.030701041221618652 s, Total: 0:00:00.061402 
+	 on_fit_end --> Avg: 0.002713441848754883 s, Total: 0:00:00.002713 
+
+EngineCallback 
+ 
+	 on_forward --> Avg: 0.20190958623532895 s, Total: 0:00:05.451559 
+	 on_epoch_end --> Avg: 0.0074890851974487305 s, Total: 0:00:00.014978 
+	 on_fetch_data --> Avg: 0.0004080931345621745 s, Total: 0:00:00.011019 
+
+Total time of the experiment: 0:00:05.604447 
+ 
+Total time of the experiment in seconds: 5.604446649551392 
+ 
+************************************************************

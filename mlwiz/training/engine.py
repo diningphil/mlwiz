@@ -744,11 +744,10 @@ class TrainingEngine(EventDispatcher):
                     else:
                         test_loss = "N/A"
                         test_score = "N/A"
-                    progress_manager_msg = [
-                        f"Epoch: {epoch + 1}",
-                        f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss}",
-                        f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}",
-                    ]
+                    progress_manager_msg = f"Epoch: {epoch + 1} " + \
+                        f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss} " + \
+                        f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
+                    
                     _notify_progress(
                         RUN_PROGRESS,
                         {
