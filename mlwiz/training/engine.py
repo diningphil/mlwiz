@@ -38,13 +38,14 @@ def log(msg, logger: Logger):
 
 def fmt(x, decimals=2, sci_decimals=2):
     """Format number with fixed-point unless it's small, then scientific."""
-    thresh = 10 ** (-decimals-1)
+    thresh = 10 ** (-decimals - 1)
     x = float(x)
     if x == 0.0:
         return f"{0:.{decimals}f}"
     if abs(x) < thresh:
         return f"{x:.{sci_decimals}e}"
     return f"{x:.{decimals}f}"
+
 
 def reorder(obj: List[object], perm: List[int]):
     """
@@ -398,7 +399,9 @@ class TrainingEngine(EventDispatcher):
             self._dispatch(EventHandler.ON_EVAL_BATCH_END, self.state)
 
     # loop over all data (i.e. computes an epoch)
-    def _loop(self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]):
+    def _loop(
+        self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]
+    ):
         """
         Main method that computes a pass over the dataset using the data
         loader provided.
@@ -430,10 +433,9 @@ class TrainingEngine(EventDispatcher):
                     TOTAL_EPOCHS: self.state.total_epochs,
                     BATCH: id_batch + 1,
                     TOTAL_BATCHES: total_batches,
-                    "message": f'{self.state.set.capitalize()} Progress',
+                    "message": f"{self.state.set.capitalize()} Progress",
                 },
             )
-
 
     def _train(self, loader, _notify_progress: Callable[[str, dict], None]):
         """
@@ -452,7 +454,10 @@ class TrainingEngine(EventDispatcher):
         return loss, score, None
 
     def infer(
-        self, loader: DataLoader, set: str, _notify_progress: Callable[[str, dict], None]
+        self,
+        loader: DataLoader,
+        set: str,
+        _notify_progress: Callable[[str, dict], None],
     ) -> Tuple[dict, dict, List[Union[torch.Tensor, Data]]]:
         """
         Performs an evaluation step on the data.
@@ -581,7 +586,7 @@ class TrainingEngine(EventDispatcher):
             if progress_callback is None:
                 return
 
-            data = { "type": event_type }
+            data = {"type": event_type}
             data.update(payload)
 
             try:
@@ -625,11 +630,9 @@ class TrainingEngine(EventDispatcher):
 
             # In case we already have a trained model
             epoch = self.state.initial_epoch
-            
+
             self.state.update(TOTAL_EPOCHS=max_epochs)
-            _notify_progress(
-                START_CONFIG, {TOTAL_EPOCHS: max_epochs}
-            )
+            _notify_progress(START_CONFIG, {TOTAL_EPOCHS: max_epochs})
 
             last_run_elapsed_time = self.state.current_elapsed_time
 
@@ -638,9 +641,15 @@ class TrainingEngine(EventDispatcher):
 
                 if training_timeout_seconds > 0:
                     # update the current time including the time of the last run
-                    self.state.update(current_elapsed_time=self.profiler.total_elapsed_time.seconds + last_run_elapsed_time)                    
-                    
-                    if self.state.current_elapsed_time >= training_timeout_seconds:
+                    self.state.update(
+                        current_elapsed_time=self.profiler.total_elapsed_time.seconds
+                        + last_run_elapsed_time
+                    )
+
+                    if (
+                        self.state.current_elapsed_time
+                        >= training_timeout_seconds
+                    ):
                         msg = f"Skipping training of new epoch {epoch+1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
                         log(msg, logger)
                         self.state.update(stop_training=True)
@@ -652,7 +661,9 @@ class TrainingEngine(EventDispatcher):
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
                 self.state.update(set=TRAINING)
-                train_loss, train_score, _ = self._train(train_loader, _notify_progress)
+                train_loss, train_score, _ = self._train(
+                    train_loader, _notify_progress
+                )
 
                 # Update state with epoch results
                 epoch_results = {LOSSES: {}, SCORES: {}}
@@ -728,7 +739,7 @@ class TrainingEngine(EventDispatcher):
                         )
                     else:
                         test_msg_str = ""
-                  
+
                     # Message for Progress Manager
                     tr_loss = fmt(train_loss[MAIN_LOSS].item())
                     tr_score = fmt(train_score[MAIN_SCORE].item())
@@ -744,9 +755,11 @@ class TrainingEngine(EventDispatcher):
                     else:
                         test_loss = "N/A"
                         test_score = "N/A"
-                    progress_manager_msg = f"Epoch: {epoch + 1} " + \
-                        f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss} " + \
-                        f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
+                    progress_manager_msg = (
+                        f"Epoch: {epoch + 1} "
+                        + f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss} "
+                        + f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
+                    )
 
                     _notify_progress(
                         RUN_PROGRESS,
@@ -851,7 +864,11 @@ class TrainingEngine(EventDispatcher):
         _notify_progress(
             RUN_COMPLETED,
             {
-                EPOCH: (final_epoch + 1) if final_epoch is not None else max_epochs,
+                EPOCH: (
+                    (final_epoch + 1)
+                    if final_epoch is not None
+                    else max_epochs
+                ),
                 TOTAL_EPOCHS: max_epochs,
             },
         )
@@ -885,7 +902,9 @@ class TrainingEngine(EventDispatcher):
             weights_only=True,
         )
 
-        self.state.update(current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME])
+        self.state.update(
+            current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME]
+        )
 
         self.state.update(
             initial_epoch=int(ckpt_dict[EPOCH]) + 1 if not zero_epoch else 0

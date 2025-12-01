@@ -170,7 +170,6 @@ class Profiler:
         profile_str += f'{"*" * 60}'
         return profile_str
 
-
     @property
     def total_elapsed_time(self) -> datetime.timedelta:
         r"""
@@ -184,7 +183,7 @@ class Profiler:
         for class_name, v in self.callback_elapsed.items():
             for callback_name, v1 in v.items():
                 total_time_experiment += v1
-        
+
         seconds_elapsed = datetime.timedelta(seconds=total_time_experiment)
 
         return seconds_elapsed

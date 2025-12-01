@@ -34,6 +34,7 @@ def clear_screen():
     # wiping scrollback/history.
     print("\033[2J\033[H", end="", flush=True)
 
+
 class ProgressManager:
     r"""
     Class that is responsible for drawing progress bars.
@@ -59,7 +60,13 @@ class ProgressManager:
     #       * ``postfix, unit_divisor, remaining, remaining_s``
 
     def __init__(
-        self, outer_folds, inner_folds, no_configs, final_runs, debug=True, progress_queue=None
+        self,
+        outer_folds,
+        inner_folds,
+        no_configs,
+        final_runs,
+        debug=True,
+        progress_queue=None,
     ):
         self.ncols = 100
         self.outer_folds = outer_folds
@@ -86,7 +93,7 @@ class ProgressManager:
         # when the global view is active, otherwise
         # we will visualize the progress of a single
         # configuration
-        self._to_visualize = 'g'
+        self._to_visualize = "g"
         self._input_buffer = ""  # currently typed command (prefixed with ':')
         self._input_active = False  # whether command mode is active
         self._input_render_len = 0  # last rendered width to properly erase
@@ -95,7 +102,7 @@ class ProgressManager:
         self._input_thread = None  # background input listener
 
         clear_screen()
-        
+
         if not self.debug:
             self.show_header()
             for i in range(self.outer_folds):
@@ -117,7 +124,7 @@ class ProgressManager:
         Otherwise, the progress of a single configuration is visualized.
 
         Args:
-            identifier (str): the reference to the configuration 
+            identifier (str): the reference to the configuration
             to visualize in the form of "outer_id_inner_id_config_id_run_id"
 
         """
@@ -136,12 +143,16 @@ class ProgressManager:
             self._render_user_input()
             return
 
-        invalid_id_msg = 'ProgressManager: invalid identifier format, use outer_inner_config_run format or outer_run...'
+        invalid_id_msg = "ProgressManager: invalid identifier format, use outer_inner_config_run format or outer_run..."
 
         # put last stored message in queue to display it
         try:
             values = self._to_visualize.split("_")
-            if (len(values) != 2 and len(values) != 4) or "0" in values or 0 in values:
+            if (
+                (len(values) != 2 and len(values) != 4)
+                or "0" in values
+                or 0 in values
+            ):
                 raise Exception(invalid_id_msg)
         except Exception as e:
             clear_screen()
@@ -151,19 +162,30 @@ class ProgressManager:
         try:
             msg = None
             if len(values) == 2:
-                outer, run = int(values[0]) -1, int(values[1]) -1 
-                msg = self._final_run_messages[int(outer)][int(run)]    
-                self._header_run_message = f"Risk assessment run {run+1} for outer fold {outer+1}..."
-    
+                outer, run = int(values[0]) - 1, int(values[1]) - 1
+                msg = self._final_run_messages[int(outer)][int(run)]
+                self._header_run_message = (
+                    f"Risk assessment run {run+1} for outer fold {outer+1}..."
+                )
+
             elif len(values) == 4:
-                outer, inner, config, run = int(values[0]) -1, int(values[1]) -1, int(values[2]) -1, int(values[3]) -1
-                msg = self._last_run_messages[int(outer)][int(inner)][int(config)][int(run)]
+                outer, inner, config, run = (
+                    int(values[0]) - 1,
+                    int(values[1]) - 1,
+                    int(values[2]) - 1,
+                    int(values[3]) - 1,
+                )
+                msg = self._last_run_messages[int(outer)][int(inner)][
+                    int(config)
+                ][int(run)]
                 self._header_run_message = f"Model selection run {run+1} for config {config+1} for outer fold {outer+1}, inner fold {inner+1}..."
 
             if msg is not None:
-                self._handle_message(msg, store=False)  # do not store message already stored
+                self._handle_message(
+                    msg, store=False
+                )  # do not store message already stored
         except KeyError as e:
-            print('ProgressManager: waiting for the next update...')
+            print("ProgressManager: waiting for the next update...")
         except Exception as e:
             clear_screen()
             print(invalid_id_msg, end="", flush=True)
@@ -277,7 +299,7 @@ class ProgressManager:
             return False
 
         try:
-            values = [int(v)-1 for v in target.split("_")]
+            values = [int(v) - 1 for v in target.split("_")]
         except Exception:
             return False
 
@@ -300,7 +322,6 @@ class ProgressManager:
             )
 
         return False
-
 
     def _render_progress(self, printer: Callable[[], None]):
         """
@@ -330,7 +351,6 @@ class ProgressManager:
         self._append_to_buffer("\n".join(parts))
         self._flush_buffer()
 
-
     def _handle_message(self, msg: dict, store: bool = True):
         """
         Handle a single progress message (shared between queue consumer
@@ -355,13 +375,13 @@ class ProgressManager:
                 total_batches = msg.get(TOTAL_BATCHES)
                 epoch = msg.get(EPOCH)
                 desc = msg.get("message")
-                
+
                 self._render_progress(
                     lambda: self._print_train_progress_bar(
                         batch_id, total_batches, epoch, desc
                     )
                 )
-                
+
         elif type == RUN_PROGRESS:
             if store:
                 self._store_last_run_message(msg)
@@ -373,7 +393,7 @@ class ProgressManager:
                 )
 
         elif type == RUN_COMPLETED:
-            pass  # do not store this message, not useful for now          
+            pass  # do not store this message, not useful for now
 
         elif type in {RUN_FAILED}:
             if store:
@@ -387,7 +407,9 @@ class ProgressManager:
                 config_id = msg.get(CONFIG_ID)
                 run_id = msg.get(RUN_ID)
 
-                print(f"Run failed: run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}... \nMessage: {msg.get('message')}")
+                print(
+                    f"Run failed: run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}... \nMessage: {msg.get('message')}"
+                )
 
         elif type == END_CONFIG:
             position = outer_fold * self.inner_folds + inner_fold
@@ -421,7 +443,7 @@ class ProgressManager:
             # Update progress bar only when global view is visible to avoid redraws.
             if self._to_visualize in {"g", "global", None}:
                 self.pbars[position].update()
-                self.refresh() # does not do anything in debug mode
+                self.refresh()  # does not do anything in debug mode
             else:
                 # manually modify the state only, otherwise tqdm will redraw
                 pbar = self.pbars[position]
@@ -430,7 +452,9 @@ class ProgressManager:
         else:
             print(f"Cannot parse type of message {type}, fix this.")
 
-    def _print_train_progress_bar(self, batch_id: int, total_batches: int, epoch: int, desc: str):
+    def _print_train_progress_bar(
+        self, batch_id: int, total_batches: int, epoch: int, desc: str
+    ):
         """
         Simple progress bar printer for debug mode, avoids tqdm dependency.
         """
@@ -449,15 +473,16 @@ class ProgressManager:
         self._append_to_buffer(msg)
         self._flush_buffer()
 
-
     def update_state(self):
         """
         Updates the state of the progress bar (different from showing it
-        on screen, see :func:`refresh`) once a message is sent to 
+        on screen, see :func:`refresh`) once a message is sent to
         the progress queue
         """
         if self.progress_queue is None:
-            print('ProgressManager: cannot update the UI, no progress queue provided...')
+            print(
+                "ProgressManager: cannot update the UI, no progress queue provided..."
+            )
             return
 
         try:
@@ -488,7 +513,7 @@ class ProgressManager:
         """
         # ANSI: move cursor down one line.
         self._moves_buffer += "\033[E"
-   
+
     def _clear_line(self):
         """
         Clears the current line in the terminal.
@@ -573,7 +598,8 @@ class ProgressManager:
         print(
             f'\033[F\033[A{"*" * ((self.ncols - 21) // 2 + 1)} '
             f'Experiment Progress {"*" * ((self.ncols - 21) // 2)}\n',
-            end="\n", flush=True
+            end="\n",
+            flush=True,
         )
 
     def show_footer(self):
@@ -601,21 +627,23 @@ class ProgressManager:
                 if len(completion_times) > 0:
                     min_seconds = min(completion_times)
                     max_seconds = max(completion_times)
-                    mean_seconds = sum(completion_times) / len(completion_times)
+                    mean_seconds = sum(completion_times) / len(
+                        completion_times
+                    )
                 else:
                     min_seconds = 0
                     max_seconds = 0
                     mean_seconds = 0
 
-                mean_time = str(datetime.timedelta(seconds=mean_seconds)).split(
+                mean_time = str(
+                    datetime.timedelta(seconds=mean_seconds)
+                ).split(".")[0]
+                min_time = str(datetime.timedelta(seconds=min_seconds)).split(
                     "."
                 )[0]
-                min_time = str(datetime.timedelta(seconds=min_seconds)).split(".")[
-                    0
-                ]
-                max_time = str(datetime.timedelta(seconds=max_seconds)).split(".")[
-                    0
-                ]
+                max_time = str(datetime.timedelta(seconds=max_seconds)).split(
+                    "."
+                )[0]
 
                 pbar.set_postfix_str(
                     f"min:{min_time}|avg:{mean_time}|max:{max_time}"
@@ -649,6 +677,7 @@ class ProgressManager:
             self._last_run_messages[outer][inner][config] = {}
 
         self._last_run_messages[outer][inner][config][run] = msg
+
 
 """
 Various options for random search model selection
@@ -1165,9 +1194,7 @@ def _load_final_run_metric_samples(
         if not os.path.exists(run_results_path):
             break
 
-        training_res, validation_res, test_res, _ = dill_load(
-            run_results_path
-        )
+        training_res, validation_res, test_res, _ = dill_load(run_results_path)
 
         set_results = {
             TRAINING: training_res,
@@ -1175,7 +1202,9 @@ def _load_final_run_metric_samples(
             TEST: test_res,
         }[set_key]
 
-        score_dict = set_results[SCORE] if SCORE in set_results else set_results
+        score_dict = (
+            set_results[SCORE] if SCORE in set_results else set_results
+        )
 
         if metric_key not in score_dict:
             raise KeyError(

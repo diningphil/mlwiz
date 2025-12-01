@@ -433,9 +433,7 @@ def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
     seed_worker(worker_id, exp_seed)
 
     # Get the dataset and overall length
-    dataset = (
-        worker_info.dataset
-    )  # the dataset copy in this worker process
+    dataset = worker_info.dataset  # the dataset copy in this worker process
     dataset_length = len(
         dataset
     )  # dynamic, already refers to the subset of urls!
@@ -449,6 +447,7 @@ def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
 
     # configure the dataset to only process the split workload
     dataset.splice(start, end)
+
 
 class IterableDataProvider(DataProvider):
     r"""
@@ -498,7 +497,9 @@ class IterableDataProvider(DataProvider):
             dataset,
             sampler=None,
             collate_fn=Collater(None, None),
-            worker_init_fn=functools.partial(_iterable_worker_init_fn, exp_seed=self.exp_seed),
+            worker_init_fn=functools.partial(
+                _iterable_worker_init_fn, exp_seed=self.exp_seed
+            ),
             batch_size=batch_size,
             **kwargs,
         )

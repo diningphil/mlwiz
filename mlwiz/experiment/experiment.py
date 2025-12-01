@@ -124,7 +124,7 @@ class Experiment:
         """
         device = config["device"]
         evaluate_every = config["evaluate_every"]
-        
+
         loss_class, loss_args = return_class_and_args(config, "loss")
         loss_args.update(device=device)
         loss = (
@@ -226,7 +226,7 @@ class Experiment:
         Args:
             dataset_getter (:class:`~mlwiz.data.provider.DataProvider`):
                 a data provider
-            training_timeout_seconds (int): timeout for the experiment in seconds 
+            training_timeout_seconds (int): timeout for the experiment in seconds
             logger (:class:`~mlwiz.log.logger.Logger`): the logger
 
         Returns:
@@ -309,7 +309,7 @@ class Experiment:
         Args:
             dataset_getter (:class:`~mlwiz.data.provider.DataProvider`):
                 a data provider
-            training_timeout_seconds (int): timeout for the experiment in seconds 
+            training_timeout_seconds (int): timeout for the experiment in seconds
             logger (:class:`~mlwiz.log.logger.Logger`): the logger
 
         Returns:

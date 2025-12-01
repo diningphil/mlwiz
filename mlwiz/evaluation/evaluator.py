@@ -126,7 +126,7 @@ def run_valid(
     if not osp.exists(fold_results_torch_path):
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
-            
+
             # This is used to comunicate with the progress manager
             # to display the UI
             def _report_progress(payload: dict):
@@ -159,15 +159,15 @@ def run_valid(
             if progress_queue is not None:
                 progress_queue.put(
                     {
-                        "type" : RUN_FAILED,
-                        str(OUTER_FOLD) : dataset_getter.outer_k,
-                        str(INNER_FOLD) : dataset_getter.inner_k,
-                        str(CONFIG_ID) : config_id,
-                        str(RUN_ID) : run_id,
-                        str(IS_FINAL) : False,
-                        str(EPOCH) : 0,
-                        str(TOTAL_EPOCHS) : 0,
-                        "message" : e,
+                        "type": RUN_FAILED,
+                        str(OUTER_FOLD): dataset_getter.outer_k,
+                        str(INNER_FOLD): dataset_getter.inner_k,
+                        str(CONFIG_ID): config_id,
+                        str(RUN_ID): run_id,
+                        str(IS_FINAL): False,
+                        str(EPOCH): 0,
+                        str(TOTAL_EPOCHS): 0,
+                        "message": e,
                     }
                 )
             elapsed = -1
@@ -201,7 +201,7 @@ def run_test(
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
-    progress_queue: Queue =None,
+    progress_queue: Queue = None,
 ) -> Tuple[int, int, float]:
     r"""
     Ray job that performs a risk assessment run and returns bookkeeping
@@ -271,15 +271,15 @@ def run_test(
             if progress_queue is not None:
                 progress_queue.put(
                     {
-                        "type" : RUN_FAILED,
-                        str(OUTER_FOLD) : dataset_getter.outer_k,
-                        str(INNER_FOLD) : None,
-                        str(CONFIG_ID) : best_config["best_config_id"],
-                        str(RUN_ID) : run_id,
-                        str(IS_FINAL) : True,
-                        str(EPOCH) : 0,
-                        str(TOTAL_EPOCHS) : 0,
-                        "message" : e,
+                        "type": RUN_FAILED,
+                        str(OUTER_FOLD): dataset_getter.outer_k,
+                        str(INNER_FOLD): None,
+                        str(CONFIG_ID): best_config["best_config_id"],
+                        str(RUN_ID): run_id,
+                        str(IS_FINAL): True,
+                        str(EPOCH): 0,
+                        str(TOTAL_EPOCHS): 0,
+                        "message": e,
                     }
                 )
             elapsed = -1
@@ -325,7 +325,7 @@ class RiskAssesser:
             experiment. Can be < ``1``.
         base_seed (int): Seed used to generate experiments seeds.
             Used to replicate results. Default is ``42``
-        training_timeout_seconds (int): optional timeout limit per 
+        training_timeout_seconds (int): optional timeout limit per
             experiment in seconds
     """
 
@@ -563,7 +563,7 @@ class RiskAssesser:
 
             for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-                    
+
                     self.progress_queue.put(
                         dict(
                             type=END_CONFIG,
@@ -571,9 +571,11 @@ class RiskAssesser:
                             inner_fold=inner_k,
                             config_id=skipped_config_id,
                             elapsed=0.0,
-                            message=[f"Outer fold {outer_k+1}, "
-                                     f"inner fold {inner_k+1}, "
-                                     f"configuration {skipped_config_id+1} skipped."],
+                            message=[
+                                f"Outer fold {outer_k+1}, "
+                                f"inner fold {inner_k+1}, "
+                                f"configuration {skipped_config_id+1} skipped."
+                            ],
                         )
                     )
 
@@ -614,9 +616,11 @@ class RiskAssesser:
                                 inner_fold=inner_k,
                                 config_id=config_id,
                                 elapsed=elapsed,
-                                message=[f"Outer fold {outer_k+1}, "
-                                         f"inner fold {inner_k+1}, "
-                                         f"configuration {config_id+1} completed."],
+                                message=[
+                                    f"Outer fold {outer_k+1}, "
+                                    f"inner fold {inner_k+1}, "
+                                    f"configuration {config_id+1} completed."
+                                ],
                             )
                         )
                         self.process_model_selection_runs(
@@ -667,8 +671,10 @@ class RiskAssesser:
                             outer_fold=outer_k,
                             run_id=run_id,
                             elapsed=elapsed,
-                            message=[f"Outer fold {outer_k+1}, "
-                                     f"final run {run_id+1} completed."],
+                            message=[
+                                f"Outer fold {outer_k+1}, "
+                                f"final run {run_id+1} completed."
+                            ],
                         )
                     )
 
@@ -849,11 +855,15 @@ class RiskAssesser:
                                         training_score,
                                         validation_score,
                                     ) = experiment.run_valid(
-                                        dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress
+                                        dataset_getter,
+                                        self.training_timeout_seconds,
+                                        logger,
+                                        progress_callback=_report_progress,
                                     )
                                     elapsed = extract_and_sum_elapsed_seconds(
                                         osp.join(
-                                            fold_run_exp_folder, EXPERIMENT_LOGFILE
+                                            fold_run_exp_folder,
+                                            EXPERIMENT_LOGFILE,
                                         )
                                     )
                                     dill_save(
@@ -868,15 +878,19 @@ class RiskAssesser:
                                     if self.progress_queue is not None:
                                         self.progress_queue.put(
                                             {
-                                                "type" : RUN_FAILED,
-                                                str(OUTER_FOLD) : dataset_getter.outer_k,
-                                                str(INNER_FOLD) : dataset_getter.inner_k,
-                                                str(CONFIG_ID) : config_id,
-                                                str(RUN_ID) : run_id,
-                                                str(IS_FINAL) : False,
-                                                str(EPOCH) : 0,
-                                                str(TOTAL_EPOCHS) : 0,
-                                                "message" : e,
+                                                "type": RUN_FAILED,
+                                                str(
+                                                    OUTER_FOLD
+                                                ): dataset_getter.outer_k,
+                                                str(
+                                                    INNER_FOLD
+                                                ): dataset_getter.inner_k,
+                                                str(CONFIG_ID): config_id,
+                                                str(RUN_ID): run_id,
+                                                str(IS_FINAL): False,
+                                                str(EPOCH): 0,
+                                                str(TOTAL_EPOCHS): 0,
+                                                "message": e,
                                             }
                                         )
                                     elapsed = -1
@@ -1012,8 +1026,14 @@ class RiskAssesser:
                             }
                         )
                         self.progress_queue.put(payload)
+
                     try:
-                        res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress)
+                        res = experiment.run_test(
+                            dataset_getter,
+                            self.training_timeout_seconds,
+                            logger,
+                            progress_callback=_report_progress,
+                        )
                         elapsed = extract_and_sum_elapsed_seconds(
                             osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
                         )
@@ -1027,15 +1047,17 @@ class RiskAssesser:
                         if self.progress_queue is not None:
                             self.progress_queue.put(
                                 {
-                                    "type" : RUN_FAILED,
-                                    str(OUTER_FOLD) : dataset_getter.outer_k,
-                                    str(INNER_FOLD) : None,
-                                    str(CONFIG_ID) : best_config["best_config_id"],
-                                    str(RUN_ID) : i,
-                                    str(IS_FINAL) : True,
-                                    str(EPOCH) : 0,
-                                    str(TOTAL_EPOCHS) : 0,
-                                    "message" : e,
+                                    "type": RUN_FAILED,
+                                    str(OUTER_FOLD): dataset_getter.outer_k,
+                                    str(INNER_FOLD): None,
+                                    str(CONFIG_ID): best_config[
+                                        "best_config_id"
+                                    ],
+                                    str(RUN_ID): i,
+                                    str(IS_FINAL): True,
+                                    str(EPOCH): 0,
+                                    str(TOTAL_EPOCHS): 0,
+                                    "message": e,
                                 }
                             )
                         elapsed = -1
@@ -1454,10 +1476,7 @@ class RiskAssesser:
                 ].keys():  # train keys are the same as valid and test keys
                     # Do not want to average std of different final runs in
                     # different outer folds
-                    if (
-                        k.endswith(STD)
-                        or k.endswith(CI)
-                    ):
+                    if k.endswith(STD) or k.endswith(CI):
                         continue
 
                     # there may be different optimal losses for each outer
@@ -1478,7 +1497,7 @@ class RiskAssesser:
 
                     for results, set in outer_results:
                         set_results = np.array([res[k] for res in results])
-                        mean, std, ci  = _mean_std_ci(set_results)
+                        mean, std, ci = _mean_std_ci(set_results)
                         assessment_results[f"{AVG}_{set}_{k}"] = mean
                         assessment_results[f"{STD}_{set}_{k}"] = std
                         assessment_results[f"{CI}_{set}_{k}"] = ci
