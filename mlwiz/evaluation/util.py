@@ -136,12 +136,16 @@ class ProgressManager:
             self._render_user_input()
             return
 
+        invalid_id_msg = 'ProgressManager: invalid identifier format, use outer_inner_config_run format or outer_run...'
+
         # put last stored message in queue to display it
         try:
             values = self._to_visualize.split("_")
-        except Exception:
-            print('ProgressManager: invalid identifier format, use outer_inner_config_run format or outer__run../')
-            self._render_user_input()
+            if len(values) != 2 and len(values) != 4:
+                raise Exception(invalid_id_msg)
+        except Exception as e:
+            clear_screen()
+            print(invalid_id_msg, end="", flush=True)
             return
 
         try:
@@ -149,17 +153,21 @@ class ProgressManager:
             if len(values) == 2:
                 outer, run = values
                 msg = self._final_run_messages[int(outer)][int(run)]    
-                self._header_run_message = f"Risk assessment run {run} for outer fold {outer}..."
+                self._header_run_message = f"Risk assessment run {run+1} for outer fold {outer+1}..."
     
             elif len(values) == 4:
                 outer, inner, config, run = values
                 msg = self._last_run_messages[int(outer)][int(inner)][int(config)][int(run)]
-                self._header_run_message = f"Model selection run {run} for config {config} for outer fold {outer}, inner fold {inner}..."
+                self._header_run_message = f"Model selection run {run+1} for config {config+1} for outer fold {outer+1}, inner fold {inner+1}..."
 
             if msg is not None:
                 self._handle_message(msg, store=False)  # do not store message already stored
-        except Exception:
+        except KeyError as e:
             print('ProgressManager: waiting for the next update...')
+        except Exception as e:
+            clear_screen()
+            print(invalid_id_msg, end="", flush=True)
+            return
 
         self._render_user_input()
 
@@ -269,7 +277,7 @@ class ProgressManager:
             return False
 
         try:
-            values = [int(v) for v in target.split("_")]
+            values = [int(v)-1 for v in target.split("_")]
         except Exception:
             return False
 
@@ -337,9 +345,9 @@ class ProgressManager:
 
         if type == START_CONFIG:
             if inner_fold is None:
-                self._header_run_message = f"Risk assessment run {run_id} for outer fold {outer_fold}..."
+                self._header_run_message = f"Risk assessment run {run_id+1} for outer fold {outer_fold+1}..."
             else:
-                self._header_run_message = f"Model selection run {run_id} for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}..."
+                self._header_run_message = f"Model selection run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}..."
 
         elif type == BATCH_PROGRESS:
             if self._is_active_view(msg):
@@ -388,7 +396,7 @@ class ProgressManager:
                 config_id = msg.get(CONFIG_ID)
                 run_id = msg.get(RUN_ID)
 
-                print(f"Run failed: run {run_id} for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}... \nMessage: {msg.get('message')}")
+                print(f"Run failed: run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}... \nMessage: {msg.get('message')}")
 
         elif type == END_CONFIG:
             position = outer_fold * self.inner_folds + inner_fold
