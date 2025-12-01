@@ -4,14 +4,20 @@ import json
 import math
 import os
 import random
+import select
+import shutil
+import sys
+import termios
+import threading
+import time
+import tty
 from typing import List, Tuple, Callable
 
 import numpy as np
 import pandas as pd
-from scipy import stats
 import torch
 import tqdm
-import time
+from scipy import stats
 
 from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.provider import DataProvider
@@ -66,15 +72,27 @@ class ProgressManager:
 
         # Keep track of the latest message per individual run
         # Structured as [outer][inner][config][run] -> msg
-        self.last_run_messages = {}
+        self._last_run_messages = {}
         # Keep track of the latest message for final runs
         # Structured as [outer][run] -> msg
-        self.final_run_messages = {}
+        self._final_run_messages = {}
 
         # used to combine printing of multiple information in debug mode
         self._header_run_message = ""
-        self._last_progress_msg = ""     
-        self._moves_buffer = ""   
+        self._last_progress_msg = ""
+        self._moves_buffer = ""
+
+        # when NOT in debug mode, this is None
+        # when the global view is active, otherwise
+        # we will visualize the progress of a single
+        # configuration
+        self._to_visualize = 'g'
+        self._input_buffer = ""  # currently typed command (prefixed with ':')
+        self._input_active = False  # whether command mode is active
+        self._input_render_len = 0  # last rendered width to properly erase
+        self._input_lock = threading.Lock()  # guards input state
+        self._stop_input_event = threading.Event()  # stops listener on exit
+        self._input_thread = None  # background input listener
 
         clear_screen()
         
@@ -90,6 +108,190 @@ class ProgressManager:
             self.show_footer()
 
             self.times = [{} for _ in range(len(self.pbars))]
+            self._start_input_listener()
+
+    def _change_view_mode(self, identifier: str = None):
+        """
+        Changes the view mode of the progress manager.
+        If config_id is None, the global view is activated.
+        Otherwise, the progress of a single configuration is visualized.
+
+        Args:
+            identifier (str): the reference to the configuration 
+            to visualize in the form of "outer_id_inner_id_config_id_run_id"
+
+        """
+        assert not self.debug, "Cannot change view mode in debug mode"
+        identifier = (identifier or "g").strip()
+
+        if identifier == "" or identifier in {"g", "global"}:
+            identifier = "g"
+
+        if self._to_visualize != identifier:
+            self._to_visualize = identifier
+            clear_screen()
+
+        if self._to_visualize in {"g", "global"}:
+            self.refresh()
+            self._render_user_input()
+            return
+
+        # put last stored message in queue to display it
+        try:
+            values = self._to_visualize.split("_")
+        except Exception:
+            print('ProgressManager: invalid identifier format, use outer_inner_config_run format or outer__run../')
+            self._render_user_input()
+            return
+
+        try:
+            msg = None
+            if len(values) == 2:
+                outer, run = values
+                msg = self._final_run_messages[int(outer)][int(run)]    
+                self._header_run_message = f"Risk assessment run {run} started for outer fold {outer}..."
+    
+            elif len(values) == 4:
+                outer, inner, config, run = values
+                msg = self._last_run_messages[int(outer)][int(inner)][int(config)][int(run)]
+                self._header_run_message = f"Model selection run {run} started for config {config} for outer fold {outer}, inner fold {inner}..."
+
+            if msg is not None:
+                self.progress_queue.put(msg)
+        except Exception:
+            print('ProgressManager: cannot visualize the requested configuration yet...')
+
+        self._render_user_input()
+
+    def _start_input_listener(self):
+        if self.debug or self.progress_queue is None:
+            return
+        if self._input_thread is not None:
+            return
+        if not sys.stdin.isatty():
+            return
+
+        self._input_thread = threading.Thread(
+            target=self._listen_for_user_input, daemon=True
+        )
+        self._input_thread.start()
+
+    def _listen_for_user_input(self):
+        # Put stdin in cbreak mode and poll for keypresses without blocking tqdm.
+        fd = sys.stdin.fileno()
+        try:
+            old_settings = termios.tcgetattr(fd)
+        except Exception:
+            return
+
+        try:
+            tty.setcbreak(fd)
+            while not self._stop_input_event.is_set():
+                readable, _, _ = select.select([fd], [], [], 0.1)
+                if not readable:
+                    continue
+                try:
+                    char = os.read(fd, 1).decode(errors="ignore")
+                except Exception:
+                    break
+                if char:
+                    self._handle_keypress(char)
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
+            self._clear_input_overlay()
+
+    def _handle_keypress(self, char: str):
+        if char == ":" and not self._input_active:
+            with self._input_lock:
+                self._input_active = True
+                self._input_buffer = ":"
+            self._render_user_input()
+            return
+
+        if not self._input_active:
+            return
+
+        if char in {"\r", "\n"}:
+            with self._input_lock:
+                command = self._input_buffer.lstrip(":")
+                self._input_buffer = ""
+                self._input_active = False
+            self._render_user_input()
+            self._change_view_mode(command if command else None)
+            return
+
+        if char in {"\x7f", "\b"}:
+            with self._input_lock:
+                self._input_buffer = self._input_buffer[:-1]
+                if self._input_buffer == "":
+                    self._input_active = False
+            self._render_user_input()
+            return
+
+        with self._input_lock:
+            self._input_buffer += char
+        self._render_user_input()
+
+    def _clear_input_overlay(self):
+        with self._input_lock:
+            self._input_buffer = ""
+            self._input_active = False
+        self._render_user_input()
+
+    def _render_user_input(self):
+        if self.debug or not sys.stdout.isatty():
+            return
+
+        cols, rows = shutil.get_terminal_size((self.ncols, 24))
+        with self._input_lock:
+            text = self._input_buffer if self._input_active else ""
+            width = max(self._input_render_len, len(text))
+            self._input_render_len = len(text)
+
+        if width == 0:
+            return
+
+        # Save/restore cursor (\0337/\0338) so overlay does not affect tqdm cursor.
+        col = max(1, cols - width + 1)
+        line = text.ljust(width)
+        print(f"\0337\033[{rows};{col}H{line}\0338", end="", flush=True)
+
+    def _is_active_view(self, msg: dict) -> bool:
+        # Decide whether a progress message belongs to the currently selected view.
+        if self.debug:
+            return True
+
+        target = self._to_visualize
+        if target in {None, "g", "global"}:
+            return False
+
+        try:
+            values = [int(v) for v in target.split("_")]
+        except Exception:
+            return False
+
+        if len(values) == 2:
+            outer, run = values
+            return (
+                msg.get(IS_FINAL)
+                and msg.get(OUTER_FOLD) == outer
+                and msg.get(RUN_ID) == run
+            )
+
+        if len(values) == 4:
+            outer, inner, config, run = values
+            return (
+                not msg.get(IS_FINAL)
+                and msg.get(OUTER_FOLD) == outer
+                and msg.get(INNER_FOLD) == inner
+                and msg.get(CONFIG_ID) == config
+                and msg.get(RUN_ID) == run
+            )
+
+        return False
 
 
     def _print_train_progress_bar(self, batch_id: int, total_batches: int, epoch: int, desc: str):
@@ -144,7 +346,7 @@ class ProgressManager:
                         self._header_run_message = f"Model selection run {run_id} started for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}..."
 
                 elif type == BATCH_PROGRESS:
-                    if self.debug:
+                    if self._is_active_view(msg):
                         batch_id = msg.get(BATCH)
                         total_batches = msg.get(TOTAL_BATCHES)
                         epoch = msg.get(EPOCH)
@@ -161,28 +363,31 @@ class ProgressManager:
 
                         self._clear_line()
                         self._cursor_up()
-                        self._print_train_progress_bar(batch_id, total_batches, epoch, desc)
+                        self._print_train_progress_bar(batch_id, total_batches, epoch, desc)                       
                         
-                        
-
                 elif type == RUN_PROGRESS:
                     self._store_last_run_message(msg)
                     
-                    if self.debug:
+                    if self._is_active_view(msg):
                         self._last_progress_msg = msg.get("message")
 
                 elif type == RUN_COMPLETED:
-                    self._store_last_run_message(msg)
-                    self._last_progress_msg = ""
-                    self._header_run_message = ""
-
-                    if self.debug:
-                        self._clear_line()
-                        self._cursor_up()
-                        self._flush_buffer()
+                    pass
+                    # self._store_last_run_message(msg)
+                    # if self._is_active_view(msg):
+                    #     self._last_progress_msg = ""
+                    #     self._header_run_message = ""
+                    #     self._clear_line()
+                    #     self._cursor_up()
+                    #     self._flush_buffer()
+                    
 
                 elif type in {RUN_FAILED}:
                     self._store_last_run_message(msg)
+
+                    if self._is_active_view(msg):
+                        clear_screen()
+                        print(f"Run failed: {msg.get('message')}")
 
                 elif type == END_CONFIG:
                     position = outer_fold * self.inner_folds + inner_fold
@@ -195,7 +400,7 @@ class ProgressManager:
                     )  # (time.time() - configs_times[config_id][0], True)
                     # Update progress bar
                     self.pbars[position].update()
-                    self.refresh()
+                    self.refresh()  # does not do anything in debug mode
                 elif type == END_FINAL_RUN:
                     position = self.outer_folds * self.inner_folds + outer_fold
                     elapsed = msg.get(ELAPSED)
@@ -207,7 +412,7 @@ class ProgressManager:
                     )  # (time.time() - configs_times[run_id][0], True)
                     # Update progress bar
                     self.pbars[position].update()
-                    self.refresh()
+                    self.refresh() # does not do anything in debug mode
                 else:
                     raise Exception(
                         f"Cannot parse type of message {type}, fix this."
@@ -216,23 +421,28 @@ class ProgressManager:
         except Exception as e:
             print(e)
             return
+        finally:
+            self._stop_input_event.set()
 
     def _cursor_up(self):
         """
         Moves cursor one line up without clearing it.
         """
+        # ANSI: move cursor up one line.
         self._moves_buffer += "\033[F"
 
     def _cursor_down(self):
         """
         Moves cursor one line down without adding a newline.
         """
+        # ANSI: move cursor down one line.
         self._moves_buffer += "\033[E"
    
     def _clear_line(self):
         """
         Clears the current line in the terminal.
         """
+        # ANSI: return carriage then clear to end of line.
         self._moves_buffer += "\r\033[K"
 
     def _append_to_buffer(self, msg: str):
@@ -248,8 +458,10 @@ class ProgressManager:
         self._moves_buffer = ""
 
     def _flush_buffer(self):
+        # Dump buffered cursor moves + text, then redraw the input overlay.
         print(self._moves_buffer, end="", flush=True)
         self._clear_moves_buffer()
+        self._render_user_input()
 
     def _init_selection_pbar(self, i: int, j: int):
         """
@@ -321,8 +533,8 @@ class ProgressManager:
         Refreshes the progress bar
         """
         if self.debug:
-            pass
-        else:
+            return
+        if self._to_visualize in {"g", "global", None}:
             self.show_header()
             for i, pbar in enumerate(self.pbars):
                 # When resuming, do not consider completed exp. (delta approx. < 1)
@@ -357,6 +569,7 @@ class ProgressManager:
 
                 pbar.refresh()
             self.show_footer()
+        self._render_user_input()
 
     def _store_last_run_message(self, msg: dict):
         """
@@ -366,22 +579,22 @@ class ProgressManager:
         run = msg.get(RUN_ID)
 
         if msg.get(IS_FINAL, False):
-            if outer not in self.final_run_messages:
-                self.final_run_messages[outer] = {}
-            self.final_run_messages[outer][run] = msg
+            if outer not in self._final_run_messages:
+                self._final_run_messages[outer] = {}
+            self._final_run_messages[outer][run] = msg
             return
 
         inner = msg.get(INNER_FOLD)
         config = msg.get(CONFIG_ID)
 
-        if outer not in self.last_run_messages:
-            self.last_run_messages[outer] = {}
-        if inner not in self.last_run_messages[outer]:
-            self.last_run_messages[outer][inner] = {}
-        if config not in self.last_run_messages[outer][inner]:
-            self.last_run_messages[outer][inner][config] = {}
+        if outer not in self._last_run_messages:
+            self._last_run_messages[outer] = {}
+        if inner not in self._last_run_messages[outer]:
+            self._last_run_messages[outer][inner] = {}
+        if config not in self._last_run_messages[outer][inner]:
+            self._last_run_messages[outer][inner][config] = {}
 
-        self.last_run_messages[outer][inner][config][run] = msg
+        self._last_run_messages[outer][inner][config][run] = msg
 
 """
 Various options for random search model selection
