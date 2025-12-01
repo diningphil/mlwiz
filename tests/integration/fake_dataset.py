@@ -72,7 +72,6 @@ class FakeNCI1(DatasetInterface):
 
 
 class FakeCora(DatasetInterface):
-
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         return 4
@@ -99,7 +98,6 @@ class FakeCora(DatasetInterface):
 
 
 class ToyIterableDataset(IterableDatasetInterface):
-
     @property
     def url_indices(self) -> List[Path]:
         r"""

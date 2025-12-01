@@ -77,8 +77,7 @@ def set_gpus(num_gpus: int, gpus_subset: Optional[str] = None):
 
         if gpus_subset is not None:
             print(
-                f"The user specified the following "
-                f"GPUs to use: {gpus_subset}"
+                f"The user specified the following GPUs to use: {gpus_subset}"
             )
         print("Setting GPUs to: {}".format(",".join(selected)))
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -195,7 +194,7 @@ def evaluation(options: argparse.Namespace):
     # Or you can work on your single server
     else:
         ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus)
-        print(f"Started local ray instance.")
+        print("Started local ray instance.")
 
     data_splits_file = configs_dict[DATA_SPLITS_FILE]
 

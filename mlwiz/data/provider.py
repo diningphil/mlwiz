@@ -14,7 +14,6 @@ from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
-from mlwiz.util import s2c
 
 import functools
 
@@ -397,8 +396,7 @@ class DataProvider:
         """
         if self.dim_input_features is None:
             raise Exception(
-                "You should first initialize the dataset "
-                "by creating a data loader!"
+                "You should first initialize the dataset by creating a data loader!"
             )
         return self.dim_input_features
 
@@ -412,8 +410,7 @@ class DataProvider:
         """
         if self.dim_target is None:
             raise Exception(
-                "You should first initialize the dataset "
-                "by creating a data loader!"
+                "You should first initialize the dataset by creating a data loader!"
             )
         return self.dim_target
 

@@ -1,12 +1,10 @@
 import os
 import sys
-from pathlib import Path
 import yaml
 from copy import deepcopy
 
 
 def main():
-
     if len(sys.argv) < 5:
         print(
             "Usage: mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files>"

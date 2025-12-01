@@ -11,7 +11,6 @@ from sklearn.model_selection import (
 )
 
 import mlwiz
-from mlwiz.data.dataset import IterableDatasetInterface
 from mlwiz.util import s2c, dill_load, dill_save
 
 

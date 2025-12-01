@@ -103,6 +103,6 @@ class IterableEngineCallback(EngineCallback):
         try:
             data = next(state.loader_iterable)
             state.update(batch_input=data)
-        except StopIteration as e:
+        except StopIteration:
             state.update(stop_fetching=True)
             state.update(batch_input=None)

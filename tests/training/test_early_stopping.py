@@ -51,10 +51,10 @@ def test_early_stopping_patience():
                 state.update(epoch=epoch)
 
                 state.epoch_results[LOSSES].update(
-                    {f"validation_main_loss": epoch}
+                    {"validation_main_loss": epoch}
                 )
                 state.epoch_results[SCORES].update(
-                    {f"validation_main_score": epoch}
+                    {"validation_main_score": epoch}
                 )
 
                 early_stopper.on_epoch_end(state)

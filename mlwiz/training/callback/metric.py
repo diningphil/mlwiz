@@ -1172,7 +1172,6 @@ class MulticlassAccuracy(Metric):
 
 
 class AllocatedGPUMemory(Metric):
-
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:

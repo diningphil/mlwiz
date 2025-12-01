@@ -61,7 +61,7 @@ class Plotter(EventHandler):
 
             if self.store_on_disk:
                 t = "losses"
-                if not k in self.stored_metrics[t]:
+                if k not in self.stored_metrics[t]:
                     self.stored_metrics[t][k] = [v.item()]
                 else:
                     self.stored_metrics[t][k].append(v.item())
@@ -81,7 +81,7 @@ class Plotter(EventHandler):
 
             if self.store_on_disk:
                 t = "scores"
-                if not k in self.stored_metrics[t]:
+                if k not in self.stored_metrics[t]:
                     self.stored_metrics[t][k] = [v.item()]
                 else:
                     self.stored_metrics[t][k].append(v.item())

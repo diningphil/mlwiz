@@ -9,7 +9,6 @@ import shutil
 import sys
 import termios
 import threading
-import time
 import tty
 from typing import List, Tuple, Callable
 
@@ -154,7 +153,7 @@ class ProgressManager:
                 or 0 in values
             ):
                 raise Exception(invalid_id_msg)
-        except Exception as e:
+        except Exception:
             clear_screen()
             print(invalid_id_msg, end="", flush=True)
             return
@@ -164,9 +163,7 @@ class ProgressManager:
             if len(values) == 2:
                 outer, run = int(values[0]) - 1, int(values[1]) - 1
                 msg = self._final_run_messages[int(outer)][int(run)]
-                self._header_run_message = (
-                    f"Risk assessment run {run+1} for outer fold {outer+1}..."
-                )
+                self._header_run_message = f"Risk assessment run {run + 1} for outer fold {outer + 1}..."
 
             elif len(values) == 4:
                 outer, inner, config, run = (
@@ -178,15 +175,15 @@ class ProgressManager:
                 msg = self._last_run_messages[int(outer)][int(inner)][
                     int(config)
                 ][int(run)]
-                self._header_run_message = f"Model selection run {run+1} for config {config+1} for outer fold {outer+1}, inner fold {inner+1}..."
+                self._header_run_message = f"Model selection run {run + 1} for config {config + 1} for outer fold {outer + 1}, inner fold {inner + 1}..."
 
             if msg is not None:
                 self._handle_message(
                     msg, store=False
                 )  # do not store message already stored
-        except KeyError as e:
+        except KeyError:
             print("ProgressManager: waiting for the next update...")
-        except Exception as e:
+        except Exception:
             clear_screen()
             print(invalid_id_msg, end="", flush=True)
             return
@@ -365,9 +362,9 @@ class ProgressManager:
 
         if type == START_CONFIG:
             if inner_fold is None:
-                self._header_run_message = f"Risk assessment run {run_id+1} for outer fold {outer_fold+1}..."
+                self._header_run_message = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
             else:
-                self._header_run_message = f"Model selection run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}..."
+                self._header_run_message = f"Model selection run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
 
         elif type == BATCH_PROGRESS:
             if self._is_active_view(msg):
@@ -408,7 +405,7 @@ class ProgressManager:
                 run_id = msg.get(RUN_ID)
 
                 print(
-                    f"Run failed: run {run_id+1} for config {config_id+1} for outer fold {outer_fold+1}, inner fold {inner_fold+1}... \nMessage: {msg.get('message')}"
+                    f"Run failed: run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}... \nMessage: {msg.get('message')}"
                 )
 
         elif type == END_CONFIG:
@@ -554,8 +551,7 @@ class ProgressManager:
             ascii=True,
             position=position,
             unit="config",
-            bar_format=" {desc} {percentage:3.0f}%|"
-            "{bar}|{n_fmt}/{total_fmt}{postfix}",
+            bar_format=" {desc} {percentage:3.0f}%|{bar}|{n_fmt}/{total_fmt}{postfix}",
             leave=False,
         )
         pbar.set_description(f"Out_{i + 1}/Inn_{j + 1}")
@@ -577,8 +573,7 @@ class ProgressManager:
             ascii=True,
             position=position,
             unit="config",
-            bar_format=" {desc} {percentage:3.0f}%|"
-            "{bar}|{n_fmt}/{total_fmt}{postfix}",
+            bar_format=" {desc} {percentage:3.0f}%|{bar}|{n_fmt}/{total_fmt}{postfix}",
             leave=False,
         )
         pbar.set_description(f"Final run {i + 1}")
@@ -596,8 +591,8 @@ class ProgressManager:
         \033[<N>A --> move cursor up N lines
         """
         print(
-            f'\033[F\033[A{"*" * ((self.ncols - 21) // 2 + 1)} '
-            f'Experiment Progress {"*" * ((self.ncols - 21) // 2)}\n',
+            f"\033[F\033[A{'*' * ((self.ncols - 21) // 2 + 1)} "
+            f"Experiment Progress {'*' * ((self.ncols - 21) // 2)}\n",
             end="\n",
             flush=True,
         )
@@ -872,9 +867,9 @@ def filter_experiments(
 
         for k, v in parameters.items():
             cf_v = _finditem(config, k)
-            assert cf_v is not None, (
-                f"Key {k} not found in the " f"configuration, check your input"
-            )
+            assert (
+                cf_v is not None
+            ), f"Key {k} not found in the configuration, check your input"
 
             if type(v) == list:
                 assert len(v) > 0, (
@@ -1056,7 +1051,7 @@ def get_scores_from_assessment_results(
     config_dict = json.load(
         open(
             os.path.join(
-                exp_folder, f"MODEL_ASSESSMENT/assessment_results.json"
+                exp_folder, "MODEL_ASSESSMENT/assessment_results.json"
             ),
             "rb",
         )
@@ -1080,7 +1075,7 @@ def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
     float_format = f".{no_decimals}f"
 
     def format_entry(x, mode="test"):
-        return f"{round(x[f'{mode}'],no_decimals):{float_format}} ({round(x[f'{mode}_std'],no_decimals):{float_format}})"
+        return f"{round(x[f'{mode}'], no_decimals):{float_format}} ({round(x[f'{mode}_std'], no_decimals):{float_format}})"
 
     # Apply the formatting row-wise
     df["formatted"] = df.apply(format_entry, axis=1)
@@ -1126,7 +1121,6 @@ def create_latex_table_from_assessment_results(
 
     # Loop through each experiment folder
     for exp_folder, model, dataset in exp_metadata:
-
         # Load the assessment results from the JSON file
         if not use_single_outer_fold:
             assessment_results = get_scores_from_assessment_results(

@@ -1,6 +1,5 @@
 from typing import List, Optional, Tuple, Union
 
-import time
 import torch
 import torchvision
 from torch import relu

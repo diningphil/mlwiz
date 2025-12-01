@@ -1,6 +1,3 @@
-import torch
-
-
 class State:
     """
     Any object of this class contains training information that is handled and

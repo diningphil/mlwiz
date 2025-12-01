@@ -1,4 +1,3 @@
-import logging
 import os
 import warnings
 from pathlib import Path
@@ -11,7 +10,6 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
 import mlwiz
-from mlwiz.data.provider import SingleGraphDataProvider, IterableDataProvider
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
@@ -638,7 +636,6 @@ class TrainingEngine(EventDispatcher):
 
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
-
                 if training_timeout_seconds > 0:
                     # update the current time including the time of the last run
                     self.state.update(
@@ -650,7 +647,7 @@ class TrainingEngine(EventDispatcher):
                         self.state.current_elapsed_time
                         >= training_timeout_seconds
                     ):
-                        msg = f"Skipping training of new epoch {epoch+1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
+                        msg = f"Skipping training of new epoch {epoch + 1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
                         log(msg, logger)
                         self.state.update(stop_training=True)
                         break

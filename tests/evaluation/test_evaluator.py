@@ -45,7 +45,6 @@ class FakeTask(Experiment):
 
 # This test activates most of the library's main routines.
 def test_evaluator():
-
     results_folder = "tests/tmp/debug_evaluator/"
     search = Grid(
         yaml.load(
@@ -83,7 +82,7 @@ def test_evaluator():
         ms_results = json.load(
             open(
                 "tests/tmp/debug_evaluator/"
-                + f"MODEL_ASSESSMENT/OUTER_FOLD_{outer_k+1}/"
+                + f"MODEL_ASSESSMENT/OUTER_FOLD_{outer_k + 1}/"
                 + "MODEL_SELECTION/winner_config.json",
                 "r",
             )

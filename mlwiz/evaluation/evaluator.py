@@ -1,23 +1,18 @@
 import json
 import operator
-import re
 import os
 import os.path as osp
 import random
+import re
 import threading
-import time
 from copy import deepcopy
-from typing import Tuple, Callable, Union, List, Optional
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import ray
-from ray.util.queue import Queue
 import requests
 import torch
-from torch.utils.data import ConcatDataset
-from torch_geometric.data import Data
-from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
-from torch_geometric.data.storage import GlobalStorage
+from ray.util.queue import Queue
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
@@ -25,9 +20,9 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import ProgressManager
 from mlwiz.experiment.experiment import Experiment
-from mlwiz.util import s2c, dill_load, dill_save
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
+from mlwiz.util import dill_load, dill_save, s2c
 
 
 def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
@@ -563,7 +558,6 @@ class RiskAssesser:
 
             for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-
                     self.progress_queue.put(
                         dict(
                             type=END_CONFIG,
@@ -572,9 +566,9 @@ class RiskAssesser:
                             config_id=skipped_config_id,
                             elapsed=0.0,
                             message=[
-                                f"Outer fold {outer_k+1}, "
-                                f"inner fold {inner_k+1}, "
-                                f"configuration {skipped_config_id+1} skipped."
+                                f"Outer fold {outer_k + 1}, "
+                                f"inner fold {inner_k + 1}, "
+                                f"configuration {skipped_config_id + 1} skipped."
                             ],
                         )
                     )
@@ -617,9 +611,9 @@ class RiskAssesser:
                                 config_id=config_id,
                                 elapsed=elapsed,
                                 message=[
-                                    f"Outer fold {outer_k+1}, "
-                                    f"inner fold {inner_k+1}, "
-                                    f"configuration {config_id+1} completed."
+                                    f"Outer fold {outer_k + 1}, "
+                                    f"inner fold {inner_k + 1}, "
+                                    f"configuration {config_id + 1} completed."
                                 ],
                             )
                         )
@@ -672,8 +666,8 @@ class RiskAssesser:
                             run_id=run_id,
                             elapsed=elapsed,
                             message=[
-                                f"Outer fold {outer_k+1}, "
-                                f"final run {run_id+1} completed."
+                                f"Outer fold {outer_k + 1}, "
+                                f"final run {run_id + 1} completed."
                             ],
                         )
                     )
@@ -754,7 +748,7 @@ class RiskAssesser:
                 _model_configs.insert(0, element)
                 print(
                     f"Prioritizing execution of configuration"
-                    f" {_model_configs[0][0]+1} as requested..."
+                    f" {_model_configs[0][0] + 1} as requested..."
                 )
                 print(element)
             # Launch one job for each inner_fold for each configuration
@@ -779,11 +773,11 @@ class RiskAssesser:
 
                     for run_id in range(self.model_selection_training_runs):
                         fold_run_exp_folder = osp.join(
-                            fold_exp_folder, f"run_{run_id+1}"
+                            fold_exp_folder, f"run_{run_id + 1}"
                         )
                         fold_run_results_torch_path = osp.join(
                             fold_run_exp_folder,
-                            f"run_{run_id+1}_results.dill",
+                            f"run_{run_id + 1}_results.dill",
                         )
 
                         # Use pre-computed random seed for the experiment
@@ -1426,7 +1420,7 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Final runs ended for outer fold *{outer_k + 1}* \n"
                 f"Main test score: avg *{scores[2][1][MAIN_SCORE]:.4f}* "
-                f'/ std *{scores[2][1][f"{MAIN_SCORE}_{STD}"]:.4f}*'
+                f"/ std *{scores[2][1][f'{MAIN_SCORE}_{STD}']:.4f}*"
             )
             send_telegram_update(
                 self.telegram_bot_token,
@@ -1509,9 +1503,9 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Experiment has finished \n"
                 f"Test score: avg "
-                f'*{assessment_results[f"{AVG}_{TEST}_{MAIN_SCORE}"]:.4f}* '
+                f"*{assessment_results[f'{AVG}_{TEST}_{MAIN_SCORE}']:.4f}* "
                 f"/ std"
-                f' *{assessment_results[f"{STD}_{TEST}_{MAIN_SCORE}"]:.4f}*'
+                f" *{assessment_results[f'{STD}_{TEST}_{MAIN_SCORE}']:.4f}*"
             )
             send_telegram_update(
                 self.telegram_bot_token,
