@@ -141,7 +141,7 @@ class ProgressManager:
         # put last stored message in queue to display it
         try:
             values = self._to_visualize.split("_")
-            if len(values) != 2 and len(values) != 4:
+            if (len(values) != 2 and len(values) != 4) or "0" in values or 0 in values:
                 raise Exception(invalid_id_msg)
         except Exception as e:
             clear_screen()
@@ -151,12 +151,12 @@ class ProgressManager:
         try:
             msg = None
             if len(values) == 2:
-                outer, run = values
+                outer, run = int(values[0]) -1, int(values[1]) -1 
                 msg = self._final_run_messages[int(outer)][int(run)]    
                 self._header_run_message = f"Risk assessment run {run+1} for outer fold {outer+1}..."
     
             elif len(values) == 4:
-                outer, inner, config, run = values
+                outer, inner, config, run = int(values[0]) -1, int(values[1]) -1, int(values[2]) -1, int(values[3]) -1
                 msg = self._last_run_messages[int(outer)][int(inner)][int(config)][int(run)]
                 self._header_run_message = f"Model selection run {run+1} for config {config+1} for outer fold {outer+1}, inner fold {inner+1}..."
 
@@ -372,17 +372,8 @@ class ProgressManager:
                     lambda: self._print_run_progress(self._last_progress_msg)
                 )
 
-
         elif type == RUN_COMPLETED:
-            pass  # do not store this message, not useful for now
-            # self._store_last_run_message(msg)
-            # if self._is_active_view(msg):
-            #     self._last_progress_msg = ""
-            #     self._header_run_message = ""
-            #     self._clear_line()
-            #     self._cursor_up()
-            #     self._flush_buffer()
-            
+            pass  # do not store this message, not useful for now          
 
         elif type in {RUN_FAILED}:
             if store:
@@ -540,6 +531,7 @@ class ProgressManager:
             unit="config",
             bar_format=" {desc} {percentage:3.0f}%|"
             "{bar}|{n_fmt}/{total_fmt}{postfix}",
+            leave=False,
         )
         pbar.set_description(f"Out_{i + 1}/Inn_{j + 1}")
         mean = str(datetime.timedelta(seconds=0))
@@ -562,6 +554,7 @@ class ProgressManager:
             unit="config",
             bar_format=" {desc} {percentage:3.0f}%|"
             "{bar}|{n_fmt}/{total_fmt}{postfix}",
+            leave=False,
         )
         pbar.set_description(f"Final run {i + 1}")
         mean = str(datetime.timedelta(seconds=0))
@@ -579,7 +572,8 @@ class ProgressManager:
         """
         print(
             f'\033[F\033[A{"*" * ((self.ncols - 21) // 2 + 1)} '
-            f'Experiment Progress {"*" * ((self.ncols - 21) // 2)}\n'
+            f'Experiment Progress {"*" * ((self.ncols - 21) // 2)}\n',
+            end="\n", flush=True
         )
 
     def show_footer(self):
