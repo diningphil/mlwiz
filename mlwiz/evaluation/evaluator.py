@@ -156,26 +156,22 @@ def run_valid(
             )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
-            # print(
-            #     f"There has been an issue with configuration "
-            #     f"in {fold_exp_folder}!"
-            # )
-            # print(e)
             if progress_queue is not None:
                 progress_queue.put(
-                    dict(
-                        type=RUN_FAILED,
-                        OUTER_FOLD=dataset_getter.outer_k,
-                        INNER_FOLD=dataset_getter.inner_k,
-                        CONFIG_ID=config_id,
-                        RUN_ID=run_id,
-                        IS_FINAL=False,
-                        EPOCH=0,
-                        TOTAL_EPOCHS=0,
-                        message=[f"Run failed: {e}"],
-                    )
+                    {
+                        "type" : RUN_FAILED,
+                        str(OUTER_FOLD) : dataset_getter.outer_k,
+                        str(INNER_FOLD) : dataset_getter.inner_k,
+                        str(CONFIG_ID) : config_id,
+                        str(RUN_ID) : run_id,
+                        str(IS_FINAL) : False,
+                        str(EPOCH) : 0,
+                        str(TOTAL_EPOCHS) : 0,
+                        "message" : e,
+                    }
                 )
             elapsed = -1
+            exit(0)
     else:
         _, _, elapsed = dill_load(fold_results_torch_path)
     return (
@@ -274,19 +270,21 @@ def run_test(
             # print(e)
             if progress_queue is not None:
                 progress_queue.put(
-                    dict(
-                        type=RUN_FAILED,
-                        OUTER_FOLD=dataset_getter.outer_k,
-                        INNER_FOLD=None,
-                        CONFIG_ID=best_config["best_config_id"],
-                        RUN_ID=run_id,
-                        IS_FINAL=True,
-                        EPOCH=0,
-                        TOTAL_EPOCHS=0,
-                        message=[f"Run failed: {e}"],
-                    )
+                    {
+                        "type" : RUN_FAILED,
+                        str(OUTER_FOLD) : dataset_getter.outer_k,
+                        str(INNER_FOLD) : None,
+                        str(CONFIG_ID) : best_config["best_config_id"],
+                        str(RUN_ID) : run_id,
+                        str(IS_FINAL) : True,
+                        str(EPOCH) : 0,
+                        str(TOTAL_EPOCHS) : 0,
+                        "message" : e,
+                    }
                 )
             elapsed = -1
+            exit(0)
+
     else:
         res = dill_load(final_run_torch_path)
         elapsed = res[-1]
@@ -846,25 +844,43 @@ class RiskAssesser:
                                     )
                                     self.progress_queue.put(payload)
 
-                                (
-                                    training_score,
-                                    validation_score,
-                                ) = experiment.run_valid(
-                                    dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress
-                                )
-                                elapsed = extract_and_sum_elapsed_seconds(
-                                    osp.join(
-                                        fold_run_exp_folder, EXPERIMENT_LOGFILE
-                                    )
-                                )
-                                dill_save(
+                                try:
                                     (
                                         training_score,
                                         validation_score,
-                                        elapsed,
-                                    ),
-                                    fold_run_results_torch_path,
-                                )
+                                    ) = experiment.run_valid(
+                                        dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress
+                                    )
+                                    elapsed = extract_and_sum_elapsed_seconds(
+                                        osp.join(
+                                            fold_run_exp_folder, EXPERIMENT_LOGFILE
+                                        )
+                                    )
+                                    dill_save(
+                                        (
+                                            training_score,
+                                            validation_score,
+                                            elapsed,
+                                        ),
+                                        fold_run_results_torch_path,
+                                    )
+                                except Exception as e:
+                                    if self.progress_queue is not None:
+                                        self.progress_queue.put(
+                                            {
+                                                "type" : RUN_FAILED,
+                                                str(OUTER_FOLD) : dataset_getter.outer_k,
+                                                str(INNER_FOLD) : dataset_getter.inner_k,
+                                                str(CONFIG_ID) : config_id,
+                                                str(RUN_ID) : run_id,
+                                                str(IS_FINAL) : False,
+                                                str(EPOCH) : 0,
+                                                str(TOTAL_EPOCHS) : 0,
+                                                "message" : e,
+                                            }
+                                        )
+                                    elapsed = -1
+                                    exit(0)
 
                     if debug:
                         self.process_model_selection_runs(fold_exp_folder, k)
@@ -996,17 +1012,35 @@ class RiskAssesser:
                             }
                         )
                         self.progress_queue.put(payload)
+                    try:
+                        res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress)
+                        elapsed = extract_and_sum_elapsed_seconds(
+                            osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+                        )
 
-                    res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger, progress_callback=_report_progress)
-                    elapsed = extract_and_sum_elapsed_seconds(
-                        osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
-                    )
+                        training_res, val_res, test_res = res
+                        dill_save(
+                            (training_res, val_res, test_res, elapsed),
+                            final_run_torch_path,
+                        )
+                    except Exception as e:
+                        if self.progress_queue is not None:
+                            self.progress_queue.put(
+                                {
+                                    "type" : RUN_FAILED,
+                                    str(OUTER_FOLD) : dataset_getter.outer_k,
+                                    str(INNER_FOLD) : None,
+                                    str(CONFIG_ID) : best_config["best_config_id"],
+                                    str(RUN_ID) : i,
+                                    str(IS_FINAL) : True,
+                                    str(EPOCH) : 0,
+                                    str(TOTAL_EPOCHS) : 0,
+                                    "message" : e,
+                                }
+                            )
+                        elapsed = -1
+                        exit(0)
 
-                    training_res, val_res, test_res = res
-                    dill_save(
-                        (training_res, val_res, test_res, elapsed),
-                        final_run_torch_path,
-                    )
         if debug:
             self.compute_final_runs_score_per_fold(outer_k)
 

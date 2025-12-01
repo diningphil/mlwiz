@@ -149,17 +149,17 @@ class ProgressManager:
             if len(values) == 2:
                 outer, run = values
                 msg = self._final_run_messages[int(outer)][int(run)]    
-                self._header_run_message = f"Risk assessment run {run} started for outer fold {outer}..."
+                self._header_run_message = f"Risk assessment run {run} for outer fold {outer}..."
     
             elif len(values) == 4:
                 outer, inner, config, run = values
                 msg = self._last_run_messages[int(outer)][int(inner)][int(config)][int(run)]
-                self._header_run_message = f"Model selection run {run} started for config {config} for outer fold {outer}, inner fold {inner}..."
+                self._header_run_message = f"Model selection run {run} for config {config} for outer fold {outer}, inner fold {inner}..."
 
             if msg is not None:
-                self.progress_queue.put(msg)
+                self._handle_message(msg, store=False)  # do not store message already stored
         except Exception:
-            print('ProgressManager: cannot visualize the requested configuration yet...')
+            print('ProgressManager: waiting for the next update...')
 
         self._render_user_input()
 
@@ -294,6 +294,143 @@ class ProgressManager:
         return False
 
 
+    def _render_progress(self, printer: Callable[[], None]):
+        """
+        Clear previous progress lines and invoke the provided printer.
+        """
+        if self._header_run_message != "":
+            self._clear_line()
+            self._cursor_up()
+        if self._last_progress_msg != "":
+            self._clear_line()
+            self._cursor_up()
+
+        self._clear_line()
+        self._cursor_up()
+        printer()
+
+    def _print_run_progress(self, msg: str):
+        """
+        Print a generic progress message respecting header ordering.
+        """
+        text = msg or ""
+        parts = []
+        if self._header_run_message:
+            parts.append(self._header_run_message)
+        if text:
+            parts.append(text)
+        self._append_to_buffer("\n".join(parts))
+        self._flush_buffer()
+
+
+    def _handle_message(self, msg: dict, store: bool = True):
+        """
+        Handle a single progress message (shared between queue consumer
+        and view replays).
+        """
+        type = msg.get("type")
+
+        outer_fold = msg.get(OUTER_FOLD)
+        inner_fold = msg.get(INNER_FOLD)
+        config_id = msg.get(CONFIG_ID)
+        run_id = msg.get(RUN_ID)
+
+        if type == START_CONFIG:
+            if inner_fold is None:
+                self._header_run_message = f"Risk assessment run {run_id} for outer fold {outer_fold}..."
+            else:
+                self._header_run_message = f"Model selection run {run_id} for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}..."
+
+        elif type == BATCH_PROGRESS:
+            if self._is_active_view(msg):
+                batch_id = msg.get(BATCH)
+                total_batches = msg.get(TOTAL_BATCHES)
+                epoch = msg.get(EPOCH)
+                desc = msg.get("message")
+                
+                self._render_progress(
+                    lambda: self._print_train_progress_bar(
+                        batch_id, total_batches, epoch, desc
+                    )
+                )
+                
+        elif type == RUN_PROGRESS:
+            if store:
+                self._store_last_run_message(msg)
+
+            if self._is_active_view(msg):
+                self._last_progress_msg = msg.get("message")
+                self._render_progress(
+                    lambda: self._print_run_progress(self._last_progress_msg)
+                )
+
+
+        elif type == RUN_COMPLETED:
+            pass  # do not store this message, not useful for now
+            # self._store_last_run_message(msg)
+            # if self._is_active_view(msg):
+            #     self._last_progress_msg = ""
+            #     self._header_run_message = ""
+            #     self._clear_line()
+            #     self._cursor_up()
+            #     self._flush_buffer()
+            
+
+        elif type in {RUN_FAILED}:
+            if store:
+                self._store_last_run_message(msg)
+
+            if self._is_active_view(msg):
+                clear_screen()
+
+                outer_fold = msg.get(OUTER_FOLD)
+                inner_fold = msg.get(INNER_FOLD)
+                config_id = msg.get(CONFIG_ID)
+                run_id = msg.get(RUN_ID)
+
+                print(f"Run failed: run {run_id} for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}... \nMessage: {msg.get('message')}")
+
+        elif type == END_CONFIG:
+            position = outer_fold * self.inner_folds + inner_fold
+            elapsed = msg.get(ELAPSED)
+            configs_times = self.times[position]
+            # Compute delta t for a specific config
+            configs_times[config_id] = (
+                elapsed,
+                True,
+            )  # (time.time() - configs_times[config_id][0], True)
+
+            # Update progress bar only when global view is visible to avoid redraws.
+            if self._to_visualize in {"g", "global", None}:
+                self.pbars[position].update()
+                self.refresh()  # does not do anything in debug mode
+            else:
+                # manually modify the state only, otherwise tqdm will redraw
+                pbar = self.pbars[position]
+                pbar.n += 1
+                pbar.last_print_n = pbar.n
+
+        elif type == END_FINAL_RUN:
+            position = self.outer_folds * self.inner_folds + outer_fold
+            elapsed = msg.get(ELAPSED)
+            configs_times = self.times[position]
+            # Compute delta t for a specific config
+            configs_times[run_id] = (
+                elapsed,
+                True,
+            )  # (time.time() - configs_times[run_id][0], True)
+            # Update progress bar only when global view is visible to avoid redraws.
+            if self._to_visualize in {"g", "global", None}:
+                self.pbars[position].update()
+                self.refresh() # does not do anything in debug mode
+            else:
+                # manually modify the state only, otherwise tqdm will redraw
+                pbar = self.pbars[position]
+                pbar.n += 1
+                pbar.last_print_n = pbar.n
+        else:
+            print(f"Cannot parse type of message {type}, fix this.")
+
     def _print_train_progress_bar(self, batch_id: int, total_batches: int, epoch: int, desc: str):
         """
         Simple progress bar printer for debug mode, avoids tqdm dependency.
@@ -331,92 +468,7 @@ class ProgressManager:
                 if msg is None:
                     break
 
-                type = msg.get("type")
-
-                outer_fold = msg.get(OUTER_FOLD)
-                inner_fold = msg.get(INNER_FOLD)
-                config_id = msg.get(CONFIG_ID)
-                run_id = msg.get(RUN_ID)
-                is_final = msg.get(IS_FINAL)
-
-                if type == START_CONFIG:
-                    if inner_fold is None:
-                        self._header_run_message = f"Risk assessment run {run_id} started for outer fold {outer_fold}..."
-                    else:
-                        self._header_run_message = f"Model selection run {run_id} started for config {config_id} for outer fold {outer_fold}, inner fold {inner_fold}..."
-
-                elif type == BATCH_PROGRESS:
-                    if self._is_active_view(msg):
-                        batch_id = msg.get(BATCH)
-                        total_batches = msg.get(TOTAL_BATCHES)
-                        epoch = msg.get(EPOCH)
-                        desc = msg.get("message")
-                        
-                        # if there is only one line (no progress msg), do not move up
-                        # ow you mess the cursor's position up
-                        if self._header_run_message != "":
-                            self._clear_line()
-                            self._cursor_up()
-                        if self._last_progress_msg != "":
-                            self._clear_line()
-                            self._cursor_up()
-
-                        self._clear_line()
-                        self._cursor_up()
-                        self._print_train_progress_bar(batch_id, total_batches, epoch, desc)                       
-                        
-                elif type == RUN_PROGRESS:
-                    self._store_last_run_message(msg)
-                    
-                    if self._is_active_view(msg):
-                        self._last_progress_msg = msg.get("message")
-
-                elif type == RUN_COMPLETED:
-                    pass
-                    # self._store_last_run_message(msg)
-                    # if self._is_active_view(msg):
-                    #     self._last_progress_msg = ""
-                    #     self._header_run_message = ""
-                    #     self._clear_line()
-                    #     self._cursor_up()
-                    #     self._flush_buffer()
-                    
-
-                elif type in {RUN_FAILED}:
-                    self._store_last_run_message(msg)
-
-                    if self._is_active_view(msg):
-                        clear_screen()
-                        print(f"Run failed: {msg.get('message')}")
-
-                elif type == END_CONFIG:
-                    position = outer_fold * self.inner_folds + inner_fold
-                    elapsed = msg.get(ELAPSED)
-                    configs_times = self.times[position]
-                    # Compute delta t for a specific config
-                    configs_times[config_id] = (
-                        elapsed,
-                        True,
-                    )  # (time.time() - configs_times[config_id][0], True)
-                    # Update progress bar
-                    self.pbars[position].update()
-                    self.refresh()  # does not do anything in debug mode
-                elif type == END_FINAL_RUN:
-                    position = self.outer_folds * self.inner_folds + outer_fold
-                    elapsed = msg.get(ELAPSED)
-                    configs_times = self.times[position]
-                    # Compute delta t for a specific config
-                    configs_times[run_id] = (
-                        elapsed,
-                        True,
-                    )  # (time.time() - configs_times[run_id][0], True)
-                    # Update progress bar
-                    self.pbars[position].update()
-                    self.refresh() # does not do anything in debug mode
-                else:
-                    raise Exception(
-                        f"Cannot parse type of message {type}, fix this."
-                    )
+                self._handle_message(msg)
 
         except Exception as e:
             print(e)

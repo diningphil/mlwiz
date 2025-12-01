@@ -1,12 +1,16 @@
 # Changelog
 
-## [1.3.0]
+## [1.3.0] Improved CLI and Statistical Significance Tool 
 
 ## Added
 
+- In non-debug mode, you can now switch between the "global" view and a specific configuration
 - Computation of 95% confidence interval in addition to the standard deviation
 - Utility computation of statistical significance between models using `mlwiz.evaluation.util.compare_statistical_significance`. See the tutorial for more info.
 
+## Changed
+
+- Handling errors more gracefully in the terminal, can check individual errors in non-debug mode already from terminal
 
 ## [1.2.7] Out-of-time (OOT) experiments
 
