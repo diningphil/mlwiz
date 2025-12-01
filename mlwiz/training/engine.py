@@ -941,7 +941,9 @@ class DataStreamTrainingEngine(TrainingEngine):
     """
 
     # loop over all data (i.e. computes an epoch)
-    def _loop(self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]):
+    def _loop(
+        self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]
+    ):
         """
         Compared to superclass version, handles the issue of a stream of data
         that could end at any moment. This is done using an additional
@@ -975,7 +977,7 @@ class DataStreamTrainingEngine(TrainingEngine):
                     EPOCH: self.state.epoch + 1,
                     TOTAL_EPOCHS: self.state.total_epochs,
                     BATCH: id_batch + 1,
-                    TOTAL_BATCHES: id_batch + 1, # patch
+                    TOTAL_BATCHES: id_batch + 1,  # patch
                     "message": f"{self.state.set.capitalize()} Progress",
                 },
             )
