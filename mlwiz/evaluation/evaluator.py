@@ -151,6 +151,7 @@ def run_valid(
             )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
+            
             if progress_queue is not None:
                 progress_queue.put(
                     {
@@ -261,8 +262,7 @@ def run_test(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
         except Exception as e:
-            # print(f"There has been an issue in {final_run_exp_path}!")
-            # print(e)
+            
             if progress_queue is not None:
                 progress_queue.put(
                     {
@@ -869,6 +869,7 @@ class RiskAssesser:
                                         fold_run_results_torch_path,
                                     )
                                 except Exception as e:
+                                    
                                     if self.progress_queue is not None:
                                         self.progress_queue.put(
                                             {
@@ -1038,6 +1039,7 @@ class RiskAssesser:
                             final_run_torch_path,
                         )
                     except Exception as e:
+                        
                         if self.progress_queue is not None:
                             self.progress_queue.put(
                                 {

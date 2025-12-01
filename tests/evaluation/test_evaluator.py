@@ -1,6 +1,7 @@
 import json
 from shutil import rmtree
 
+import ray
 import numpy as np
 import pytest
 import yaml
@@ -12,7 +13,7 @@ from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE
 
 
 class FakeTask(Experiment):
-    def run_valid(self, dataset_getter, training_timeout_seconds, logger):
+    def run_valid(self, dataset_getter, training_timeout_seconds, logger, progress_callback):
         outer_k = dataset_getter.outer_k
         inner_k = dataset_getter.inner_k
 
@@ -26,7 +27,7 @@ class FakeTask(Experiment):
 
         return train_res, val_res
 
-    def run_test(self, dataset_getter, training_timeout_seconds, logger):
+    def run_test(self, dataset_getter, training_timeout_seconds, logger, progress_callback):
         outer_k = dataset_getter.outer_k
 
         train_loss = {MAIN_LOSS: outer_k}
@@ -54,7 +55,8 @@ def test_evaluator():
     )
     search.telegram_config = None
     splits_filepath = search.configs_dict.get(DATA_SPLITS_FILE)
-
+    
+    ray.init(ignore_reinit_error=True)
     evaluator = RiskAssesser(
         10,
         10,
@@ -136,6 +138,7 @@ def test_evaluator():
     )
     assert ass_results["ci_test_main_score"] == pytest.approx(half_width_test)
 
+    ray.shutdown()
 
 @pytest.mark.dependency(depends=["test_evaluator"])
 def test_cleanup():
