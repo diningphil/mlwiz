@@ -106,7 +106,7 @@ class ProgressManager:
             self.times = [{} for _ in range(len(self.pbars))]
             self._start_input_listener()
 
-    def _change_view_mode(self, identifier: str = None):
+    def _change_view_mode(self, identifier: str = None, force_refresh: bool = False):
         """
         Changes the view mode of the progress manager.
         If config_id is None, the global view is activated.
@@ -123,7 +123,7 @@ class ProgressManager:
         if identifier == "" or identifier in {"g", "global"}:
             identifier = "g"
 
-        if self._to_visualize != identifier:
+        if force_refresh or self._to_visualize != identifier:
             self._to_visualize = identifier
             clear_screen()
             self._rendered_lines = 0
@@ -238,7 +238,11 @@ class ProgressManager:
                 self._input_buffer = ""
                 self._input_active = False
             self._render_user_input()
-            self._change_view_mode(command if command else None)
+            cmd = (command or "").strip().lower()
+            if cmd in {"r", "refresh"}:
+                self._refresh_view()
+            else:
+                self._change_view_mode(command if command else None)
             return
 
         if char in {"\x7f", "\b"}:
@@ -258,6 +262,15 @@ class ProgressManager:
             self._input_buffer = ""
             self._input_active = False
         self._render_user_input()
+
+    def _refresh_view(self):
+        """
+        Force a redraw of the current view (global or focused).
+        """
+        if self.debug:
+            return
+        identifier = self._to_visualize or "g"
+        self._change_view_mode(identifier, force_refresh=True)
 
     def _render_user_input(self):
         if self.debug or not sys.stdout.isatty():

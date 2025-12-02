@@ -349,6 +349,7 @@ The progress screen is interactive. Press ``:`` to open the small prompt in the 
 hit ``Enter`` to switch what is rendered without stopping the run. Useful commands:
 
 - ``g`` or ``global`` (or simply ``Enter`` on an empty prompt): go back to the default overview with all progress bars.
+- ``r`` or ``refresh``: redraw the currently selected view (handy if the terminal layout gets messy).
 - ``<outer>_<run>`` (e.g., ``1_2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
 - ``<outer>_<inner>_<config>_<run>`` (e.g., ``2_1_3_1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
 
