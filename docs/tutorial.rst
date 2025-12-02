@@ -328,6 +328,20 @@ And we are up and running!
 .. image:: _static/exp_gui.png
    :width: 600
 
+Some things to notice: because we have chosen a 3-fold CV for risk assessment with a 2-fold CV for model selection **for
+each** external fold, you can notice in the picture there are ``3*2`` rows with ``Out_*/Inn_*`` written. For each of these,
+we have to perform a model selection with ``4`` possible hyper-parameters' configurations (progress shown on the right handside),
+and each model selection experiment is run `model_selection_training_runs` times to mitigate the effect of bad initializations.
+In addition, there are also some stats about the time required to complete the experiments.
+
+After the 3 model selection are complete (i.e., one "best" model for each outer/external fold), it is time to re-train
+the chosen models on the 3 different train/test splits. Therefore, you can notice ``3`` rows with ``Final run *`` written.
+Since we have specified ``risk_assessment_training_runs: 3`` in our exp. config file, we will mitigate unlucky random initializations
+of the chosen models by averaging test results (of a single outer fold) over 3 training runs. The final generalization
+performances of the model (a less ambiguous definition would be: the **class of models** you developed) is obtained,
+for this specific case, as the average of the 10 test scores across the external folds. Again, if this does not make sense
+to you, please consider reading `Samy Bengio's lecture (Part 3) <https://bengio.abracadoudou.com/lectures/theory.pdf>`_.
+
 Navigating the live progress UI
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -344,21 +358,6 @@ you can try again.
 To stop the computation, use ``CTRL-C`` to send a ``SIGINT`` signal, and consider using the command ``ray stop`` to stop
 all Ray processes. **Warning:** ``ray stop`` stops **all** ray processes you have launched, including those of other
 experiments in progress, if any.
-
-Some things to notice: because we have chosen a 3-fold CV for risk assessment with a 2-fold CV for model selection **for
-each** external fold, you can notice in the picture there are ``3*2`` rows with ``Out_*/Inn_*`` written. For each of these,
-we have to perform a model selection with ``4`` possible hyper-parameters' configurations (progress shown on the right handside),
-and each model selection experiment is run `model_selection_training_runs` times to mitigate the effect of bad initializations.
-In addition, there are also some stats about the time required to complete the experiments.
-
-After the 3 model selection are complete (i.e., one "best" model for each outer/external fold), it is time to re-train
-the chosen models on the 3 different train/test splits. Therefore, you can notice ``3`` rows with ``Final run *`` written.
-Since we have specified ``risk_assessment_training_runs: 3`` in our exp. config file, we will mitigate unlucky random initializations
-of the chosen models by averaging test results (of a single outer fold) over 3 training runs. The final generalization
-performances of the model (a less ambiguous definition would be: the **class of models** you developed) is obtained,
-for this specific case, as the average of the 10 test scores across the external folds. Again, if this does not make sense
-to you, please consider reading `Samy Bengio's lecture (Part 3) <https://bengio.abracadoudou.com/lectures/theory.pdf>`_.
-
 
 Useful Features to Know About
 ------------------------------
