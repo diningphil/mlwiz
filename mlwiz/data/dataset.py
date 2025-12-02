@@ -8,7 +8,7 @@ import torchvision
 from torch_geometric.datasets import TUDataset, Planetoid
 
 from mlwiz.data.util import get_or_create_dir
-from mlwiz.util import dill_save, dill_load, s2c
+from mlwiz.util import dill_save, dill_load
 
 
 class DatasetInterface:
@@ -62,7 +62,7 @@ class DatasetInterface:
             self.raw_dataset_folder
         ):
             raise FileNotFoundError(
-                f"Folder {self._raw_dataset_folder} " f"not found"
+                f"Folder {self._raw_dataset_folder} not found"
             )
 
         # if any of the processed files is missing, process the dataset
@@ -427,7 +427,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             self.raw_dataset_folder
         ):
             raise FileNotFoundError(
-                f"Folder {self._raw_dataset_folder} " f"not found"
+                f"Folder {self._raw_dataset_folder} not found"
             )
 
         self._url_indices = self.url_indices
@@ -486,9 +486,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
             portions of the large dataset
         """
         raise NotImplementedError(
-            "You should subclass "
-            "IterableDatasetInterface and implement "
-            "this method"
+            "You should subclass IterableDatasetInterface and implement this method"
         )
 
     def shuffle_urls_elements(self, value: bool):
@@ -616,8 +614,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
                 each sample at dataset creation time
         """
         raise NotImplementedError(
-            "You should subclass IterableDatasetInterface "
-            "and implement this method"
+            "You should subclass IterableDatasetInterface and implement this method"
         )
 
     @property
@@ -627,8 +624,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         for instance node and edge features in graphs.
         """
         raise NotImplementedError(
-            "You should subclass IterableDatasetInterface "
-            "and implement this method"
+            "You should subclass IterableDatasetInterface and implement this method"
         )
 
     @property
@@ -638,8 +634,7 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         more.
         """
         raise NotImplementedError(
-            "You should subclass IterableDatasetInterface "
-            "and implement this method"
+            "You should subclass IterableDatasetInterface and implement this method"
         )
 
     def __len__(self):

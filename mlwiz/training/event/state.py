@@ -1,6 +1,3 @@
-import torch
-
-
 class State:
     """
     Any object of this class contains training information that is handled and
@@ -16,6 +13,7 @@ class State:
     def __init__(self, model, optimizer, device):
         self.initial_epoch = 0
         self.epoch = self.initial_epoch
+        self.total_epochs = -1
         self.model = model
         self.device = device
         self.optimizer = optimizer

@@ -14,7 +14,6 @@ from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
-from mlwiz.util import s2c
 
 import functools
 
@@ -397,8 +396,7 @@ class DataProvider:
         """
         if self.dim_input_features is None:
             raise Exception(
-                "You should first initialize the dataset "
-                "by creating a data loader!"
+                "You should first initialize the dataset by creating a data loader!"
             )
         return self.dim_input_features
 
@@ -412,8 +410,7 @@ class DataProvider:
         """
         if self.dim_target is None:
             raise Exception(
-                "You should first initialize the dataset "
-                "by creating a data loader!"
+                "You should first initialize the dataset by creating a data loader!"
             )
         return self.dim_target
 
@@ -433,9 +430,7 @@ def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
     seed_worker(worker_id, exp_seed)
 
     # Get the dataset and overall length
-    dataset = (
-        worker_info.dataset
-    )  # the dataset copy in this worker process
+    dataset = worker_info.dataset  # the dataset copy in this worker process
     dataset_length = len(
         dataset
     )  # dynamic, already refers to the subset of urls!
@@ -449,6 +444,7 @@ def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
 
     # configure the dataset to only process the split workload
     dataset.splice(start, end)
+
 
 class IterableDataProvider(DataProvider):
     r"""
@@ -498,7 +494,9 @@ class IterableDataProvider(DataProvider):
             dataset,
             sampler=None,
             collate_fn=Collater(None, None),
-            worker_init_fn=functools.partial(_iterable_worker_init_fn, exp_seed=self.exp_seed),
+            worker_init_fn=functools.partial(
+                _iterable_worker_init_fn, exp_seed=self.exp_seed
+            ),
             batch_size=batch_size,
             **kwargs,
         )

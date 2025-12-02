@@ -1,21 +1,18 @@
 import json
 import operator
-import re
 import os
 import os.path as osp
 import random
-import time
+import re
+import threading
 from copy import deepcopy
-from typing import Tuple, Callable, Union, List, Optional
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 import ray
 import requests
 import torch
-from torch.utils.data import ConcatDataset
-from torch_geometric.data import Data
-from torch_geometric.data.data import DataEdgeAttr, DataTensorAttr
-from torch_geometric.data.storage import GlobalStorage
+from ray.util.queue import Queue
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
@@ -23,9 +20,9 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import ProgressManager
 from mlwiz.experiment.experiment import Experiment
-from mlwiz.util import s2c, dill_load, dill_save
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
+from mlwiz.util import dill_load, dill_save, s2c
 
 
 def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
@@ -64,6 +61,17 @@ def extract_and_sum_elapsed_seconds(file_path):
     return total_seconds
 
 
+def _mean_std_ci(values: np.ndarray) -> Tuple[float, float, float]:
+    """
+    Computes mean, std, and 95% confidence interval for the provided values.
+    """
+    mean = float(values.mean())
+    std = float(values.std())
+    se = std / np.sqrt(len(values))
+    half_width = 1.96 * se
+    return mean, std, half_width
+
+
 @ray.remote(
     num_cpus=1,
     num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
@@ -82,6 +90,7 @@ def run_valid(
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
+    progress_queue=None,
 ) -> Tuple[int, int, int, int, float]:
     r"""
     Ray job that performs a model selection run and returns bookkeeping
@@ -112,18 +121,53 @@ def run_valid(
     if not osp.exists(fold_results_torch_path):
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
-            train_res, val_res = experiment.run_valid(dataset_getter, training_timeout_seconds, logger)
+
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                if progress_queue is None:
+                    return
+
+                payload = dict(payload)  # shallow copy
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: dataset_getter.inner_k,
+                        CONFIG_ID: config_id,
+                        RUN_ID: run_id,
+                        IS_FINAL: False,
+                    }
+                )
+                progress_queue.put(payload)
+
+            train_res, val_res = experiment.run_valid(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=_report_progress,
+            )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
             )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except Exception as e:
-            print(
-                f"There has been an issue with configuration "
-                f"in {fold_exp_folder}!"
-            )
-            print(e)
+
+            if progress_queue is not None:
+                progress_queue.put(
+                    {
+                        "type": RUN_FAILED,
+                        str(OUTER_FOLD): dataset_getter.outer_k,
+                        str(INNER_FOLD): dataset_getter.inner_k,
+                        str(CONFIG_ID): config_id,
+                        str(RUN_ID): run_id,
+                        str(IS_FINAL): False,
+                        str(EPOCH): 0,
+                        str(TOTAL_EPOCHS): 0,
+                        "message": e,
+                    }
+                )
             elapsed = -1
+            exit(0)
     else:
         _, _, elapsed = dill_load(fold_results_torch_path)
     return (
@@ -153,6 +197,7 @@ def run_test(
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
+    progress_queue: Queue = None,
 ) -> Tuple[int, int, float]:
     r"""
     Ray job that performs a risk assessment run and returns bookkeeping
@@ -184,7 +229,31 @@ def run_test(
             experiment = experiment_class(
                 best_config[CONFIG], final_run_exp_path, exp_seed
             )
-            res = experiment.run_test(dataset_getter, training_timeout_seconds, logger)
+
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                if progress_queue is None:
+                    return
+
+                payload = dict(payload)  # shallow copy
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: None,
+                        CONFIG_ID: best_config["best_config_id"],
+                        RUN_ID: run_id,
+                        IS_FINAL: True,
+                    }
+                )
+                progress_queue.put(payload)
+
+            res = experiment.run_test(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=_report_progress,
+            )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
             )
@@ -193,9 +262,24 @@ def run_test(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
         except Exception as e:
-            print(f"There has been an issue in {final_run_exp_path}!")
-            print(e)
-            elapse = -1
+
+            if progress_queue is not None:
+                progress_queue.put(
+                    {
+                        "type": RUN_FAILED,
+                        str(OUTER_FOLD): dataset_getter.outer_k,
+                        str(INNER_FOLD): None,
+                        str(CONFIG_ID): best_config["best_config_id"],
+                        str(RUN_ID): run_id,
+                        str(IS_FINAL): True,
+                        str(EPOCH): 0,
+                        str(TOTAL_EPOCHS): 0,
+                        "message": e,
+                    }
+                )
+            elapsed = -1
+            exit(0)
+
     else:
         res = dill_load(final_run_torch_path)
         elapsed = res[-1]
@@ -236,7 +320,7 @@ class RiskAssesser:
             experiment. Can be < ``1``.
         base_seed (int): Seed used to generate experiments seeds.
             Used to replicate results. Default is ``42``
-        training_timeout_seconds (int): optional timeout limit per 
+        training_timeout_seconds (int): optional timeout limit per
             experiment in seconds
     """
 
@@ -302,6 +386,7 @@ class RiskAssesser:
         # Used to keep track of the scheduled jobs
         self.outer_folds_job_list = []
         self.final_runs_job_list = []
+        self.progress_queue = None
 
         # telegram config
         tc = model_configs.telegram_config
@@ -346,74 +431,91 @@ class RiskAssesser:
         else:
             skip_config_ids = [s - 1 for s in skip_config_ids]
 
+        self.progress_queue = None
+        try:
+            self.progress_queue = Queue()
+        except Exception:
+            # If the queue cannot be created, fall back to global-only view
+            print("Cannot create Ray Queue, progress UI disabled.")
+
         # Show progress
-        with ProgressManager(
+        progress_manager = ProgressManager(
             self.outer_folds,
             self.inner_folds,
             len(self.model_configs),
             self.risk_assessment_training_runs,
-            show=not debug,
-        ) as progress_manager:
-            self.progress_manager = progress_manager
+            debug=debug,
+            progress_queue=self.progress_queue,
+        )
 
-            # NOTE: Pre-computing seeds in advance simplifies the code
-            # Pre-compute in advance the seeds for model selection to aid
-            # replicability
-            self.model_selection_seeds = [
+        # Start listening to the progress queue
+        progress_thread = threading.Thread(
+            target=progress_manager.update_state, daemon=True
+        )
+        progress_thread.start()
+
+        # NOTE: Pre-computing seeds in advance simplifies the code
+        # Pre-compute in advance the seeds for model selection to aid
+        # replicability
+        self.model_selection_seeds = [
+            [
                 [
                     [
-                        [
-                            random.randrange(2**32 - 1)
-                            for _ in range(self.model_selection_training_runs)
-                        ]
-                        for _ in range(self.inner_folds)
+                        random.randrange(2**32 - 1)
+                        for _ in range(self.model_selection_training_runs)
                     ]
-                    for _ in range(len(self.model_configs))
+                    for _ in range(self.inner_folds)
                 ]
-                for _ in range(self.outer_folds)
+                for _ in range(len(self.model_configs))
             ]
-            # Pre-compute in advance the seeds for the final runs to aid
-            # replicability
-            self.final_runs_seeds = [
-                [
-                    random.randrange(2**32 - 1)
-                    for _ in range(self.risk_assessment_training_runs)
-                ]
-                for _ in range(self.outer_folds)
+            for _ in range(self.outer_folds)
+        ]
+        # Pre-compute in advance the seeds for the final runs to aid
+        # replicability
+        self.final_runs_seeds = [
+            [
+                random.randrange(2**32 - 1)
+                for _ in range(self.risk_assessment_training_runs)
             ]
+            for _ in range(self.outer_folds)
+        ]
 
-            for outer_k in range(self.outer_folds):
-                # Create a separate folder for each experiment
-                kfold_folder = osp.join(
-                    self._ASSESSMENT_FOLDER,
-                    self._OUTER_FOLD_BASE + str(outer_k + 1),
-                )
-                if not osp.exists(kfold_folder):
-                    os.makedirs(kfold_folder)
+        for outer_k in range(self.outer_folds):
+            # Create a separate folder for each experiment
+            kfold_folder = osp.join(
+                self._ASSESSMENT_FOLDER,
+                self._OUTER_FOLD_BASE + str(outer_k + 1),
+            )
+            if not osp.exists(kfold_folder):
+                os.makedirs(kfold_folder)
 
-                # Perform model selection. This determines a best config
-                # FOR EACH of the k outer folds
-                self.model_selection(
-                    kfold_folder,
-                    outer_k,
-                    debug,
-                    execute_config_id,
-                    skip_config_ids,
-                )
+            # Perform model selection. This determines a best config
+            # FOR EACH of the k outer folds
+            self.model_selection(
+                kfold_folder,
+                outer_k,
+                debug,
+                execute_config_id,
+                skip_config_ids,
+            )
 
-                # Must stay separate from Ray distributed computing logic
-                if debug:
-                    self.run_final_model(outer_k, True)
+            # Must stay separate from Ray distributed computing logic
+            if debug:
+                self.run_final_model(outer_k, True)
 
-            # We launched all model selection jobs, now it is time to wait
-            if not debug:
-                # This will also launch the final runs jobs once the model
-                # selection for a specific outer folds is completed.
-                # It returns when everything has completed
-                self.wait_configs(skip_config_ids)
+        # We launched all model selection jobs, now it is time to wait
+        if not debug:
+            # This will also launch the final runs jobs once the model
+            # selection for a specific outer folds is completed.
+            # It returns when everything has completed
+            self.wait_configs(skip_config_ids)
 
-            # Produces the self._ASSESSMENT_FILENAME file
-            self.compute_risk_assessment_result()
+        # Produces the self._ASSESSMENT_FILENAME file
+        self.compute_risk_assessment_result()
+
+        if self.progress_queue is not None:
+            self.progress_queue.put(None)
+        progress_thread.join()
 
     def wait_configs(self, skip_config_ids: List[int]):
         r"""
@@ -456,14 +558,18 @@ class RiskAssesser:
 
             for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-
-                    self.progress_manager.update_state(
+                    self.progress_queue.put(
                         dict(
                             type=END_CONFIG,
                             outer_fold=outer_k,
                             inner_fold=inner_k,
                             config_id=skipped_config_id,
                             elapsed=0.0,
+                            message=[
+                                f"Outer fold {outer_k + 1}, "
+                                f"inner fold {inner_k + 1}, "
+                                f"configuration {skipped_config_id + 1} skipped."
+                            ],
                         )
                     )
 
@@ -497,13 +603,18 @@ class RiskAssesser:
                         inner_runs_completed[outer_k][config_id][inner_k]
                         == self.model_selection_training_runs
                     ):
-                        self.progress_manager.update_state(
+                        self.progress_queue.put(
                             dict(
                                 type=END_CONFIG,
                                 outer_fold=outer_k,
                                 inner_fold=inner_k,
                                 config_id=config_id,
                                 elapsed=elapsed,
+                                message=[
+                                    f"Outer fold {outer_k + 1}, "
+                                    f"inner fold {inner_k + 1}, "
+                                    f"configuration {config_id + 1} completed."
+                                ],
                             )
                         )
                         self.process_model_selection_runs(
@@ -548,12 +659,16 @@ class RiskAssesser:
                     future in self.final_runs_job_list
                 ):  # Risk ass. final runs
                     outer_k, run_id, elapsed = ray.get(future)
-                    self.progress_manager.update_state(
+                    self.progress_queue.put(
                         dict(
                             type=END_FINAL_RUN,
                             outer_fold=outer_k,
                             run_id=run_id,
                             elapsed=elapsed,
+                            message=[
+                                f"Outer fold {outer_k + 1}, "
+                                f"final run {run_id + 1} completed."
+                            ],
                         )
                     )
 
@@ -633,7 +748,7 @@ class RiskAssesser:
                 _model_configs.insert(0, element)
                 print(
                     f"Prioritizing execution of configuration"
-                    f" {_model_configs[0][0]+1} as requested..."
+                    f" {_model_configs[0][0] + 1} as requested..."
                 )
                 print(element)
             # Launch one job for each inner_fold for each configuration
@@ -658,11 +773,11 @@ class RiskAssesser:
 
                     for run_id in range(self.model_selection_training_runs):
                         fold_run_exp_folder = osp.join(
-                            fold_exp_folder, f"run_{run_id+1}"
+                            fold_exp_folder, f"run_{run_id + 1}"
                         )
                         fold_run_results_torch_path = osp.join(
                             fold_run_exp_folder,
-                            f"run_{run_id+1}_results.dill",
+                            f"run_{run_id + 1}_results.dill",
                         )
 
                         # Use pre-computed random seed for the experiment
@@ -702,6 +817,7 @@ class RiskAssesser:
                                 exp_seed,
                                 self.training_timeout_seconds,
                                 logger,
+                                self.progress_queue,
                             )
                             self.outer_folds_job_list.append(future)
                         else:  # debug mode
@@ -709,25 +825,71 @@ class RiskAssesser:
                                 experiment = self.experiment_class(
                                     config, fold_run_exp_folder, exp_seed
                                 )
-                                (
-                                    training_score,
-                                    validation_score,
-                                ) = experiment.run_valid(
-                                    dataset_getter, self.training_timeout_seconds, logger
-                                )
-                                elapsed = extract_and_sum_elapsed_seconds(
-                                    osp.join(
-                                        fold_run_exp_folder, EXPERIMENT_LOGFILE
+
+                                # This is used to comunicate with the progress manager
+                                # to display the UI
+                                def _report_progress(payload: dict):
+                                    if self.progress_queue is None:
+                                        return
+
+                                    payload = dict(payload)  # shallow copy
+                                    payload.update(
+                                        {
+                                            OUTER_FOLD: dataset_getter.outer_k,
+                                            INNER_FOLD: dataset_getter.inner_k,
+                                            CONFIG_ID: config_id,
+                                            RUN_ID: run_id,
+                                            IS_FINAL: False,
+                                        }
                                     )
-                                )
-                                dill_save(
+                                    self.progress_queue.put(payload)
+
+                                try:
                                     (
                                         training_score,
                                         validation_score,
-                                        elapsed,
-                                    ),
-                                    fold_run_results_torch_path,
-                                )
+                                    ) = experiment.run_valid(
+                                        dataset_getter,
+                                        self.training_timeout_seconds,
+                                        logger,
+                                        progress_callback=_report_progress,
+                                    )
+                                    elapsed = extract_and_sum_elapsed_seconds(
+                                        osp.join(
+                                            fold_run_exp_folder,
+                                            EXPERIMENT_LOGFILE,
+                                        )
+                                    )
+                                    dill_save(
+                                        (
+                                            training_score,
+                                            validation_score,
+                                            elapsed,
+                                        ),
+                                        fold_run_results_torch_path,
+                                    )
+                                except Exception as e:
+
+                                    if self.progress_queue is not None:
+                                        self.progress_queue.put(
+                                            {
+                                                "type": RUN_FAILED,
+                                                str(
+                                                    OUTER_FOLD
+                                                ): dataset_getter.outer_k,
+                                                str(
+                                                    INNER_FOLD
+                                                ): dataset_getter.inner_k,
+                                                str(CONFIG_ID): config_id,
+                                                str(RUN_ID): run_id,
+                                                str(IS_FINAL): False,
+                                                str(EPOCH): 0,
+                                                str(TOTAL_EPOCHS): 0,
+                                                "message": e,
+                                            }
+                                        )
+                                    elapsed = -1
+                                    exit(0)
 
                     if debug:
                         self.process_model_selection_runs(fold_exp_folder, k)
@@ -833,24 +995,70 @@ class RiskAssesser:
                     exp_seed,
                     self.training_timeout_seconds,
                     logger,
+                    self.progress_queue,
                 )
                 self.final_runs_job_list.append(future)
             else:
                 if not osp.exists(final_run_torch_path):
-                    start = time.time()
                     experiment = self.experiment_class(
                         best_config[CONFIG], final_run_exp_path, exp_seed
                     )
-                    res = experiment.run_test(dataset_getter, self.training_timeout_seconds, logger)
-                    elapsed = extract_and_sum_elapsed_seconds(
-                        osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
-                    )
 
-                    training_res, val_res, test_res = res
-                    dill_save(
-                        (training_res, val_res, test_res, elapsed),
-                        final_run_torch_path,
-                    )
+                    # This is used to comunicate with the progress manager
+                    # to display the UI
+                    def _report_progress(payload: dict):
+                        if self.progress_queue is None:
+                            return
+
+                        payload = dict(payload)  # shallow copy
+                        payload.update(
+                            {
+                                OUTER_FOLD: dataset_getter.outer_k,
+                                INNER_FOLD: None,
+                                CONFIG_ID: best_config["best_config_id"],
+                                RUN_ID: i,
+                                IS_FINAL: True,
+                            }
+                        )
+                        self.progress_queue.put(payload)
+
+                    try:
+                        res = experiment.run_test(
+                            dataset_getter,
+                            self.training_timeout_seconds,
+                            logger,
+                            progress_callback=_report_progress,
+                        )
+                        elapsed = extract_and_sum_elapsed_seconds(
+                            osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+                        )
+
+                        training_res, val_res, test_res = res
+                        dill_save(
+                            (training_res, val_res, test_res, elapsed),
+                            final_run_torch_path,
+                        )
+                    except Exception as e:
+
+                        if self.progress_queue is not None:
+                            self.progress_queue.put(
+                                {
+                                    "type": RUN_FAILED,
+                                    str(OUTER_FOLD): dataset_getter.outer_k,
+                                    str(INNER_FOLD): None,
+                                    str(CONFIG_ID): best_config[
+                                        "best_config_id"
+                                    ],
+                                    str(RUN_ID): i,
+                                    str(IS_FINAL): True,
+                                    str(EPOCH): 0,
+                                    str(TOTAL_EPOCHS): 0,
+                                    "message": e,
+                                }
+                            )
+                        elapsed = -1
+                        exit(0)
+
         if debug:
             self.compute_final_runs_score_per_fold(outer_k)
 
@@ -936,12 +1144,10 @@ class RiskAssesser:
                         for i in range(self.model_selection_training_runs)
                     ]
                 )
-                results_dict[f"{set_type}_{key}{suffix}"] = float(
-                    set_res.mean()
-                )
-                results_dict[f"{STD}_{set_type}_{key}{suffix}"] = float(
-                    set_res.std()
-                )
+                mean, std, ci = _mean_std_ci(set_res)
+                results_dict[f"{set_type}_{key}{suffix}"] = mean
+                results_dict[f"{STD}_{set_type}_{key}{suffix}"] = std
+                results_dict[f"{CI}_{set_type}_{key}{suffix}"] = ci
 
         results_dict.update({MODEL_SELECTION_TRAINING_RUNS: run_dict})
 
@@ -1045,12 +1251,10 @@ class RiskAssesser:
                         for i in range(self.inner_folds)
                     ]
                 )
-                k_fold_dict[f"{AVG}_{set_type}_{key}{suffix}"] = float(
-                    set_res.mean()
-                )
-                k_fold_dict[f"{STD}_{set_type}_{key}{suffix}"] = float(
-                    set_res.std()
-                )
+                mean, std, ci = _mean_std_ci(set_res)
+                k_fold_dict[f"{AVG}_{set_type}_{key}{suffix}"] = mean
+                k_fold_dict[f"{STD}_{set_type}_{key}{suffix}"] = std
+                k_fold_dict[f"{CI}_{set_type}_{key}{suffix}"] = ci
 
         with open(config_filename, "w") as fp:
             json.dump(k_fold_dict, fp, sort_keys=False, indent=4)
@@ -1197,18 +1401,16 @@ class RiskAssesser:
                                 if (key != MAIN_LOSS and key != MAIN_SCORE)
                                 else ""
                             )
-                            set_dict[key + suffix] = np.mean(
+                            values = np.array(
                                 [
                                     float(set_run[key])
                                     for set_run in set_results
                                 ]
                             )
-                            set_dict[key + f"{suffix}_{STD}"] = np.std(
-                                [
-                                    float(set_run[key])
-                                    for set_run in set_results
-                                ]
-                            )
+                            mean, std, ci = _mean_std_ci(values)
+                            set_dict[key + suffix] = mean
+                            set_dict[key + f"{suffix}_{STD}"] = std
+                            set_dict[key + f"{suffix}_{CI}"] = ci
 
         # Send telegram update
         if (
@@ -1220,7 +1422,7 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Final runs ended for outer fold *{outer_k + 1}* \n"
                 f"Main test score: avg *{scores[2][1][MAIN_SCORE]:.4f}* "
-                f'/ std *{scores[2][1][f"{MAIN_SCORE}_{STD}"]:.4f}*'
+                f"/ std *{scores[2][1][f'{MAIN_SCORE}_{STD}']:.4f}*"
             )
             send_telegram_update(
                 self.telegram_bot_token,
@@ -1270,7 +1472,7 @@ class RiskAssesser:
                 ].keys():  # train keys are the same as valid and test keys
                     # Do not want to average std of different final runs in
                     # different outer folds
-                    if k[-3:] == STD:
+                    if k.endswith(STD) or k.endswith(CI):
                         continue
 
                     # there may be different optimal losses for each outer
@@ -1291,12 +1493,10 @@ class RiskAssesser:
 
                     for results, set in outer_results:
                         set_results = np.array([res[k] for res in results])
-                        assessment_results[f"{AVG}_{set}_{k}"] = (
-                            set_results.mean()
-                        )
-                        assessment_results[f"{STD}_{set}_{k}"] = (
-                            set_results.std()
-                        )
+                        mean, std, ci = _mean_std_ci(set_results)
+                        assessment_results[f"{AVG}_{set}_{k}"] = mean
+                        assessment_results[f"{STD}_{set}_{k}"] = std
+                        assessment_results[f"{CI}_{set}_{k}"] = ci
 
         # Send telegram update
         if self.model_configs.telegram_config is not None:
@@ -1305,9 +1505,9 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Experiment has finished \n"
                 f"Test score: avg "
-                f'*{assessment_results[f"{AVG}_{TEST}_{MAIN_SCORE}"]:.4f}* '
+                f"*{assessment_results[f'{AVG}_{TEST}_{MAIN_SCORE}']:.4f}* "
                 f"/ std"
-                f' *{assessment_results[f"{STD}_{TEST}_{MAIN_SCORE}"]:.4f}*'
+                f" *{assessment_results[f'{STD}_{TEST}_{MAIN_SCORE}']:.4f}*"
             )
             send_telegram_update(
                 self.telegram_bot_token,

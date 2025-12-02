@@ -127,7 +127,7 @@ class Profiler:
             a string containing the report
         """
         total_time_experiment = 0.0
-        profile_str = f'{"*" * 25} Profiler {"*" * 25} \n \n'
+        profile_str = f"{'*' * 25} Profiler {'*' * 25} \n \n"
         profile_str += f"Threshold: {self.threshold} \n \n"
 
         for class_name, v in self.callback_elapsed.items():
@@ -167,9 +167,8 @@ class Profiler:
         total_time = datetime.timedelta(seconds=total_time_experiment)
         profile_str += f"Total time of the experiment: {str(total_time)} \n \n"
         profile_str += f"Total time of the experiment in seconds: {str(total_time_experiment)} \n \n"
-        profile_str += f'{"*" * 60}'
+        profile_str += f"{'*' * 60}"
         return profile_str
-
 
     @property
     def total_elapsed_time(self) -> datetime.timedelta:
@@ -184,7 +183,7 @@ class Profiler:
         for class_name, v in self.callback_elapsed.items():
             for callback_name, v1 in v.items():
                 total_time_experiment += v1
-        
+
         seconds_elapsed = datetime.timedelta(seconds=total_time_experiment)
 
         return seconds_elapsed

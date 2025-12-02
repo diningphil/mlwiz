@@ -37,7 +37,7 @@ def return_class_and_args(
         )
     else:
         raise NotImplementedError(
-            f"Parameter {key} " f"has not been formatted properly"
+            f"Parameter {key} has not been formatted properly"
         )
 
 
@@ -54,8 +54,7 @@ def s2c(class_name: str) -> Callable[..., object]:
     result = locate(class_name)
     if result is None:
         raise ImportError(
-            f"The (dotted) path '{class_name}' is unknown. "
-            f"Check your configuration."
+            f"The (dotted) path '{class_name}' is unknown. Check your configuration."
         )
     return result
 

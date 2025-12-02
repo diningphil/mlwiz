@@ -1,4 +1,3 @@
-import logging
 import os
 import warnings
 from pathlib import Path
@@ -9,10 +8,8 @@ import torch_geometric
 from torch.utils.data import SequentialSampler
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
-from tqdm import tqdm
 
 import mlwiz
-from mlwiz.data.provider import SingleGraphDataProvider, IterableDataProvider
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
@@ -35,6 +32,17 @@ def log(msg, logger: Logger):
     """
     if logger is not None:
         logger.log(msg)
+
+
+def fmt(x, decimals=2, sci_decimals=2):
+    """Format number with fixed-point unless it's small, then scientific."""
+    thresh = 10 ** (-decimals - 1)
+    x = float(x)
+    if x == 0.0:
+        return f"{0:.{decimals}f}"
+    if abs(x) < thresh:
+        return f"{x:.{sci_decimals}e}"
+    return f"{x:.{decimals}f}"
 
 
 def reorder(obj: List[object], perm: List[int]):
@@ -389,7 +397,9 @@ class TrainingEngine(EventDispatcher):
             self._dispatch(EventHandler.ON_EVAL_BATCH_END, self.state)
 
     # loop over all data (i.e. computes an epoch)
-    def _loop(self, loader: DataLoader):
+    def _loop(
+        self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]
+    ):
         """
         Main method that computes a pass over the dataset using the data
         loader provided.
@@ -405,20 +415,27 @@ class TrainingEngine(EventDispatcher):
         self.state.update(loader_iterable=iter(loader))
 
         # Loop over data
-        for id_batch in tqdm(
-            range(len(loader)),
-            desc=f"Epoch {self.state.epoch+1}, {self.state.set} set",
-            unit="batch",
-            disable=not self.logger.debug,
-            leave=False,
-        ):
+        total_batches = len(loader)
+        for id_batch in range(total_batches):
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
             self._dispatch(EventHandler.ON_FETCH_DATA, self.state)
 
             self._loop_helper()
 
-    def _train(self, loader):
+            # Batch has completed
+            _notify_progress(
+                BATCH_PROGRESS,
+                {
+                    EPOCH: self.state.epoch + 1,
+                    TOTAL_EPOCHS: self.state.total_epochs,
+                    BATCH: id_batch + 1,
+                    TOTAL_BATCHES: total_batches,
+                    "message": f"{self.state.set.capitalize()} Progress",
+                },
+            )
+
+    def _train(self, loader, _notify_progress: Callable[[str, dict], None]):
         """
         Implements a loop over the data in training mode
         """
@@ -426,7 +443,7 @@ class TrainingEngine(EventDispatcher):
 
         self._dispatch(EventHandler.ON_TRAINING_EPOCH_START, self.state)
 
-        self._loop(loader)
+        self._loop(loader, _notify_progress)
 
         self._dispatch(EventHandler.ON_TRAINING_EPOCH_END, self.state)
 
@@ -435,7 +452,10 @@ class TrainingEngine(EventDispatcher):
         return loss, score, None
 
     def infer(
-        self, loader: DataLoader, set: str
+        self,
+        loader: DataLoader,
+        set: str,
+        _notify_progress: Callable[[str, dict], None],
     ) -> Tuple[dict, dict, List[Union[torch.Tensor, Data]]]:
         """
         Performs an evaluation step on the data.
@@ -459,7 +479,7 @@ class TrainingEngine(EventDispatcher):
         self._dispatch(EventHandler.ON_EVAL_EPOCH_START, self.state)
 
         with torch.no_grad():
-            self._loop(loader)  # state has been updated
+            self._loop(loader, _notify_progress)  # state has been updated
 
         self._dispatch(EventHandler.ON_EVAL_EPOCH_END, self.state)
 
@@ -519,6 +539,7 @@ class TrainingEngine(EventDispatcher):
         zero_epoch: bool = False,
         logger: Logger = None,
         training_timeout_seconds: int = -1,
+        progress_callback: Callable[[dict], None] = None,
     ) -> Tuple[
         dict,
         dict,
@@ -546,6 +567,8 @@ class TrainingEngine(EventDispatcher):
             zero_epoch: if ``True``, starts again from epoch 0 and resets
                 optimizer and scheduler states. Default is ``False``
             logger: the logger
+            progress_callback: optional callable that receives dictionaries
+                with progress information for external consumers
 
         Returns:
              a tuple (train_loss, train_score, train_embeddings,
@@ -553,6 +576,24 @@ class TrainingEngine(EventDispatcher):
              test_loss, test_score, test_embeddings)
         """
         self.logger = logger
+
+        def _notify_progress(event_type: str, payload: dict):
+            """
+            Sends progress updates to an external callback, if provided.
+            """
+            if progress_callback is None:
+                return
+
+            data = {"type": event_type}
+            data.update(payload)
+
+            try:
+                progress_callback(data)
+            except Exception:
+                # Do not break training if the progress callback fails
+                pass
+
+        final_epoch = None
 
         try:
             # Initialize variables
@@ -588,17 +629,25 @@ class TrainingEngine(EventDispatcher):
             # In case we already have a trained model
             epoch = self.state.initial_epoch
 
+            self.state.update(TOTAL_EPOCHS=max_epochs)
+            _notify_progress(START_CONFIG, {TOTAL_EPOCHS: max_epochs})
+
             last_run_elapsed_time = self.state.current_elapsed_time
 
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
-
                 if training_timeout_seconds > 0:
                     # update the current time including the time of the last run
-                    self.state.update(current_elapsed_time=self.profiler.total_elapsed_time.seconds + last_run_elapsed_time)                    
-                    
-                    if self.state.current_elapsed_time >= training_timeout_seconds:
-                        msg = f"Skipping training of new epoch {epoch+1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
+                    self.state.update(
+                        current_elapsed_time=self.profiler.total_elapsed_time.seconds
+                        + last_run_elapsed_time
+                    )
+
+                    if (
+                        self.state.current_elapsed_time
+                        >= training_timeout_seconds
+                    ):
+                        msg = f"Skipping training of new epoch {epoch + 1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
                         log(msg, logger)
                         self.state.update(stop_training=True)
                         break
@@ -609,7 +658,9 @@ class TrainingEngine(EventDispatcher):
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
                 self.state.update(set=TRAINING)
-                train_loss, train_score, _ = self._train(train_loader)
+                train_loss, train_score, _ = self._train(
+                    train_loader, _notify_progress
+                )
 
                 # Update state with epoch results
                 epoch_results = {LOSSES: {}, SCORES: {}}
@@ -622,7 +673,7 @@ class TrainingEngine(EventDispatcher):
                         # Compute training output (necessary because on_backward
                         # has been called)
                         train_loss, train_score, _ = self.infer(
-                            train_loader, TRAINING
+                            train_loader, TRAINING, _notify_progress
                         )
                     else:
                         # Add the main loss we want to return as a special key
@@ -637,14 +688,14 @@ class TrainingEngine(EventDispatcher):
                     # Compute validation output
                     if validation_loader is not None:
                         val_loss, val_score, _ = self.infer(
-                            validation_loader, VALIDATION
+                            validation_loader, VALIDATION, _notify_progress
                         )
 
                     # Compute test output for visualization purposes only (e.g.
                     # to debug an incorrect data split for link prediction)
                     if test_loader is not None and self.eval_test_every_epoch:
                         test_loss, test_score, _ = self.infer(
-                            test_loader, TEST
+                            test_loader, TEST, _notify_progress
                         )
 
                     epoch_results[LOSSES].update(
@@ -686,12 +737,42 @@ class TrainingEngine(EventDispatcher):
                     else:
                         test_msg_str = ""
 
+                    # Message for Progress Manager
+                    tr_loss = fmt(train_loss[MAIN_LOSS].item())
+                    tr_score = fmt(train_score[MAIN_SCORE].item())
+                    if validation_loader is not None:
+                        val_loss = fmt(val_loss[MAIN_LOSS].item())
+                        val_score = fmt(val_score[MAIN_SCORE].item())
+                    else:
+                        val_loss = "N/A"
+                        val_score = "N/A"
+                    if test_loader is not None and self.eval_test_every_epoch:
+                        test_loss = fmt(test_loss[MAIN_LOSS].item())
+                        test_score = fmt(test_score[MAIN_SCORE].item())
+                    else:
+                        test_loss = "N/A"
+                        test_score = "N/A"
+                    progress_manager_msg = (
+                        f"Epoch: {epoch + 1} "
+                        + f"TR/VL/TE loss: {tr_loss}/{val_loss}/{test_loss} "
+                        + f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
+                    )
+
+                    _notify_progress(
+                        RUN_PROGRESS,
+                        {
+                            EPOCH: epoch + 1,
+                            TOTAL_EPOCHS: max_epochs,
+                            "message": progress_manager_msg,
+                        },
+                    )
+
                     # Log performances
-                    msg = (
+                    logger_msg = (
                         f"Epoch: {epoch + 1}, TR loss: {train_loss} "
                         f"TR score: {train_score}" + val_msg_str + test_msg_str
                     )
-                    log(msg, logger)
+                    log(logger_msg, logger)
 
                 # Update state with the result of this epoch
                 self.state.update(epoch_results=epoch_results)
@@ -718,9 +799,11 @@ class TrainingEngine(EventDispatcher):
 
             self.state.update(return_embeddings=True)
 
+            final_epoch = self.state.epoch
+
             # Compute training output
             train_loss, train_score, train_embeddings_tuple = self.infer(
-                train_loader, TRAINING
+                train_loader, TRAINING, _notify_progress
             )
             # ber[f'{TRAINING}_loss'] = train_loss
             ber[f"{TRAINING}{EMB_TUPLE_SUBSTR}"] = train_embeddings_tuple
@@ -730,7 +813,7 @@ class TrainingEngine(EventDispatcher):
             # Compute validation output
             if validation_loader is not None:
                 val_loss, val_score, val_embeddings_tuple = self.infer(
-                    validation_loader, VALIDATION
+                    validation_loader, VALIDATION, _notify_progress
                 )
                 # ber[f'{VALIDATION}_loss'] = val_loss
                 ber[f"{VALIDATION}{EMB_TUPLE_SUBSTR}"] = val_embeddings_tuple
@@ -742,7 +825,7 @@ class TrainingEngine(EventDispatcher):
             # Compute test output
             if test_loader is not None:
                 test_loss, test_score, test_embeddings_tuple = self.infer(
-                    test_loader, TEST
+                    test_loader, TEST, _notify_progress
                 )
                 # ber[f'{TEST}_loss'] = test_loss
                 ber[f"{TEST}{EMB_TUPLE_SUBSTR}"] = test_embeddings_tuple
@@ -775,6 +858,18 @@ class TrainingEngine(EventDispatcher):
         report = self.profiler.report()
         log(report, logger)
 
+        _notify_progress(
+            RUN_COMPLETED,
+            {
+                EPOCH: (
+                    (final_epoch + 1)
+                    if final_epoch is not None
+                    else max_epochs
+                ),
+                TOTAL_EPOCHS: max_epochs,
+            },
+        )
+
         return (
             train_loss,
             train_score,
@@ -804,7 +899,9 @@ class TrainingEngine(EventDispatcher):
             weights_only=True,
         )
 
-        self.state.update(current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME])
+        self.state.update(
+            current_elapsed_time=ckpt_dict[LAST_RUN_ELAPSED_TIME]
+        )
 
         self.state.update(
             initial_epoch=int(ckpt_dict[EPOCH]) + 1 if not zero_epoch else 0
@@ -844,7 +941,9 @@ class DataStreamTrainingEngine(TrainingEngine):
     """
 
     # loop over all data (i.e. computes an epoch)
-    def _loop(self, loader: DataLoader):
+    def _loop(
+        self, loader: DataLoader, _notify_progress: Callable[[str, dict], None]
+    ):
         """
         Compared to superclass version, handles the issue of a stream of data
         that could end at any moment. This is done using an additional
@@ -870,3 +969,15 @@ class DataStreamTrainingEngine(TrainingEngine):
                 return
 
             self._loop_helper()
+
+            # Batch has completed
+            _notify_progress(
+                BATCH_PROGRESS,
+                {
+                    EPOCH: self.state.epoch + 1,
+                    TOTAL_EPOCHS: self.state.total_epochs,
+                    BATCH: id_batch + 1,
+                    TOTAL_BATCHES: id_batch + 1,  # patch
+                    "message": f"{self.state.set.capitalize()} Progress",
+                },
+            )

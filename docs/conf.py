@@ -20,11 +20,11 @@ sys.path.insert(0, os.path.abspath("../"))
 # -- Project information -----------------------------------------------------
 
 project = "MLWiz"
-copyright = "2024-2025, Federico Errica"
+copyright = "2024-ongoing, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags
-release = "1.2.7"
+release = "1.3.0"
 
 
 # -- General configuration ---------------------------------------------------
@@ -52,7 +52,6 @@ autodoc_mock_imports = [
     "PyYAML",
     "requests",
     "tensorboard",
-    "tqdm",
     "ogb",
     "aioredis",
     "ray",

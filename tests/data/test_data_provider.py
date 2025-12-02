@@ -14,10 +14,6 @@ from mlwiz.data.splitter import (
     Splitter,
     SingleGraphSplitter,
 )
-from tests.data.test_data_splitter import (
-    datasets,
-    single_graph_datasets,
-)
 
 
 def mock_get_dataset(cls, **kwargs):

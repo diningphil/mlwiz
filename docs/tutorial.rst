@@ -328,10 +328,6 @@ And we are up and running!
 .. image:: _static/exp_gui.png
    :width: 600
 
-To stop the computation, use ``CTRL-C`` to send a ``SIGINT`` signal, and consider using the command ``ray stop`` to stop
-all Ray processes. **Warning:** ``ray stop`` stops **all** ray processes you have launched, including those of other
-experiments in progress, if any.
-
 Some things to notice: because we have chosen a 3-fold CV for risk assessment with a 2-fold CV for model selection **for
 each** external fold, you can notice in the picture there are ``3*2`` rows with ``Out_*/Inn_*`` written. For each of these,
 we have to perform a model selection with ``4`` possible hyper-parameters' configurations (progress shown on the right handside),
@@ -346,6 +342,22 @@ performances of the model (a less ambiguous definition would be: the **class of 
 for this specific case, as the average of the 10 test scores across the external folds. Again, if this does not make sense
 to you, please consider reading `Samy Bengio's lecture (Part 3) <https://bengio.abracadoudou.com/lectures/theory.pdf>`_.
 
+Navigating the live progress UI
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The progress screen is interactive. Press ``:`` to open the small prompt in the bottom-right corner, type a command, and
+hit ``Enter`` to switch what is rendered without stopping the run. Useful commands:
+
+- ``g`` or ``global`` (or simply ``Enter`` on an empty prompt): go back to the default overview with all progress bars.
+- ``<outer>_<run>`` (e.g., ``1_2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
+- ``<outer>_<inner>_<config>_<run>`` (e.g., ``2_1_3_1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
+
+If an identifier is invalid or the run has not produced updates yet, MLWiz will print a short hint and keep listening so
+you can try again.
+
+To stop the computation, use ``CTRL-C`` to send a ``SIGINT`` signal, and consider using the command ``ray stop`` to stop
+all Ray processes. **Warning:** ``ray stop`` stops **all** ray processes you have launched, including those of other
+experiments in progress, if any.
 
 Useful Features to Know About
 ------------------------------
@@ -562,6 +574,39 @@ You can change ``metric_key`` to any metric stored in the assessment files, cust
 runs' standard deviation to be reported in the LaTeX output.
 
 
+Comparing Statistical Significance Between Models
+----------------------------------------------------------
+
+When you need to quantify whether a highlighted model is statistically better than others, use the helper
+``compare_statistical_significance``. It automatically chooses the right samples: if multiple outer folds are present,
+it uses the outer-fold averages; otherwise it falls back to the final runs of the single outer fold. A Welch t-test
+is applied with a 95% confidence level by default.
+
+.. code-block:: python3
+
+    from mlwiz.evaluation.util import compare_statistical_significance
+
+    reference = ("RESULTS/mlp_MNIST", "MLP", "MNIST")
+    competitors = [
+        ("RESULTS/baseline1_MNIST", "B1", "MNIST"),
+        ("RESULTS/baseline2_MNIST", "B2", "MNIST"),
+    ]
+
+    df = compare_statistical_significance(
+        highlighted_exp_metadata=reference,
+        other_exp_metadata=competitors,
+        metric_key="main_score",
+        set_key="test",
+        confidence_level=0.95,
+    )
+
+    print(df)
+
+The resulting DataFrame includes mean/std/CI for the reference and each competitor, the sample source (outer fold means
+or final runs), the p-value of the two-sided test, and a boolean flag indicating if the difference is significant at the
+requested confidence level.
+
+
 Loading Model for Inspection in a Notebook
 ----------------------------------------------
 
@@ -633,5 +678,3 @@ to specify your telegram configuration file by adding:
 
 And that's all you have to do to start receiving messages when the model selection/final runs for a specific fold end!
 You will also receive a message when the experiment terminates with the test score.
-
-

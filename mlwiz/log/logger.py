@@ -32,8 +32,6 @@ class Logger:
         Args:
             content (str): content to log
         """
-        if self.debug:
-            print(content)
         try:
             with open(self.filepath, self.mode) as f:
                 f.write(content + "\n")

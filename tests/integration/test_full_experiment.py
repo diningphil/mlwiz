@@ -16,7 +16,6 @@ from mlwiz.static import DEBUG, CONFIG_FILE, SKIP_SPLITS_CHECK
 
 
 def test_datasets_creation():
-
     yaml_files = [
         "tests/integration/DATA_CONFIGS/config_FakeMNIST.yml",
         "tests/integration/DATA_CONFIGS/config_FakeMNISTTemporal.yml",
@@ -35,7 +34,6 @@ def test_datasets_creation():
 
 @pytest.mark.dependency(depends=["test_datasets_creation"])
 def test_experiments():
-
     class MockConfig:
         def __init__(self, d):
             for key in d.keys():
