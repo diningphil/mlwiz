@@ -328,6 +328,19 @@ And we are up and running!
 .. image:: _static/exp_gui.png
    :width: 600
 
+Navigating the live progress UI
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The progress screen is interactive. Press ``:`` to open the small prompt in the bottom-right corner, type a command, and
+hit ``Enter`` to switch what is rendered without stopping the run. Useful commands:
+
+- ``g`` or ``global`` (or simply ``Enter`` on an empty prompt): go back to the default overview with all progress bars.
+- ``<outer>_<run>`` (e.g., ``1_2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
+- ``<outer>_<inner>_<config>_<run>`` (e.g., ``2_1_3_1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
+
+If an identifier is invalid or the run has not produced updates yet, MLWiz will print a short hint and keep listening so
+you can try again.
+
 To stop the computation, use ``CTRL-C`` to send a ``SIGINT`` signal, and consider using the command ``ray stop`` to stop
 all Ray processes. **Warning:** ``ray stop`` stops **all** ray processes you have launched, including those of other
 experiments in progress, if any.
@@ -666,5 +679,3 @@ to specify your telegram configuration file by adding:
 
 And that's all you have to do to start receiving messages when the model selection/final runs for a specific fold end!
 You will also receive a message when the experiment terminates with the test score.
-
-
