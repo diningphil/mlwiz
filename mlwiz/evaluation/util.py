@@ -361,9 +361,9 @@ class ProgressManager:
         run_id = msg.get(RUN_ID)
 
         if type == START_CONFIG:
-            if inner_fold is None:
+            if inner_fold is None and self._is_active_view(msg):
                 self._header_run_message = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
-            else:
+            elif self._is_active_view(msg):
                 self._header_run_message = f"Model selection run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
 
         elif type == BATCH_PROGRESS:
