@@ -87,6 +87,7 @@ class ProgressManager:
         self._header_run_message = ""
         self._last_progress_msg = ""
         self._moves_buffer = ""
+        self._failure_message = ""
 
         # when NOT in debug mode, this is None
         # when the global view is active, otherwise
@@ -270,6 +271,7 @@ class ProgressManager:
 
     def _render_user_input(self):
         if self.debug or not sys.stdout.isatty():
+            self._render_failure_message()
             return
 
         cols, rows = shutil.get_terminal_size((self.ncols, 24))
@@ -279,12 +281,36 @@ class ProgressManager:
             self._input_render_len = len(text)
 
         if width == 0:
+            self._render_failure_message()
             return
 
         # Save/restore cursor (\0337/\0338) so overlay does not affect tqdm cursor.
         col = max(1, cols - width + 1)
         line = text.ljust(width)
         print(f"\0337\033[{rows};{col}H{line}\0338", end="", flush=True)
+        self._render_failure_message()
+
+    def _render_failure_message(self):
+        """
+        Render a persistent failure message at the bottom-left corner.
+        """
+        if self._failure_message == "":
+            return
+        if not sys.stdout.isatty():
+            return
+
+        cols, rows = shutil.get_terminal_size((self.ncols, 24))
+        with self._input_lock:
+            overlay_width = self._input_render_len if self._input_active else 0
+
+        # Reserve space for the input overlay if active.
+        overlay_start = max(1, cols - overlay_width + 1) if overlay_width else cols + 1
+        max_width = overlay_start - 1 if overlay_start > 1 else cols
+        max_width = max(1, max_width)
+
+        text = self._failure_message[:max_width].ljust(max_width)
+        # Save/restore cursor so we don't move the tqdm cursor.
+        print(f"\0337\033[{rows};1H{text}\0338", end="", flush=True)
 
     def _is_active_view(self, msg: dict) -> bool:
         # Decide whether a progress message belongs to the currently selected view.
@@ -361,10 +387,12 @@ class ProgressManager:
         run_id = msg.get(RUN_ID)
 
         if type == START_CONFIG:
+            # Avoid changing the header while a specific configuration view is active.
             if inner_fold is None and self._is_active_view(msg):
                 self._header_run_message = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
             elif self._is_active_view(msg):
                 self._header_run_message = f"Model selection run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
+
 
         elif type == BATCH_PROGRESS:
             if self._is_active_view(msg):
@@ -396,17 +424,27 @@ class ProgressManager:
             if store:
                 self._store_last_run_message(msg)
 
+            outer_fold = msg.get(OUTER_FOLD)
+            inner_fold = msg.get(INNER_FOLD)
+            config_id = msg.get(CONFIG_ID)
+            run_id = msg.get(RUN_ID)
+
             if self._is_active_view(msg):
                 clear_screen()
-
-                outer_fold = msg.get(OUTER_FOLD)
-                inner_fold = msg.get(INNER_FOLD)
-                config_id = msg.get(CONFIG_ID)
-                run_id = msg.get(RUN_ID)
 
                 print(
                     f"Run failed: run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}... \nMessage: {msg.get('message')}"
                 )
+            else:
+                failure_desc = (
+                    f"Run failed: run {run_id + 1} for config {config_id + 1} "
+                    f"for outer fold {outer_fold + 1}"
+                )
+                if inner_fold is not None:
+                    failure_desc += f", inner fold {inner_fold + 1}"
+                failure_desc += f"... Message: {msg.get('message')}"
+                self._failure_message = failure_desc
+                self._render_failure_message()
 
         elif type == END_CONFIG:
             position = outer_fold * self.inner_folds + inner_fold
