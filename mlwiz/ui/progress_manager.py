@@ -6,6 +6,7 @@ import sys
 import termios
 import threading
 import tty
+from pprint import pformat
 from typing import Callable
 import tqdm
 
@@ -75,6 +76,7 @@ class ProgressManager:
         self._last_progress_msg = ""
         self._moves_buffer = ""
         self._failure_message = ""
+        self._rendered_lines = 0
 
         # when NOT in debug mode, this is None
         # when the global view is active, otherwise
@@ -124,6 +126,7 @@ class ProgressManager:
         if self._to_visualize != identifier:
             self._to_visualize = identifier
             clear_screen()
+            self._rendered_lines = 0
 
         if self._to_visualize in {"g", "global"}:
             self.refresh()
@@ -333,20 +336,18 @@ class ProgressManager:
 
         return False
 
-    def _render_progress(self, printer: Callable[[], None]):
+    def _render_progress(self, printer: Callable[[], int]):
         """
         Clear previous progress lines and invoke the provided printer.
         """
-        if self._header_run_message != "":
-            self._clear_line()
-            self._cursor_up()
-        if self._last_progress_msg != "":
+        lines_to_clear = max(1, self._rendered_lines)
+        for _ in range(lines_to_clear - 1):
             self._clear_line()
             self._cursor_up()
 
         self._clear_line()
-        self._cursor_up()
-        printer()
+        rendered_lines = printer()
+        self._rendered_lines = rendered_lines if isinstance(rendered_lines, int) else 0
 
     def _print_run_progress(self, msg: str):
         """
@@ -358,8 +359,25 @@ class ProgressManager:
             parts.append(self._header_run_message)
         if text:
             parts.append(text)
-        self._append_to_buffer("\n".join(parts))
+        rendered = "\n".join(parts)
+        self._append_to_buffer(rendered)
         self._flush_buffer()
+        return rendered.count("\n") + 1 if rendered else 0
+
+    def _format_run_message(self, msg: dict) -> str:
+        """
+        Format the progress message, appending the config (pretty printed)
+        when available.
+        """
+        base_message = msg.get("message") or ""
+        config = msg.get(CONFIG)
+        if config is None:
+            return base_message
+
+        config_str = pformat(config, sort_dicts=False)
+        if base_message:
+            return f"{base_message}\nConfig:\n{config_str}"
+        return f"Config:\n{config_str}"
 
     def _handle_message(self, msg: dict, store: bool = True):
         """
@@ -399,7 +417,7 @@ class ProgressManager:
                 self._store_last_run_message(msg)
 
             if self._is_active_view(msg):
-                self._last_progress_msg = msg.get("message")
+                self._last_progress_msg = self._format_run_message(msg)
                 self._render_progress(
                     lambda: self._print_run_progress(self._last_progress_msg)
                 )
@@ -494,6 +512,7 @@ class ProgressManager:
 
         self._append_to_buffer(msg)
         self._flush_buffer()
+        return msg.count("\n") + 1
 
     def update_state(self):
         """
@@ -697,4 +716,3 @@ class ProgressManager:
             self._last_run_messages[outer][inner][config] = {}
 
         self._last_run_messages[outer][inner][config][run] = msg
-
