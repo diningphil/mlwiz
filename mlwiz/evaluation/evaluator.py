@@ -18,7 +18,7 @@ from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
-from mlwiz.evaluation.util import ProgressManager
+from mlwiz.ui.progress_manager import ProgressManager
 from mlwiz.experiment.experiment import Experiment
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
@@ -134,6 +134,7 @@ def run_valid(
                         OUTER_FOLD: dataset_getter.outer_k,
                         INNER_FOLD: dataset_getter.inner_k,
                         CONFIG_ID: config_id,
+                        CONFIG: config,
                         RUN_ID: run_id,
                         IS_FINAL: False,
                     }
@@ -159,6 +160,7 @@ def run_valid(
                         str(OUTER_FOLD): dataset_getter.outer_k,
                         str(INNER_FOLD): dataset_getter.inner_k,
                         str(CONFIG_ID): config_id,
+                        str(CONFIG): config,
                         str(RUN_ID): run_id,
                         str(IS_FINAL): False,
                         str(EPOCH): 0,
@@ -873,6 +875,7 @@ class RiskAssesser:
                                             OUTER_FOLD: dataset_getter.outer_k,
                                             INNER_FOLD: dataset_getter.inner_k,
                                             CONFIG_ID: config_id,
+                                            CONFIG: config,
                                             RUN_ID: run_id,
                                             IS_FINAL: False,
                                         }
@@ -916,6 +919,7 @@ class RiskAssesser:
                                                     INNER_FOLD
                                                 ): dataset_getter.inner_k,
                                                 str(CONFIG_ID): config_id,
+                                                str(CONFIG): config,
                                                 str(RUN_ID): run_id,
                                                 str(IS_FINAL): False,
                                                 str(EPOCH): 0,
