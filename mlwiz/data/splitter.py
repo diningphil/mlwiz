@@ -10,7 +10,7 @@ from sklearn.model_selection import (
     KFold,
 )
 
-import mlwiz
+from mlwiz.data.dataset import DatasetInterface
 from mlwiz.util import s2c, dill_load, dill_save
 
 
@@ -159,7 +159,7 @@ class Splitter:
         return self._stratify
 
     def get_targets(
-        self, dataset: mlwiz.data.dataset.DatasetInterface
+        self, dataset: DatasetInterface
     ) -> Tuple[bool, np.ndarray]:
         r"""
         Reads the entire dataset and returns the targets.
@@ -280,7 +280,7 @@ class Splitter:
 
     def split(
         self,
-        dataset: mlwiz.data.dataset.DatasetInterface,
+        dataset: DatasetInterface,
         targets: np.ndarray = None,
     ):
         r"""
@@ -501,7 +501,7 @@ class SingleGraphSplitter(Splitter):
 
     def split(
         self,
-        dataset: mlwiz.data.dataset.DatasetInterface,
+        dataset: DatasetInterface,
         targets: np.ndarray = None,
     ):
         r"""
