@@ -24,6 +24,7 @@ from mlwiz.training.event.dispatcher import EventDispatcher
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.profiler import Profiler
+from copy import deepcopy
 
 
 def log(msg, logger: Logger):
@@ -431,7 +432,7 @@ class TrainingEngine(EventDispatcher):
                     TOTAL_EPOCHS: self.state.total_epochs,
                     BATCH: id_batch + 1,
                     TOTAL_BATCHES: total_batches,
-                    "message": f"{self.state.set.capitalize()} Progress",
+                    "message": f"{deepcopy(self.state.set.capitalize())} Progress",
                 },
             )
 
@@ -763,7 +764,7 @@ class TrainingEngine(EventDispatcher):
                         {
                             EPOCH: epoch + 1,
                             TOTAL_EPOCHS: max_epochs,
-                            "message": progress_manager_msg,
+                            "message": deepcopy(progress_manager_msg),
                         },
                     )
 
@@ -978,6 +979,6 @@ class DataStreamTrainingEngine(TrainingEngine):
                     TOTAL_EPOCHS: self.state.total_epochs,
                     BATCH: id_batch + 1,
                     TOTAL_BATCHES: id_batch + 1,  # patch
-                    "message": f"{self.state.set.capitalize()} Progress",
+                    "message": f"{deepcopy(self.state.set.capitalize())} Progress",
                 },
             )

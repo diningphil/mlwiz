@@ -460,7 +460,8 @@ class RiskAssesser:
                     len(self.model_configs)
                     * self.model_selection_training_runs
                     * self.inner_folds
-                    * self.outer_folds,
+                    * self.outer_folds
+                    * 100,
                 )
             )
         except Exception:
