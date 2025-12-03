@@ -929,7 +929,9 @@ class RiskAssesser:
                                         }
                                     )
                                     try:
-                                        self.progress_queue.put(payload, block=False)
+                                        self.progress_queue.put(
+                                            payload, block=False
+                                        )
                                     except Exception:
                                         pass
 
@@ -1149,7 +1151,9 @@ class RiskAssesser:
                                 self.progress_queue.put(
                                     {
                                         "type": RUN_FAILED,
-                                        str(OUTER_FOLD): dataset_getter.outer_k,
+                                        str(
+                                            OUTER_FOLD
+                                        ): dataset_getter.outer_k,
                                         str(INNER_FOLD): None,
                                         str(CONFIG_ID): best_config[
                                             "best_config_id"
