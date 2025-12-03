@@ -5,10 +5,13 @@ import shutil
 import sys
 import termios
 import threading
+import time
 import tty
+from copy import deepcopy
 from pprint import pformat
 from typing import Callable
 import tqdm
+import ray
 
 from mlwiz.static import *
 
@@ -22,6 +25,34 @@ def clear_screen():
     print("\033[2J\033[H", end="", flush=True)
 
 
+@ray.remote(num_cpus=0)
+class ProgressManagerActor:
+    """
+    Ray actor used to aggregate progress updates from workers.
+    The driver periodically pulls pending messages instead of relying on a queue.
+    """
+
+    def __init__(self):
+        self._pending_messages = []
+        self._closed = False
+
+    def push(self, payload: dict):
+        if self._closed:
+            return
+        self._pending_messages.append(deepcopy(payload))
+
+    def drain(self):
+        """
+        Returns buffered messages and clears the buffer.
+        """
+        pending = self._pending_messages
+        self._pending_messages = []
+        return pending, self._closed
+
+    def close(self):
+        self._closed = True
+
+
 class ProgressManager:
     r"""
     Class that is responsible for drawing progress bars.
@@ -33,8 +64,8 @@ class ProgressManager:
         final_runs (int): number of final runs per outer fold once the
             best model has been selected
         debug (bool): whether to run in debug mode (no tqdm, simple prints)
-        progress_queue (ray.util.Queue): the queue used to receive progress
-            messages from different workers
+        progress_actor (:class:`~ray.actor.ActorHandle`): handle used to pull
+            aggregated progress updates from different workers
     """
 
     # Possible vars of ``bar_format``:
@@ -53,7 +84,8 @@ class ProgressManager:
         no_configs,
         final_runs,
         debug=True,
-        progress_queue=None,
+        progress_actor=None,
+        poll_interval: float = 0.2,
     ):
         self.ncols = 100
         self.outer_folds = outer_folds
@@ -62,7 +94,8 @@ class ProgressManager:
         self.final_runs = final_runs
         self.pbars = []
         self.debug = debug
-        self.progress_queue = progress_queue
+        self.progress_actor = progress_actor
+        self._poll_interval = poll_interval
 
         # Keep track of the latest message per individual run
         # Structured as [outer][inner][config][run] -> msg
@@ -91,7 +124,7 @@ class ProgressManager:
         self._input_lock = threading.Lock()  # guards input state
         self._stop_input_event = threading.Event()  # stops listener on exit
         self._input_thread = None  # background input listener
-        self_model_configs = None
+        self._model_configs = None
         clear_screen()
 
         if not self.debug:
@@ -111,7 +144,7 @@ class ProgressManager:
     def set_model_configs(self, model_configs):
         """
         Set model configurations so copies don't have to be stored
-        in the queue
+        on the progress actor.
 
         :param model_configs: list of hparams
         """
@@ -149,7 +182,7 @@ class ProgressManager:
 
         invalid_id_msg = "ProgressManager: invalid identifier format, use outer_inner_config_run format or outer_run..."
 
-        # put last stored message in queue to display it
+        # put last stored message on screen to display it
         try:
             values = self._to_visualize.split("_")
             if (
@@ -197,7 +230,7 @@ class ProgressManager:
         self._render_user_input()
 
     def _start_input_listener(self):
-        if self.debug or self.progress_queue is None:
+        if self.debug or self.progress_actor is None:
             return
         if self._input_thread is not None:
             return
@@ -486,7 +519,7 @@ class ProgressManager:
 
     def _handle_message(self, msg: dict, store: bool = True):
         """
-        Handle a single progress message (shared between queue consumer
+        Handle a single progress message (shared between the polling loop
         and view replays).
         """
         type = msg.get("type")
@@ -515,16 +548,17 @@ class ProgressManager:
                         batch_id, total_batches, epoch, desc
                     )
                 )
-
-        elif type == RUN_PROGRESS:
             if store:
                 self._store_last_run_message(msg)
 
+        elif type == RUN_PROGRESS:
             if self._is_active_view(msg):
                 self._last_progress_msg = self._format_run_message(msg)
                 self._render_progress(
                     lambda: self._print_run_progress(self._last_progress_msg)
                 )
+            if store:
+                self._store_last_run_message(msg)
 
         elif type == RUN_COMPLETED:
             pass  # do not store this message, not useful for now
@@ -622,23 +656,23 @@ class ProgressManager:
     def update_state(self):
         """
         Updates the state of the progress bar (different from showing it
-        on screen, see :func:`refresh`) once a message is sent to
-        the progress queue
+        on screen, see :func:`refresh`) by pulling batched updates from
+        the progress actor.
         """
-        if self.progress_queue is None:
+        if self.progress_actor is None:
             print(
-                "ProgressManager: cannot update the UI, no progress queue provided..."
+                "ProgressManager: cannot update the UI, no progress actor provided..."
             )
             return
 
         try:
             while True:
-                msg = self.progress_queue.get()
-
-                if msg is None:
+                messages, closed = ray.get(self.progress_actor.drain.remote())
+                for msg in messages:
+                    self._handle_message(msg)
+                if closed and not messages:
                     break
-
-                self._handle_message(msg)
+                time.sleep(self._poll_interval)
 
         except Exception as e:
             print(e)
