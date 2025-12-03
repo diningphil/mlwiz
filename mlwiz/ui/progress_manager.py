@@ -77,6 +77,8 @@ class ProgressManager:
         self._moves_buffer = ""
         self._failure_message = ""
         self._rendered_lines = 0
+        # Anchor row (1-based) where custom rendering starts; keeps drawing absolute.
+        self._render_origin_row = 1
 
         # when NOT in debug mode, this is None
         # when the global view is active, otherwise
@@ -127,6 +129,7 @@ class ProgressManager:
             self._to_visualize = identifier
             clear_screen()
             self._rendered_lines = 0
+            self._render_origin_row = 1
 
         if self._to_visualize in {"g", "global"}:
             self.refresh()
@@ -146,6 +149,7 @@ class ProgressManager:
                 raise Exception(invalid_id_msg)
         except Exception:
             clear_screen()
+            self._render_origin_row = 1
             print(invalid_id_msg, end="", flush=True)
             return
 
@@ -353,12 +357,24 @@ class ProgressManager:
         """
         Clear previous progress lines and invoke the provided printer.
         """
-        lines_to_clear = max(1, self._rendered_lines)
-        for _ in range(lines_to_clear - 1):
-            self._clear_line()
-            self._cursor_up()
+        # Render from a fixed top-left anchor so scrolling does not confuse the cursor.
+        if not sys.stdout.isatty():
+            rendered_lines = printer()
+            self._rendered_lines = (
+                rendered_lines if isinstance(rendered_lines, int) else 0
+            )
+            return
 
-        self._clear_line()
+        lines_to_clear = max(1, self._rendered_lines)
+        # Jump to the anchor row before clearing anything.
+        self._moves_buffer += f"\033[{self._render_origin_row};1H"
+        for idx in range(lines_to_clear):
+            self._clear_line()
+            if idx < lines_to_clear - 1:
+                self._cursor_down()
+
+        # Reset to the anchor and render the new content.
+        self._moves_buffer += f"\033[{self._render_origin_row};1H"
         rendered_lines = printer()
         self._rendered_lines = rendered_lines if isinstance(rendered_lines, int) else 0
 
@@ -449,6 +465,7 @@ class ProgressManager:
 
             if self._is_active_view(msg):
                 clear_screen()
+                self._render_origin_row = 1
 
                 print(
                     f"Run failed: run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}... \nMessage: {msg.get('message')}"
