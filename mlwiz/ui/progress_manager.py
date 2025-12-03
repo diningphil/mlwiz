@@ -180,11 +180,11 @@ class ProgressManager:
             self._render_user_input()
             return
 
-        invalid_id_msg = "ProgressManager: invalid identifier format, use outer_inner_config_run format or outer_run..."
+        invalid_id_msg = "ProgressManager: invalid identifier format, use \"outer inner config run\" format or \"outer run\" format..."
 
         # put last stored message on screen to display it
         try:
-            values = self._to_visualize.split("_")
+            values = self._to_visualize.split(" ")
             if (
                 (len(values) != 2 and len(values) != 4)
                 or "0" in values
@@ -375,7 +375,7 @@ class ProgressManager:
             return False
 
         try:
-            values = [int(v) - 1 for v in target.split("_")]
+            values = [int(v) - 1 for v in target.split(" ")]
         except Exception:
             return False
 
@@ -425,21 +425,6 @@ class ProgressManager:
         self._rendered_lines = (
             rendered_lines if isinstance(rendered_lines, int) else 0
         )
-
-    def _print_run_progress(self, msg: str):
-        """
-        Print a generic progress message respecting header ordering.
-        """
-        text = msg or ""
-        parts = []
-        if self._header_run_message:
-            parts.append(self._header_run_message)
-        if text:
-            parts.append(text)
-        rendered = "\n".join(parts)
-        self._append_to_buffer(rendered)
-        self._flush_buffer()
-        return rendered.count("\n") + 1 if rendered else 0
 
     def _make_config_readable(self, obj):
         """
@@ -554,10 +539,17 @@ class ProgressManager:
         elif type == RUN_PROGRESS:
             if store:
                 self._store_last_run_message(msg)
+                
             if self._is_active_view(msg):
+                batch_id = msg.get(BATCH)
+                total_batches = msg.get(TOTAL_BATCHES)
+                epoch = msg.get(EPOCH)
+                desc = msg.get(MODE)
                 self._last_progress_msg = self._format_run_message(msg)
                 self._render_progress(
-                    lambda: self._print_run_progress(self._last_progress_msg)
+                    lambda: self._print_train_progress_bar(
+                        batch_id, total_batches, epoch, desc
+                    )
                 )
 
         elif type == RUN_COMPLETED:

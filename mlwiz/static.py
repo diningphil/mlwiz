@@ -45,6 +45,7 @@ DEFAULT_ENGINE_CALLBACK = (
 )
 
 # STATE
+MODE = "mode"
 TRAINING = "training"
 EVALUATION = "evaluation"
 VALIDATION = "validation"

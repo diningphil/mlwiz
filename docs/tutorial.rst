@@ -350,8 +350,8 @@ hit ``Enter`` to switch what is rendered without stopping the run. Useful comman
 
 - ``g`` or ``global`` (or simply ``Enter`` on an empty prompt): go back to the default overview with all progress bars.
 - ``r`` or ``refresh``: redraw the currently selected view (handy if the terminal layout gets messy).
-- ``<outer>_<run>`` (e.g., ``1_2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
-- ``<outer>_<inner>_<config>_<run>`` (e.g., ``2_1_3_1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
+- ``<outer> <run>`` (e.g., ``1 2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
+- ``<outer> <inner> <config> <run>`` (e.g., ``2 1 3 1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
 
 If an identifier is invalid or the run has not produced updates yet, MLWiz will print a short hint and keep listening so
 you can try again.

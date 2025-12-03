@@ -162,6 +162,8 @@ class TrainingEngine(EventDispatcher):
         self.training = False
         self.logger = None
 
+        self._total_batches = None
+
         self.profiler = Profiler(threshold=1e-5)
 
         # Now register the callbacks (IN THIS ORDER, KNOWN TO THE USER)
@@ -417,6 +419,7 @@ class TrainingEngine(EventDispatcher):
 
         # Loop over data
         total_batches = len(loader)
+        self._total_batches = total_batches
         for id_batch in range(total_batches):
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
@@ -764,7 +767,11 @@ class TrainingEngine(EventDispatcher):
                         {
                             EPOCH: epoch + 1,
                             TOTAL_EPOCHS: max_epochs,
+                            BATCH: self._total_batches + 1,
+                            TOTAL_BATCHES: self._total_batches + 1,
+                            MODE: f"{deepcopy(self.state.set.capitalize())} Progress",
                             "message": deepcopy(progress_manager_msg),
+                            
                         },
                     )
 
