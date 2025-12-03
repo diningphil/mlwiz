@@ -552,13 +552,13 @@ class ProgressManager:
                 self._store_last_run_message(msg)
 
         elif type == RUN_PROGRESS:
+            if store:
+                self._store_last_run_message(msg)
             if self._is_active_view(msg):
                 self._last_progress_msg = self._format_run_message(msg)
                 self._render_progress(
                     lambda: self._print_run_progress(self._last_progress_msg)
                 )
-            if store:
-                self._store_last_run_message(msg)
 
         elif type == RUN_COMPLETED:
             pass  # do not store this message, not useful for now
