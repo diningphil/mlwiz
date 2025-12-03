@@ -3,6 +3,7 @@ import warnings
 from pathlib import Path
 from typing import Callable, List, Union, Tuple, Optional
 
+import time
 import torch
 import torch_geometric
 from torch.utils.data import SequentialSampler
@@ -420,6 +421,8 @@ class TrainingEngine(EventDispatcher):
         # Loop over data
         total_batches = len(loader)
         self._total_batches = total_batches
+        batch_progress_time = time.time()
+        cumulative_unsent_time = 0.
         for id_batch in range(total_batches):
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
@@ -427,17 +430,26 @@ class TrainingEngine(EventDispatcher):
 
             self._loop_helper()
 
-            # Batch has completed
-            _notify_progress(
-                BATCH_PROGRESS,
-                {
-                    EPOCH: self.state.epoch + 1,
-                    TOTAL_EPOCHS: self.state.total_epochs,
-                    BATCH: id_batch + 1,
-                    TOTAL_BATCHES: total_batches,
-                    "message": f"{deepcopy(self.state.set.capitalize())} Progress",
-                },
-            )
+            batch_progress_time_delta = time.time() - batch_progress_time
+
+            if id_batch == 0 or batch_progress_time >= 1. or cumulative_unsent_time > 10.:
+                # Batch has completed
+                _notify_progress(
+                    BATCH_PROGRESS,
+                    {
+                        EPOCH: self.state.epoch + 1,
+                        TOTAL_EPOCHS: self.state.total_epochs,
+                        BATCH: id_batch + 1,
+                        TOTAL_BATCHES: total_batches,
+                        "message": f"{deepcopy(self.state.set.capitalize())} Progress",
+                    },
+                )
+                # reset
+                cumulative_unsent_time = 0.
+            else:
+                cumulative_unsent_time += batch_progress_time_delta
+
+            batch_progress_time = time.time()
 
     def _train(self, loader, _notify_progress: Callable[[str, dict], None]):
         """
@@ -638,6 +650,9 @@ class TrainingEngine(EventDispatcher):
 
             last_run_elapsed_time = self.state.current_elapsed_time
 
+
+            epoch_progress_time = time.time()
+            cumulative_unsent_time = 0.
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
                 if training_timeout_seconds > 0:
@@ -762,18 +777,26 @@ class TrainingEngine(EventDispatcher):
                         + f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
                     )
 
-                    _notify_progress(
-                        RUN_PROGRESS,
-                        {
-                            EPOCH: epoch + 1,
-                            TOTAL_EPOCHS: max_epochs,
-                            BATCH: self._total_batches + 1,
-                            TOTAL_BATCHES: self._total_batches + 1,
-                            MODE: f"{deepcopy(self.state.set.capitalize())} Progress",
-                            "message": deepcopy(progress_manager_msg),
-                            
-                        },
-                    )
+                    epoch_progress_time_delta = time.time() - epoch_progress_time
+                    if epoch == 0 and epoch_progress_time_delta > 3. or cumulative_unsent_time > 10.:
+                        _notify_progress(
+                            RUN_PROGRESS,
+                            {
+                                EPOCH: epoch + 1,
+                                TOTAL_EPOCHS: max_epochs,
+                                BATCH: self._total_batches + 1,
+                                TOTAL_BATCHES: self._total_batches + 1,
+                                MODE: f"{deepcopy(self.state.set.capitalize())} Progress",
+                                "message": deepcopy(progress_manager_msg),
+                                
+                            },
+                        )
+                        # reset
+                        cumulative_unsent_time = 0.
+                    else:
+                        cumulative_unsent_time += epoch_progress_time_delta
+                    
+                    epoch_progress_time = time.time()
 
                     # Log performances
                     logger_msg = (
@@ -966,6 +989,8 @@ class DataStreamTrainingEngine(TrainingEngine):
         # Loop over data
         id_batch = 0
         self.state.update(stop_fetching=False)
+        batch_progress_time = time.time()
+        cumulative_unsent_time = 0.
         while not self.state.stop_fetching:
             self.state.update(id_batch=id_batch)
             id_batch += 1
@@ -978,14 +1003,22 @@ class DataStreamTrainingEngine(TrainingEngine):
 
             self._loop_helper()
 
-            # Batch has completed
-            _notify_progress(
-                BATCH_PROGRESS,
-                {
-                    EPOCH: self.state.epoch + 1,
-                    TOTAL_EPOCHS: self.state.total_epochs,
-                    BATCH: id_batch + 1,
-                    TOTAL_BATCHES: id_batch + 1,  # patch
-                    "message": f"{deepcopy(self.state.set.capitalize())} Progress",
-                },
-            )
+            batch_progress_time_delta = time.time() - batch_progress_time
+            
+            if batch_progress_time_delta >= 1. or cumulative_unsent_time > 10.:
+                # Batch has completed
+                _notify_progress(
+                    BATCH_PROGRESS,
+                    {
+                        EPOCH: self.state.epoch + 1,
+                        TOTAL_EPOCHS: self.state.total_epochs,
+                        BATCH: id_batch + 1,
+                        TOTAL_BATCHES: id_batch + 1,  # patch
+                        "message": f"{deepcopy(self.state.set.capitalize())} Progress",
+                    },
+                )
+                # reset
+                cumulative_unsent_time = 0.
+            else:
+                cumulative_unsent_time += batch_progress_time_delta
+            batch_progress_time = time.time()
