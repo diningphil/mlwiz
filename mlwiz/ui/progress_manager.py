@@ -393,6 +393,63 @@ class ProgressManager:
         self._flush_buffer()
         return rendered.count("\n") + 1 if rendered else 0
 
+    def _make_config_readable(self, obj):
+        """
+        Prepare configuration dictionaries for display.
+        Ensures keys are strings and class specs show up as class_name(args).
+        """
+
+        class _ClassSpec:
+            def __init__(self, class_name, args):
+                self.class_name = class_name
+                self.args = args if args is not None else {}
+
+            def __repr__(self):
+                if not self.args:
+                    return f"{self.class_name}()"
+                if not isinstance(self.args, dict):
+                    return f"{self.class_name}({repr(self.args)})"
+
+                parts = []
+                for key, value in self.args.items():
+                    value_repr = pformat(value, sort_dicts=False)
+                    if "\n" in value_repr:
+                        value_repr = value_repr.replace(
+                            "\n", "\n" + " " * (len(key) + 1)
+                        )
+                    parts.append(f"{key}={value_repr}")
+                return f"{self.class_name}({', '.join(parts)})"
+
+        if isinstance(obj, dict):
+            if "class_name" in obj:
+                return _ClassSpec(
+                    obj.get("class_name"),
+                    self._make_config_readable(obj.get("args", {})),
+                )
+            return {str(k): self._make_config_readable(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._make_config_readable(v) for v in obj]
+        if isinstance(obj, tuple):
+            return tuple(self._make_config_readable(v) for v in obj)
+        return obj
+
+    def _stringify_config(self, readable_config) -> str:
+        """
+        Render the readable config without dict braces, as key: value lines.
+        """
+        if not isinstance(readable_config, dict):
+            return pformat(readable_config, sort_dicts=False)
+
+        lines = []
+        for key, value in readable_config.items():
+            value_str = pformat(value, sort_dicts=False)
+            if "\n" in value_str:
+                value_str = value_str.replace(
+                    "\n", "\n" + " " * (len(str(key)) + 2)
+                )
+            lines.append(f"{key}: {value_str}")
+        return "\n".join(lines)
+
     def _format_run_message(self, msg: dict) -> str:
         """
         Format the progress message, appending the config (pretty printed)
@@ -403,7 +460,8 @@ class ProgressManager:
         if config is None:
             return base_message
 
-        config_str = pformat(config, sort_dicts=False)
+        readable_config = self._make_config_readable(config)
+        config_str = self._stringify_config(readable_config)
         if base_message:
             return f"{base_message}\nConfig:\n{config_str}"
         return f"Config:\n{config_str}"
