@@ -18,7 +18,7 @@ from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
-from mlwiz.evaluation.util import ProgressManager
+from mlwiz.ui.progress_manager import ProgressManager
 from mlwiz.experiment.experiment import Experiment
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
@@ -134,6 +134,7 @@ def run_valid(
                         OUTER_FOLD: dataset_getter.outer_k,
                         INNER_FOLD: dataset_getter.inner_k,
                         CONFIG_ID: config_id,
+                        CONFIG: config,
                         RUN_ID: run_id,
                         IS_FINAL: False,
                     }
@@ -159,6 +160,7 @@ def run_valid(
                         str(OUTER_FOLD): dataset_getter.outer_k,
                         str(INNER_FOLD): dataset_getter.inner_k,
                         str(CONFIG_ID): config_id,
+                        str(CONFIG): config,
                         str(RUN_ID): run_id,
                         str(IS_FINAL): False,
                         str(EPOCH): 0,
@@ -167,7 +169,7 @@ def run_valid(
                     }
                 )
             elapsed = -1
-            exit(0)
+            return None
     else:
         _, _, elapsed = dill_load(fold_results_torch_path)
     return (
@@ -278,7 +280,7 @@ def run_test(
                     }
                 )
             elapsed = -1
-            exit(0)
+            return None
 
     else:
         res = dill_load(final_run_torch_path)
@@ -400,6 +402,7 @@ class RiskAssesser:
             tc[LOG_MODEL_SELECTION] if tc is not None else None
         )
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
+        self.failure_message = None
 
     def risk_assessment(
         self,
@@ -430,6 +433,9 @@ class RiskAssesser:
             skip_config_ids = []
         else:
             skip_config_ids = [s - 1 for s in skip_config_ids]
+
+        # Reset failure state at the beginning of each evaluation
+        self.failure_message = None
 
         self.progress_queue = None
         try:
@@ -480,6 +486,7 @@ class RiskAssesser:
             for _ in range(self.outer_folds)
         ]
 
+        success = True
         for outer_k in range(self.outer_folds):
             # Create a separate folder for each experiment
             kfold_folder = osp.join(
@@ -499,16 +506,31 @@ class RiskAssesser:
                 skip_config_ids,
             )
 
+            if self.failure_message is not None:
+                success = False
+                break
+
             # Must stay separate from Ray distributed computing logic
             if debug:
                 self.run_final_model(outer_k, True)
+                if self.failure_message is not None:
+                    success = False
+                    break
 
         # We launched all model selection jobs, now it is time to wait
-        if not debug:
+        if not debug and success:
             # This will also launch the final runs jobs once the model
             # selection for a specific outer folds is completed.
             # It returns when everything has completed
-            self.wait_configs(skip_config_ids)
+            success = self.wait_configs(skip_config_ids)
+
+        if not success or self.failure_message is not None:
+            if self.failure_message is not None:
+                print(self.failure_message)
+            if self.progress_queue is not None:
+                self.progress_queue.put(None)
+            progress_thread.join()
+            return
 
         # Produces the self._ASSESSMENT_FILENAME file
         self.compute_risk_assessment_result()
@@ -517,10 +539,13 @@ class RiskAssesser:
             self.progress_queue.put(None)
         progress_thread.join()
 
-    def wait_configs(self, skip_config_ids: List[int]):
+    def wait_configs(self, skip_config_ids: List[int]) -> bool:
         r"""
         Waits for configurations to terminate and updates the state of the
         progress manager
+
+        Returns:
+            bool: ``True`` if all runs completed successfully, ``False`` otherwise.
         """
         no_model_configs = len(self.model_configs)
         skip_model_selection = no_model_configs == 1
@@ -573,15 +598,27 @@ class RiskAssesser:
                         )
                     )
 
+        success = True
         while waiting:
             completed, waiting = ray.wait(waiting)
             for future in completed:
                 is_model_selection_run = future in self.outer_folds_job_list
+                is_final_run = future in self.final_runs_job_list
+                result = ray.get(future)
 
-                if is_model_selection_run:  # Model selection
-                    outer_k, inner_k, config_id, run_id, elapsed = ray.get(
-                        future
-                    )
+                if result is None:
+                    if self.failure_message is None:
+                        self.failure_message = (
+                            "A model selection run failed; stopping before computing the best configuration. "
+                            "Check the run logs for details."
+                            if is_model_selection_run
+                            else "A final run failed; skipping outer fold scoring and final assessment. "
+                            "Check the run logs for details."
+                        )
+                    success = False
+
+                elif is_model_selection_run:  # Model selection
+                    outer_k, inner_k, config_id, run_id, elapsed = result
 
                     ms_exp_path = osp.join(
                         self._ASSESSMENT_FOLDER,
@@ -655,10 +692,8 @@ class RiskAssesser:
                             ]
                         )
 
-                elif (
-                    future in self.final_runs_job_list
-                ):  # Risk ass. final runs
-                    outer_k, run_id, elapsed = ray.get(future)
+                elif is_final_run:  # Risk ass. final runs
+                    outer_k, run_id, elapsed = result
                     self.progress_queue.put(
                         dict(
                             type=END_FINAL_RUN,
@@ -679,6 +714,8 @@ class RiskAssesser:
                     ):
                         # Time to produce self._OUTER_RESULTS_FILENAME
                         self.compute_final_runs_score_per_fold(outer_k)
+
+        return success
 
     def model_selection(
         self,
@@ -838,6 +875,7 @@ class RiskAssesser:
                                             OUTER_FOLD: dataset_getter.outer_k,
                                             INNER_FOLD: dataset_getter.inner_k,
                                             CONFIG_ID: config_id,
+                                            CONFIG: config,
                                             RUN_ID: run_id,
                                             IS_FINAL: False,
                                         }
@@ -881,6 +919,7 @@ class RiskAssesser:
                                                     INNER_FOLD
                                                 ): dataset_getter.inner_k,
                                                 str(CONFIG_ID): config_id,
+                                                str(CONFIG): config,
                                                 str(RUN_ID): run_id,
                                                 str(IS_FINAL): False,
                                                 str(EPOCH): 0,
@@ -889,7 +928,13 @@ class RiskAssesser:
                                             }
                                         )
                                     elapsed = -1
-                                    exit(0)
+                                    if self.failure_message is None:
+                                        self.failure_message = (
+                                            "A model selection run failed; "
+                                            "stopping before computing the best configuration. "
+                                            "Check the run logs for details."
+                                        )
+                                    return None
 
                     if debug:
                         self.process_model_selection_runs(fold_exp_folder, k)
@@ -1057,7 +1102,13 @@ class RiskAssesser:
                                 }
                             )
                         elapsed = -1
-                        exit(0)
+                        if self.failure_message is None:
+                            self.failure_message = (
+                                f"Final run {i + 1} for outer fold {outer_k + 1} failed; "
+                                "skipping outer fold scoring and final assessment. "
+                                "Check the run logs for details."
+                            )
+                        return None
 
         if debug:
             self.compute_final_runs_score_per_fold(outer_k)
