@@ -128,18 +128,22 @@ def run_valid(
                 if progress_queue is None:
                     return
 
-                payload = dict(payload)  # shallow copy
+                payload = deepcopy(
+                    payload
+                )  # deep copy in case the queue is not able to free the ObjRef
                 payload.update(
                     {
                         OUTER_FOLD: dataset_getter.outer_k,
                         INNER_FOLD: dataset_getter.inner_k,
                         CONFIG_ID: config_id,
-                        CONFIG: config,
                         RUN_ID: run_id,
                         IS_FINAL: False,
                     }
                 )
-                progress_queue.put(payload)
+                try:
+                    progress_queue.put(payload, block=False)
+                except Exception:
+                    pass
 
             train_res, val_res = experiment.run_valid(
                 dataset_getter,
@@ -154,20 +158,23 @@ def run_valid(
         except Exception as e:
 
             if progress_queue is not None:
-                progress_queue.put(
-                    {
-                        "type": RUN_FAILED,
-                        str(OUTER_FOLD): dataset_getter.outer_k,
-                        str(INNER_FOLD): dataset_getter.inner_k,
-                        str(CONFIG_ID): config_id,
-                        str(CONFIG): config,
-                        str(RUN_ID): run_id,
-                        str(IS_FINAL): False,
-                        str(EPOCH): 0,
-                        str(TOTAL_EPOCHS): 0,
-                        "message": e,
-                    }
-                )
+                try:
+                    progress_queue.put(
+                        {
+                            "type": RUN_FAILED,
+                            str(OUTER_FOLD): dataset_getter.outer_k,
+                            str(INNER_FOLD): dataset_getter.inner_k,
+                            str(CONFIG_ID): config_id,
+                            str(RUN_ID): run_id,
+                            str(IS_FINAL): False,
+                            str(EPOCH): 0,
+                            str(TOTAL_EPOCHS): 0,
+                            "message": e,
+                        }
+                    )
+                except Exception:
+                    pass
+
             elapsed = -1
             return None
     else:
@@ -238,7 +245,9 @@ def run_test(
                 if progress_queue is None:
                     return
 
-                payload = dict(payload)  # shallow copy
+                payload = deepcopy(
+                    payload
+                )  # deep copy in case the queue is not able to free the ObjRef
                 payload.update(
                     {
                         OUTER_FOLD: dataset_getter.outer_k,
@@ -248,7 +257,10 @@ def run_test(
                         IS_FINAL: True,
                     }
                 )
-                progress_queue.put(payload)
+                try:
+                    progress_queue.put(payload, block=False)
+                except Exception:
+                    pass
 
             res = experiment.run_test(
                 dataset_getter,
@@ -266,19 +278,22 @@ def run_test(
         except Exception as e:
 
             if progress_queue is not None:
-                progress_queue.put(
-                    {
-                        "type": RUN_FAILED,
-                        str(OUTER_FOLD): dataset_getter.outer_k,
-                        str(INNER_FOLD): None,
-                        str(CONFIG_ID): best_config["best_config_id"],
-                        str(RUN_ID): run_id,
-                        str(IS_FINAL): True,
-                        str(EPOCH): 0,
-                        str(TOTAL_EPOCHS): 0,
-                        "message": e,
-                    }
-                )
+                try:
+                    progress_queue.put(
+                        {
+                            "type": RUN_FAILED,
+                            str(OUTER_FOLD): dataset_getter.outer_k,
+                            str(INNER_FOLD): None,
+                            str(CONFIG_ID): best_config["best_config_id"],
+                            str(RUN_ID): run_id,
+                            str(IS_FINAL): True,
+                            str(EPOCH): 0,
+                            str(TOTAL_EPOCHS): 0,
+                            "message": e,
+                        }
+                    )
+                except Exception:
+                    pass
             elapsed = -1
             return None
 
@@ -439,7 +454,15 @@ class RiskAssesser:
 
         self.progress_queue = None
         try:
-            self.progress_queue = Queue()
+            self.progress_queue = Queue(
+                maxsize=max(
+                    1000,
+                    len(self.model_configs)
+                    * self.model_selection_training_runs
+                    * self.inner_folds
+                    * self.outer_folds,
+                )
+            )
         except Exception:
             # If the queue cannot be created, fall back to global-only view
             print("Cannot create Ray Queue, progress UI disabled.")
@@ -453,6 +476,7 @@ class RiskAssesser:
             debug=debug,
             progress_queue=self.progress_queue,
         )
+        self.progress_manager = progress_manager
 
         # Start listening to the progress queue
         progress_thread = threading.Thread(
@@ -528,7 +552,11 @@ class RiskAssesser:
             if self.failure_message is not None:
                 print(self.failure_message)
             if self.progress_queue is not None:
-                self.progress_queue.put(None)
+                try:
+                    self.progress_queue.put(None)
+                except Exception:
+                    pass
+
             progress_thread.join()
             return
 
@@ -536,7 +564,11 @@ class RiskAssesser:
         self.compute_risk_assessment_result()
 
         if self.progress_queue is not None:
-            self.progress_queue.put(None)
+            try:
+                self.progress_queue.put(None)
+            except Exception:
+                pass
+
         progress_thread.join()
 
     def wait_configs(self, skip_config_ids: List[int]) -> bool:
@@ -583,20 +615,23 @@ class RiskAssesser:
 
             for outer_k in range(self.outer_folds):
                 for inner_k in range(self.inner_folds):
-                    self.progress_queue.put(
-                        dict(
-                            type=END_CONFIG,
-                            outer_fold=outer_k,
-                            inner_fold=inner_k,
-                            config_id=skipped_config_id,
-                            elapsed=0.0,
-                            message=[
-                                f"Outer fold {outer_k + 1}, "
-                                f"inner fold {inner_k + 1}, "
-                                f"configuration {skipped_config_id + 1} skipped."
-                            ],
+                    try:
+                        self.progress_queue.put(
+                            dict(
+                                type=END_CONFIG,
+                                outer_fold=outer_k,
+                                inner_fold=inner_k,
+                                config_id=skipped_config_id,
+                                elapsed=0.0,
+                                message=[
+                                    f"Outer fold {outer_k + 1}, "
+                                    f"inner fold {inner_k + 1}, "
+                                    f"configuration {skipped_config_id + 1} skipped."
+                                ],
+                            )
                         )
-                    )
+                    except Exception:
+                        pass
 
         success = True
         while waiting:
@@ -640,20 +675,24 @@ class RiskAssesser:
                         inner_runs_completed[outer_k][config_id][inner_k]
                         == self.model_selection_training_runs
                     ):
-                        self.progress_queue.put(
-                            dict(
-                                type=END_CONFIG,
-                                outer_fold=outer_k,
-                                inner_fold=inner_k,
-                                config_id=config_id,
-                                elapsed=elapsed,
-                                message=[
-                                    f"Outer fold {outer_k + 1}, "
-                                    f"inner fold {inner_k + 1}, "
-                                    f"configuration {config_id + 1} completed."
-                                ],
+                        try:
+                            self.progress_queue.put(
+                                dict(
+                                    type=END_CONFIG,
+                                    outer_fold=outer_k,
+                                    inner_fold=inner_k,
+                                    config_id=config_id,
+                                    elapsed=elapsed,
+                                    message=[
+                                        f"Outer fold {outer_k + 1}, "
+                                        f"inner fold {inner_k + 1}, "
+                                        f"configuration {config_id + 1} completed."
+                                    ],
+                                )
                             )
-                        )
+                        except Exception:
+                            pass
+
                         self.process_model_selection_runs(
                             fold_exp_folder, inner_k
                         )
@@ -694,18 +733,21 @@ class RiskAssesser:
 
                 elif is_final_run:  # Risk ass. final runs
                     outer_k, run_id, elapsed = result
-                    self.progress_queue.put(
-                        dict(
-                            type=END_FINAL_RUN,
-                            outer_fold=outer_k,
-                            run_id=run_id,
-                            elapsed=elapsed,
-                            message=[
-                                f"Outer fold {outer_k + 1}, "
-                                f"final run {run_id + 1} completed."
-                            ],
+                    try:
+                        self.progress_queue.put(
+                            dict(
+                                type=END_FINAL_RUN,
+                                outer_fold=outer_k,
+                                run_id=run_id,
+                                elapsed=elapsed,
+                                message=[
+                                    f"Outer fold {outer_k + 1}, "
+                                    f"final run {run_id + 1} completed."
+                                ],
+                            )
                         )
-                    )
+                    except Exception:
+                        pass
 
                     final_runs_completed[outer_k] += 1
                     if (
@@ -778,6 +820,11 @@ class RiskAssesser:
                 for config_id, config in enumerate(self.model_configs)
                 if config_id not in skip_config_ids
             ]
+
+            # inform progress manager about the configs
+            self.progress_manager.set_model_configs(
+                deepcopy(self.model_configs.hparams)
+            )
 
             # Prioritizing executions in debug mode for debugging purposes
             if debug and execute_config_id is not None:
@@ -869,18 +916,22 @@ class RiskAssesser:
                                     if self.progress_queue is None:
                                         return
 
-                                    payload = dict(payload)  # shallow copy
+                                    payload = deepcopy(
+                                        payload
+                                    )  # deep copy in case the queue is not able to free the ObjRef
                                     payload.update(
                                         {
                                             OUTER_FOLD: dataset_getter.outer_k,
                                             INNER_FOLD: dataset_getter.inner_k,
                                             CONFIG_ID: config_id,
-                                            CONFIG: config,
                                             RUN_ID: run_id,
                                             IS_FINAL: False,
                                         }
                                     )
-                                    self.progress_queue.put(payload)
+                                    try:
+                                        self.progress_queue.put(payload, block=False)
+                                    except Exception:
+                                        pass
 
                                 try:
                                     (
@@ -909,24 +960,27 @@ class RiskAssesser:
                                 except Exception as e:
 
                                     if self.progress_queue is not None:
-                                        self.progress_queue.put(
-                                            {
-                                                "type": RUN_FAILED,
-                                                str(
-                                                    OUTER_FOLD
-                                                ): dataset_getter.outer_k,
-                                                str(
-                                                    INNER_FOLD
-                                                ): dataset_getter.inner_k,
-                                                str(CONFIG_ID): config_id,
-                                                str(CONFIG): config,
-                                                str(RUN_ID): run_id,
-                                                str(IS_FINAL): False,
-                                                str(EPOCH): 0,
-                                                str(TOTAL_EPOCHS): 0,
-                                                "message": e,
-                                            }
-                                        )
+                                        try:
+                                            self.progress_queue.put(
+                                                {
+                                                    "type": RUN_FAILED,
+                                                    str(
+                                                        OUTER_FOLD
+                                                    ): dataset_getter.outer_k,
+                                                    str(
+                                                        INNER_FOLD
+                                                    ): dataset_getter.inner_k,
+                                                    str(CONFIG_ID): config_id,
+                                                    str(RUN_ID): run_id,
+                                                    str(IS_FINAL): False,
+                                                    str(EPOCH): 0,
+                                                    str(TOTAL_EPOCHS): 0,
+                                                    "message": e,
+                                                }
+                                            )
+                                        except Exception:
+                                            pass
+
                                     elapsed = -1
                                     if self.failure_message is None:
                                         self.failure_message = (
@@ -1055,7 +1109,9 @@ class RiskAssesser:
                         if self.progress_queue is None:
                             return
 
-                        payload = dict(payload)  # shallow copy
+                        payload = deepcopy(
+                            payload
+                        )  # deep copy in case the queue is not able to free the ObjRef
                         payload.update(
                             {
                                 OUTER_FOLD: dataset_getter.outer_k,
@@ -1065,7 +1121,10 @@ class RiskAssesser:
                                 IS_FINAL: True,
                             }
                         )
-                        self.progress_queue.put(payload)
+                        try:
+                            self.progress_queue.put(payload, block=False)
+                        except Exception:
+                            pass
 
                     try:
                         res = experiment.run_test(
@@ -1086,21 +1145,25 @@ class RiskAssesser:
                     except Exception as e:
 
                         if self.progress_queue is not None:
-                            self.progress_queue.put(
-                                {
-                                    "type": RUN_FAILED,
-                                    str(OUTER_FOLD): dataset_getter.outer_k,
-                                    str(INNER_FOLD): None,
-                                    str(CONFIG_ID): best_config[
-                                        "best_config_id"
-                                    ],
-                                    str(RUN_ID): i,
-                                    str(IS_FINAL): True,
-                                    str(EPOCH): 0,
-                                    str(TOTAL_EPOCHS): 0,
-                                    "message": e,
-                                }
-                            )
+                            try:
+                                self.progress_queue.put(
+                                    {
+                                        "type": RUN_FAILED,
+                                        str(OUTER_FOLD): dataset_getter.outer_k,
+                                        str(INNER_FOLD): None,
+                                        str(CONFIG_ID): best_config[
+                                            "best_config_id"
+                                        ],
+                                        str(RUN_ID): i,
+                                        str(IS_FINAL): True,
+                                        str(EPOCH): 0,
+                                        str(TOTAL_EPOCHS): 0,
+                                        "message": e,
+                                    }
+                                )
+                            except Exception:
+                                pass
+
                         elapsed = -1
                         if self.failure_message is None:
                             self.failure_message = (

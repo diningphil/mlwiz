@@ -91,7 +91,7 @@ class ProgressManager:
         self._input_lock = threading.Lock()  # guards input state
         self._stop_input_event = threading.Event()  # stops listener on exit
         self._input_thread = None  # background input listener
-
+        self_model_configs = None
         clear_screen()
 
         if not self.debug:
@@ -108,7 +108,18 @@ class ProgressManager:
             self.times = [{} for _ in range(len(self.pbars))]
             self._start_input_listener()
 
-    def _change_view_mode(self, identifier: str = None, force_refresh: bool = False):
+    def set_model_configs(self, model_configs):
+        """
+        Set model configurations so copies don't have to be stored
+        in the queue
+
+        :param model_configs: list of hparams
+        """
+        self._model_configs = model_configs
+
+    def _change_view_mode(
+        self, identifier: str = None, force_refresh: bool = False
+    ):
         """
         Changes the view mode of the progress manager.
         If config_id is None, the global view is activated.
@@ -311,7 +322,9 @@ class ProgressManager:
             overlay_width = self._input_render_len if self._input_active else 0
 
         # Reserve space for the input overlay if active.
-        overlay_start = max(1, cols - overlay_width + 1) if overlay_width else cols + 1
+        overlay_start = (
+            max(1, cols - overlay_width + 1) if overlay_width else cols + 1
+        )
         max_width = overlay_start - 1 if overlay_start > 1 else cols
         max_width = max(1, max_width)
 
@@ -376,7 +389,9 @@ class ProgressManager:
         # Reset to the anchor and render the new content.
         self._moves_buffer += f"\033[{self._render_origin_row};1H"
         rendered_lines = printer()
-        self._rendered_lines = rendered_lines if isinstance(rendered_lines, int) else 0
+        self._rendered_lines = (
+            rendered_lines if isinstance(rendered_lines, int) else 0
+        )
 
     def _print_run_progress(self, msg: str):
         """
@@ -426,7 +441,9 @@ class ProgressManager:
                     obj.get("class_name"),
                     self._make_config_readable(obj.get("args", {})),
                 )
-            return {str(k): self._make_config_readable(v) for k, v in obj.items()}
+            return {
+                str(k): self._make_config_readable(v) for k, v in obj.items()
+            }
         if isinstance(obj, list):
             return [self._make_config_readable(v) for v in obj]
         if isinstance(obj, tuple):
@@ -456,7 +473,8 @@ class ProgressManager:
         when available.
         """
         base_message = msg.get("message") or ""
-        config = msg.get(CONFIG)
+        config_id = msg.get(CONFIG_ID)
+        config = self._model_configs[config_id]
         if config is None:
             return base_message
 
@@ -484,7 +502,6 @@ class ProgressManager:
                 self._header_run_message = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
             elif self._is_active_view(msg):
                 self._header_run_message = f"Model selection run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
-
 
         elif type == BATCH_PROGRESS:
             if self._is_active_view(msg):
