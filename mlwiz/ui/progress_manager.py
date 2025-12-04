@@ -186,7 +186,7 @@ class ProgressManager:
             self._render_user_input()
             return
 
-        invalid_id_msg = "ProgressManager: invalid identifier format, use \"outer inner config run\" format or \"outer run\" format..."
+        invalid_id_msg = 'ProgressManager: invalid identifier format, use "outer inner config run" format or "outer run" format...'
 
         # put last stored message on screen to display it
         try:
@@ -210,11 +210,9 @@ class ProgressManager:
             if len(values) == 2:
                 outer, run = int(values[0]) - 1, int(values[1]) - 1
                 msg = self._final_run_messages[int(outer)][int(run)]
-                progress_msg = (
-                    self._final_progress_messages.get(int(outer), {}).get(
-                        int(run), ""
-                    )
-                )
+                progress_msg = self._final_progress_messages.get(
+                    int(outer), {}
+                ).get(int(run), "")
                 self._header_run_message = f"Risk assessment run {run + 1} for outer fold {outer + 1}..."
 
             elif len(values) == 4:

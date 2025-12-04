@@ -94,7 +94,8 @@ DEBUG_CLI_ARGUMENT = "--debug"
 EXECUTE_CONFIG_ID_CLI_ARGUMENT = "--execute-config-id"
 SKIP_SPLITS_CHECK_CLI_ARGUMENT = "--skip-data-splits-check"
 SKIP_CONFIG_IDS_CLI_ARGUMENT = "--skip-config-ids"
-
+TIME_DELTA = 2.0  # MIN time that needs to pass between two batches or epochs to notify the ProgressManager
+CUMULATIVE_UNSENT_DELTA = 10.0  # MAX time that needs to pass between two batches or epochs to notify the ProgressManager
 
 DATA_SPLITS_FILE = "data_splits_file"
 SKIP_SPLITS_CHECK = "skip_splits_check"

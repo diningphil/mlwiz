@@ -422,7 +422,7 @@ class TrainingEngine(EventDispatcher):
         total_batches = len(loader)
         self._total_batches = total_batches
         batch_progress_time = time.time()
-        cumulative_unsent_time = 0.
+        cumulative_unsent_time = 0.0
         for id_batch in range(total_batches):
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
@@ -432,7 +432,11 @@ class TrainingEngine(EventDispatcher):
 
             batch_progress_time_delta = time.time() - batch_progress_time
 
-            if id_batch == 0 or batch_progress_time >= 2. or cumulative_unsent_time > 10.:
+            if (
+                id_batch == 0
+                or batch_progress_time >= TIME_DELTA
+                or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+            ):
                 # Batch has completed
                 _notify_progress(
                     BATCH_PROGRESS,
@@ -445,7 +449,7 @@ class TrainingEngine(EventDispatcher):
                     },
                 )
                 # reset
-                cumulative_unsent_time = 0.
+                cumulative_unsent_time = 0.0
             else:
                 cumulative_unsent_time += batch_progress_time_delta
 
@@ -650,9 +654,8 @@ class TrainingEngine(EventDispatcher):
 
             last_run_elapsed_time = self.state.current_elapsed_time
 
-
             epoch_progress_time = time.time()
-            cumulative_unsent_time = 0.
+            cumulative_unsent_time = 0.0
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
                 if training_timeout_seconds > 0:
@@ -777,8 +780,14 @@ class TrainingEngine(EventDispatcher):
                         + f"TR/VL/TE score: {tr_score}/{val_score}/{test_score}"
                     )
 
-                    epoch_progress_time_delta = time.time() - epoch_progress_time
-                    if epoch == 0 and epoch_progress_time_delta > 2. or cumulative_unsent_time > 10.:
+                    epoch_progress_time_delta = (
+                        time.time() - epoch_progress_time
+                    )
+                    if (
+                        epoch == 0
+                        and epoch_progress_time_delta > TIME_DELTA
+                        or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                    ):
                         _notify_progress(
                             RUN_PROGRESS,
                             {
@@ -788,14 +797,13 @@ class TrainingEngine(EventDispatcher):
                                 TOTAL_BATCHES: self._total_batches + 1,
                                 MODE: f"{deepcopy(self.state.set.capitalize())} Progress",
                                 "message": deepcopy(progress_manager_msg),
-                                
                             },
                         )
                         # reset
-                        cumulative_unsent_time = 0.
+                        cumulative_unsent_time = 0.0
                     else:
                         cumulative_unsent_time += epoch_progress_time_delta
-                    
+
                     epoch_progress_time = time.time()
 
                     # Log performances
@@ -990,7 +998,7 @@ class DataStreamTrainingEngine(TrainingEngine):
         id_batch = 0
         self.state.update(stop_fetching=False)
         batch_progress_time = time.time()
-        cumulative_unsent_time = 0.
+        cumulative_unsent_time = 0.0
         while not self.state.stop_fetching:
             self.state.update(id_batch=id_batch)
             id_batch += 1
@@ -1004,8 +1012,11 @@ class DataStreamTrainingEngine(TrainingEngine):
             self._loop_helper()
 
             batch_progress_time_delta = time.time() - batch_progress_time
-            
-            if batch_progress_time_delta >= 2. or cumulative_unsent_time > 10.:
+
+            if (
+                batch_progress_time_delta >= TIME_DELTA
+                or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+            ):
                 # Batch has completed
                 _notify_progress(
                     BATCH_PROGRESS,
@@ -1018,7 +1029,7 @@ class DataStreamTrainingEngine(TrainingEngine):
                     },
                 )
                 # reset
-                cumulative_unsent_time = 0.
+                cumulative_unsent_time = 0.0
             else:
                 cumulative_unsent_time += batch_progress_time_delta
             batch_progress_time = time.time()

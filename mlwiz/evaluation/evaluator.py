@@ -1108,9 +1108,7 @@ class RiskAssesser:
                                 "type": RUN_FAILED,
                                 str(OUTER_FOLD): dataset_getter.outer_k,
                                 str(INNER_FOLD): None,
-                                str(CONFIG_ID): best_config[
-                                    "best_config_id"
-                                ],
+                                str(CONFIG_ID): best_config["best_config_id"],
                                 str(RUN_ID): i,
                                 str(IS_FINAL): True,
                                 str(EPOCH): 0,
