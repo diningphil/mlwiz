@@ -434,7 +434,7 @@ class TrainingEngine(EventDispatcher):
 
             if (
                 id_batch == 0
-                or batch_progress_time >= TIME_DELTA
+                or batch_progress_time_delta >= TIME_DELTA
                 or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
                 # Batch has completed
