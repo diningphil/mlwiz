@@ -82,6 +82,7 @@ class ProgressManager:
         outer_folds,
         inner_folds,
         no_configs,
+        config_runs,
         final_runs,
         debug=True,
         progress_actor=None,
@@ -91,6 +92,7 @@ class ProgressManager:
         self.outer_folds = outer_folds
         self.inner_folds = inner_folds
         self.no_configs = no_configs
+        self.config_runs = config_runs
         self.final_runs = final_runs
         self.pbars = []
         self.debug = debug
@@ -282,7 +284,22 @@ class ProgressManager:
                 if not readable:
                     continue
                 try:
-                    char = os.read(fd, 1).decode(errors="ignore")
+                    char_bytes = os.read(fd, 1)
+                    if not char_bytes:
+                        continue
+                    char = char_bytes.decode(errors="ignore")
+                    # Best-effort assembly of ANSI escape sequences (e.g., arrows).
+                    if char == "\x1b":
+                        seq = [char]
+                        while True:
+                            ready, _, _ = select.select([fd], [], [], 0)
+                            if not ready or len(seq) >= 3:
+                                break
+                            next_bytes = os.read(fd, 1)
+                            if not next_bytes:
+                                break
+                            seq.append(next_bytes.decode(errors="ignore"))
+                        char = "".join(seq)
                 except Exception:
                     break
                 if char:
@@ -295,6 +312,17 @@ class ProgressManager:
             self._clear_input_overlay()
 
     def _handle_keypress(self, char: str):
+        arrow_handlers = {
+            "\x1b[A": self._handle_arrow_up,
+            "\x1b[B": self._handle_arrow_down,
+            "\x1b[C": self._handle_arrow_right,
+            "\x1b[D": self._handle_arrow_left,
+        }
+        handler = arrow_handlers.get(char)
+        if handler is not None:
+            handler()
+            return
+
         if char == ":" and not self._input_active:
             with self._input_lock:
                 self._input_active = True
@@ -329,6 +357,128 @@ class ProgressManager:
         with self._input_lock:
             self._input_buffer += char
         self._render_user_input()
+
+    def _handle_arrow_up(self):
+        self._toggle_last_views()
+
+    def _handle_arrow_down(self):
+        self._toggle_last_views()
+
+    def _handle_arrow_right(self):
+        self._navigate_identifier(direction=1)
+
+    def _handle_arrow_left(self):
+        self._navigate_identifier(direction=-1)
+
+    def _toggle_last_views(self):
+        selection_id = self._last_seen_model_selection_identifier
+        final_id = self._last_seen_final_run_identifier
+        kind, *_ = self._parse_view_identifier(self._to_visualize) or (None,)
+
+        if kind == "selection" and final_id:
+            self._change_view_mode(final_id)
+        elif kind == "final" and selection_id:
+            self._change_view_mode(selection_id)
+        elif kind is None:
+            pass  # global view, don't do anything
+
+    def _navigate_identifier(self, direction: int):
+        current_identifier = self._to_visualize
+        parsed = self._parse_view_identifier(current_identifier)
+        if parsed is None:
+            fallback = (
+                self._last_seen_model_selection_identifier
+                or self._last_seen_final_run_identifier
+            )
+            parsed = self._parse_view_identifier(fallback)
+            if parsed is None:
+                return
+
+        kind, *values = parsed
+        if kind == "selection":
+            new_values = self._step_selection(values, direction)
+        else:
+            new_values = self._step_final(values, direction)
+
+        if new_values is None:
+            return
+        new_identifier = self._format_view_identifier(kind, new_values)
+        self._change_view_mode(new_identifier)
+
+    def _parse_view_identifier(self, identifier):
+        if not identifier or identifier in {"g", "global"}:
+            return None
+        try:
+            values = [int(v) for v in identifier.split(" ")]
+        except Exception:
+            return None
+
+        if len(values) == 2:
+            return ("final", *values)
+        if len(values) == 4:
+            return ("selection", *values)
+        return None
+
+    def _format_view_identifier(self, kind: str, values):
+        if kind == "final":
+            outer, run = values
+            return f"{outer} {run}"
+        outer, inner, config, run = values
+        return f"{outer} {inner} {config} {run}"
+
+    def _step_selection(self, values, direction: int):
+        outer, inner, config, run = values
+
+        if direction > 0:
+            if run < self.config_runs:
+                run += 1
+            elif config < self.no_configs:
+                config += 1
+                run = 1
+            elif inner < self.inner_folds:
+                inner += 1
+                config = 1
+                run = 1
+            elif outer < self.outer_folds:
+                outer += 1
+                inner = 1
+                config = 1
+                run = 1
+        else:
+            if run > 1:
+                run -= 1
+            elif config > 1:
+                config -= 1
+                run = self.config_runs
+            elif inner > 1:
+                inner -= 1
+                config = self.no_configs
+                run = self.config_runs
+            elif outer > 1:
+                outer -= 1
+                inner = self.inner_folds
+                config = self.no_configs
+                run = self.config_runs
+
+        return outer, inner, config, run
+
+    def _step_final(self, values, direction: int):
+        outer, run = values
+
+        if direction > 0:
+            if run < self.config_runs:
+                run += 1
+            elif outer < self.outer_folds:
+                outer += 1
+                run = 1
+        else:
+            if run > 1:
+                run -= 1
+            elif outer > 1:
+                outer -= 1
+                run = self.config_runs
+
+        return outer, run
 
     def _clear_input_overlay(self):
         with self._input_lock:
@@ -861,6 +1011,7 @@ class ProgressManager:
             if outer not in self._final_run_messages:
                 self._final_run_messages[outer] = {}
             self._final_run_messages[outer][run] = msg
+            return
             
         inner = msg.get(INNER_FOLD)
         config = msg.get(CONFIG_ID)

@@ -453,6 +453,7 @@ class RiskAssesser:
             self.outer_folds,
             self.inner_folds,
             len(self.model_configs),
+            self.model_selection_training_runs,
             self.risk_assessment_training_runs,
             debug=debug,
             progress_actor=self.progress_actor,
