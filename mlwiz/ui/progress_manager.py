@@ -103,6 +103,12 @@ class ProgressManager:
         # Keep track of the latest message for final runs
         # Structured as [outer][run] -> msg
         self._final_run_messages = {}
+        # Keep track of the latest progress text per individual run
+        # Structured as [outer][inner][config][run] -> str
+        self._last_progress_messages = {}
+        # Keep track of the latest progress text for final runs
+        # Structured as [outer][run] -> str
+        self._final_progress_messages = {}
 
         # used to combine printing of multiple information in debug mode
         self._header_run_message = ""
@@ -197,11 +203,18 @@ class ProgressManager:
             print(invalid_id_msg, end="", flush=True)
             return
 
+        self._last_progress_msg = ""
         try:
             msg = None
+            progress_msg = ""
             if len(values) == 2:
                 outer, run = int(values[0]) - 1, int(values[1]) - 1
                 msg = self._final_run_messages[int(outer)][int(run)]
+                progress_msg = (
+                    self._final_progress_messages.get(int(outer), {}).get(
+                        int(run), ""
+                    )
+                )
                 self._header_run_message = f"Risk assessment run {run + 1} for outer fold {outer + 1}..."
 
             elif len(values) == 4:
@@ -214,12 +227,20 @@ class ProgressManager:
                 msg = self._last_run_messages[int(outer)][int(inner)][
                     int(config)
                 ][int(run)]
+                progress_msg = (
+                    self._last_progress_messages.get(int(outer), {})
+                    .get(int(inner), {})
+                    .get(int(config), {})
+                    .get(int(run), "")
+                )
                 self._header_run_message = f"Model selection run {run + 1} for config {config + 1} for outer fold {outer + 1}, inner fold {inner + 1}..."
 
+            self._last_progress_msg = progress_msg or ""
             if msg is not None:
                 self._handle_message(
                     msg, store=False
                 )  # do not store message already stored
+
         except KeyError:
             print("ProgressManager: waiting for the next update...")
         except Exception:
@@ -537,15 +558,17 @@ class ProgressManager:
                 self._store_last_run_message(msg)
 
         elif type == RUN_PROGRESS:
+            progress_msg = self._format_run_message(msg)
             if store:
                 self._store_last_run_message(msg)
-                
+                self._store_last_progress_message(msg, progress_msg)
+
             if self._is_active_view(msg):
                 batch_id = msg.get(BATCH)
                 total_batches = msg.get(TOTAL_BATCHES)
                 epoch = msg.get(EPOCH)
                 desc = msg.get(MODE)
-                self._last_progress_msg = self._format_run_message(msg)
+                self._last_progress_msg = progress_msg
                 self._render_progress(
                     lambda: self._print_train_progress_bar(
                         batch_id, total_batches, epoch, desc
@@ -847,3 +870,30 @@ class ProgressManager:
             self._last_run_messages[outer][inner][config] = {}
 
         self._last_run_messages[outer][inner][config][run] = msg
+
+    def _store_last_progress_message(self, msg: dict, progress_msg: str):
+        """
+        Stores the latest formatted progress text for a specific run.
+        """
+        outer = msg.get(OUTER_FOLD)
+        run = msg.get(RUN_ID)
+
+        if msg.get(IS_FINAL, False):
+            if outer not in self._final_progress_messages:
+                self._final_progress_messages[outer] = {}
+            self._final_progress_messages[outer][run] = progress_msg
+            return
+
+        inner = msg.get(INNER_FOLD)
+        config = msg.get(CONFIG_ID)
+
+        if outer not in self._last_progress_messages:
+            self._last_progress_messages[outer] = {}
+        if inner not in self._last_progress_messages[outer]:
+            self._last_progress_messages[outer][inner] = {}
+        if config not in self._last_progress_messages[outer][inner]:
+            self._last_progress_messages[outer][inner][config] = {}
+
+        self._last_progress_messages[outer][inner][config][run] = (
+            progress_msg or ""
+        )
