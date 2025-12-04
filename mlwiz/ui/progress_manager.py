@@ -109,6 +109,9 @@ class ProgressManager:
         # Keep track of the latest progress text for final runs
         # Structured as [outer][run] -> str
         self._final_progress_messages = {}
+        # Keep identifiers of the most recent model selection and final runs
+        self._last_seen_model_selection_identifier = None
+        self._last_seen_final_run_identifier = None
 
         # used to combine printing of multiple information in debug mode
         self._header_run_message = ""
@@ -209,6 +212,8 @@ class ProgressManager:
             progress_msg = ""
             if len(values) == 2:
                 outer, run = int(values[0]) - 1, int(values[1]) - 1
+                self._last_seen_final_run_identifier = f"{outer + 1} {run + 1}"
+
                 msg = self._final_run_messages[int(outer)][int(run)]
                 progress_msg = self._final_progress_messages.get(
                     int(outer), {}
@@ -222,6 +227,7 @@ class ProgressManager:
                     int(values[2]) - 1,
                     int(values[3]) - 1,
                 )
+                self._last_seen_model_selection_identifier = f"{outer + 1} {inner + 1} {config + 1}{run + 1}"
                 msg = self._last_run_messages[int(outer)][int(inner)][
                     int(config)
                 ][int(run)]
@@ -855,8 +861,7 @@ class ProgressManager:
             if outer not in self._final_run_messages:
                 self._final_run_messages[outer] = {}
             self._final_run_messages[outer][run] = msg
-            return
-
+            
         inner = msg.get(INNER_FOLD)
         config = msg.get(CONFIG_ID)
 
