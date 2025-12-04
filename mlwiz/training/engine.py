@@ -778,7 +778,7 @@ class TrainingEngine(EventDispatcher):
                     )
 
                     epoch_progress_time_delta = time.time() - epoch_progress_time
-                    if epoch == 0 and epoch_progress_time_delta > 3. or cumulative_unsent_time > 10.:
+                    if epoch == 0 and epoch_progress_time_delta > 5. or cumulative_unsent_time > 10.:
                         _notify_progress(
                             RUN_PROGRESS,
                             {
@@ -1005,7 +1005,7 @@ class DataStreamTrainingEngine(TrainingEngine):
 
             batch_progress_time_delta = time.time() - batch_progress_time
             
-            if batch_progress_time_delta >= 1. or cumulative_unsent_time > 10.:
+            if batch_progress_time_delta >= 5. or cumulative_unsent_time > 10.:
                 # Batch has completed
                 _notify_progress(
                     BATCH_PROGRESS,
