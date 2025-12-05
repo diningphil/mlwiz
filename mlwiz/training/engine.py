@@ -125,6 +125,7 @@ class TrainingEngine(EventDispatcher):
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
     """
+    cumulative_unsent_time: float = 0.0
 
     def __init__(
         self,
@@ -439,7 +440,6 @@ class TrainingEngine(EventDispatcher):
         total_batches = len(loader)
         self._total_batches = total_batches
         batch_progress_time = time.time()
-        cumulative_unsent_time = 0.0
         for id_batch in range(total_batches):
             self._check_termination()
             self.state.update(id_batch=id_batch)
@@ -448,12 +448,14 @@ class TrainingEngine(EventDispatcher):
 
             self._loop_helper()
 
-            batch_progress_time_delta = time.time() - batch_progress_time
+            batch_progress_time_delta = (
+                time.time() - self.batch_progress_time
+            )
 
             if (
                 id_batch == 0
                 or batch_progress_time_delta >= TIME_DELTA
-                or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                or self.cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
                 # Batch has completed
                 _notify_progress(
@@ -467,9 +469,9 @@ class TrainingEngine(EventDispatcher):
                     },
                 )
                 # reset
-                cumulative_unsent_time = 0.0
+                self.cumulative_unsent_time = 0.0
             else:
-                cumulative_unsent_time += batch_progress_time_delta
+                self.cumulative_unsent_time += self.batch_progress_time_delta
 
             batch_progress_time = time.time()
 
@@ -678,7 +680,6 @@ class TrainingEngine(EventDispatcher):
             last_run_elapsed_time = self.state.current_elapsed_time
 
             epoch_progress_time = time.time()
-            cumulative_unsent_time = 0.0
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
                 self._check_termination()
@@ -809,8 +810,9 @@ class TrainingEngine(EventDispatcher):
                     )
                     if (
                         epoch == 0
-                        and epoch_progress_time_delta > TIME_DELTA
-                        or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                        and epoch_progress_time_delta >= TIME_DELTA
+                        or self.cumulative_unsent_time
+                        > CUMULATIVE_UNSENT_DELTA
                     ):
                         _notify_progress(
                             RUN_PROGRESS,
@@ -824,9 +826,11 @@ class TrainingEngine(EventDispatcher):
                             },
                         )
                         # reset
-                        cumulative_unsent_time = 0.0
+                        self.cumulative_unsent_time = 0.0
                     else:
-                        cumulative_unsent_time += epoch_progress_time_delta
+                        self.cumulative_unsent_time += (
+                            epoch_progress_time_delta
+                        )
 
                     epoch_progress_time = time.time()
 
@@ -1024,7 +1028,7 @@ class DataStreamTrainingEngine(TrainingEngine):
         id_batch = 0
         self.state.update(stop_fetching=False)
         batch_progress_time = time.time()
-        cumulative_unsent_time = 0.0
+
         while not self.state.stop_fetching:
             self.state.update(id_batch=id_batch)
             id_batch += 1
@@ -1041,7 +1045,7 @@ class DataStreamTrainingEngine(TrainingEngine):
 
             if (
                 batch_progress_time_delta >= TIME_DELTA
-                or cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                or self.cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
                 # Batch has completed
                 _notify_progress(
@@ -1055,7 +1059,8 @@ class DataStreamTrainingEngine(TrainingEngine):
                     },
                 )
                 # reset
-                cumulative_unsent_time = 0.0
+                self.cumulative_unsent_time = 0.0
             else:
-                cumulative_unsent_time += batch_progress_time_delta
+                self.cumulative_unsent_time += self.batch_progress_time_delta
+
             batch_progress_time = time.time()
