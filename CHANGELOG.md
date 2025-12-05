@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.3.0] Improved CLI and Statistical Significance Tool 
+## [1.3.0] Majorly Improved CLI and Added Statistical Significance Utilities 
 
 ## Added
 
