@@ -11,6 +11,7 @@ from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
 import mlwiz
+from mlwiz.exceptions import TerminationRequested
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import *
@@ -164,6 +165,7 @@ class TrainingEngine(EventDispatcher):
         self.logger = None
 
         self._total_batches = None
+        self._should_terminate = None
 
         self.profiler = Profiler(threshold=1e-5)
 
@@ -200,6 +202,21 @@ class TrainingEngine(EventDispatcher):
             self.model, self.optimizer, self.device
         )  # Initialize the state
         self.state.update(exp_path=self.exp_path)
+
+    def _check_termination(self):
+        """
+        Raises if an external termination has been requested.
+        """
+        if self._should_terminate is None:
+            return
+        try:
+            should_stop = self._should_terminate()
+        except TerminationRequested:
+            raise
+        except Exception:
+            return
+        if should_stop:
+            raise TerminationRequested("Termination requested.")
 
     def _to_data_list(
         self, x: torch.Tensor, batch: torch.Tensor, y: Optional[torch.Tensor]
@@ -424,6 +441,7 @@ class TrainingEngine(EventDispatcher):
         batch_progress_time = time.time()
         cumulative_unsent_time = 0.0
         for id_batch in range(total_batches):
+            self._check_termination()
             self.state.update(id_batch=id_batch)
             # EngineCallback will store fetched data in state.batch_input
             self._dispatch(EventHandler.ON_FETCH_DATA, self.state)
@@ -560,6 +578,7 @@ class TrainingEngine(EventDispatcher):
         logger: Logger = None,
         training_timeout_seconds: int = -1,
         progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
     ) -> Tuple[
         dict,
         dict,
@@ -589,6 +608,8 @@ class TrainingEngine(EventDispatcher):
             logger: the logger
             progress_callback: optional callable that receives dictionaries
                 with progress information for external consumers
+            should_terminate: optional callable returning ``True`` when a
+                graceful termination has been requested
 
         Returns:
              a tuple (train_loss, train_score, train_embeddings,
@@ -596,6 +617,7 @@ class TrainingEngine(EventDispatcher):
              test_loss, test_score, test_embeddings)
         """
         self.logger = logger
+        self._should_terminate = should_terminate
 
         def _notify_progress(event_type: str, payload: dict):
             """
@@ -616,6 +638,7 @@ class TrainingEngine(EventDispatcher):
         final_epoch = None
 
         try:
+            self._check_termination()
             # Initialize variables
             val_loss, val_score, val_embeddings_tuple = None, None, None
             test_loss, test_score, test_embeddings_tuple = None, None, None
@@ -658,6 +681,7 @@ class TrainingEngine(EventDispatcher):
             cumulative_unsent_time = 0.0
             # Loop over the entire dataset dataset
             for epoch in range(self.state.initial_epoch, max_epochs):
+                self._check_termination()
                 if training_timeout_seconds > 0:
                     # update the current time including the time of the last run
                     self.state.update(
@@ -885,6 +909,8 @@ class TrainingEngine(EventDispatcher):
 
             self.state.update(set=None)
 
+        except TerminationRequested:
+            raise
         except (KeyboardInterrupt, RuntimeError, FileNotFoundError) as e:
             report = self.profiler.report()
             print(str(e))

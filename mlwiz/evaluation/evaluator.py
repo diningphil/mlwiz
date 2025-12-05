@@ -6,6 +6,7 @@ import os.path as osp
 import random
 import re
 import threading
+import time
 from copy import deepcopy
 from typing import Callable, List, Optional, Tuple, Union
 
@@ -20,6 +21,7 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.ui.progress_manager import ProgressManager, ProgressManagerActor
 from mlwiz.experiment.experiment import Experiment
+from mlwiz.exceptions import ExperimentTerminated
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
 from mlwiz.util import dill_load, dill_save, s2c
@@ -130,6 +132,30 @@ def run_valid(
         a tuple with outer fold id, inner fold id, config id, run id,
             and time elapsed
     """
+    termination_state = {"stop": False, "last_check": 0.0}
+
+    def _should_terminate():
+        # Poll the progress actor occasionally to see if a termination was requested.
+        # Cache result in termination_state to avoid spamming ray.get.
+        if termination_state["stop"]:
+            return True
+        if progress_actor is None:
+            return False
+        now = time.time()
+        if now - termination_state["last_check"] < 0.2:
+            return False
+        termination_state["last_check"] = now
+        try:
+            termination_state["stop"] = ray.get(
+                progress_actor.is_terminated.remote()
+            )
+        except Exception:
+            return True  # errs on the safe side: stop if we cannot check
+        return termination_state["stop"]
+
+    if _should_terminate():
+        return None
+
     if not osp.exists(fold_results_torch_path):
         try:
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
@@ -154,11 +180,14 @@ def run_valid(
                 training_timeout_seconds,
                 logger,
                 progress_callback=_report_progress,
+                should_terminate=_should_terminate,
             )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
             )
             dill_save((train_res, val_res, elapsed), fold_results_torch_path)
+        except ExperimentTerminated:
+            return None
         except Exception as e:
 
             _push_progress_update(
@@ -234,6 +263,30 @@ def run_test(
     Returns:
         a tuple with outer fold id, final run id, and time elapsed
     """
+    termination_state = {"stop": False, "last_check": 0.0}
+
+    def _should_terminate():
+        # Poll the progress actor occasionally to see if a termination was requested.
+        # Cache result in termination_state to avoid spamming ray.get.
+        if termination_state["stop"]:
+            return True
+        if progress_actor is None:
+            return False
+        now = time.time()
+        if now - termination_state["last_check"] < 0.2:
+            return False
+        termination_state["last_check"] = now
+        try:
+            termination_state["stop"] = ray.get(
+                progress_actor.is_terminated.remote()
+            )
+        except Exception:
+            return True
+        return termination_state["stop"]
+
+    if _should_terminate():
+        return None
+
     if not osp.exists(final_run_torch_path):
         try:
             experiment = experiment_class(
@@ -260,6 +313,7 @@ def run_test(
                 training_timeout_seconds,
                 logger,
                 progress_callback=_report_progress,
+                should_terminate=_should_terminate,
             )
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
@@ -268,6 +322,8 @@ def run_test(
             dill_save(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
+        except ExperimentTerminated:
+            return None
         except Exception as e:
 
             _push_progress_update(
@@ -409,6 +465,29 @@ class RiskAssesser:
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
         self.failure_message = None
 
+    def _request_termination(self):
+        """
+        Signals all workers and the UI to terminate gracefully.
+        """
+        print("Termination requested. Stopping scheduled jobs...")
+        self.failure_message = "Execution interrupted by user."
+        if self.progress_actor is not None:
+            try:
+                self.progress_actor.terminate.remote()
+            except Exception:
+                pass
+        else:
+            for job in self.outer_folds_job_list + self.final_runs_job_list:
+                try:
+                    ray.cancel(job, force=True)
+                except Exception:
+                    pass
+        if getattr(self, "progress_manager", None) is not None:
+            try:
+                self.progress_manager._stop_input_event.set()
+            except Exception:
+                pass
+
     def risk_assessment(
         self,
         debug: bool,
@@ -494,64 +573,75 @@ class RiskAssesser:
             for _ in range(self.outer_folds)
         ]
 
-        success = True
-        for outer_k in range(self.outer_folds):
-            # Create a separate folder for each experiment
-            kfold_folder = osp.join(
-                self._ASSESSMENT_FOLDER,
-                self._OUTER_FOLD_BASE + str(outer_k + 1),
-            )
-            if not osp.exists(kfold_folder):
-                os.makedirs(kfold_folder)
+        try:
+            success = True
+            for outer_k in range(self.outer_folds):
+                # Create a separate folder for each experiment
+                kfold_folder = osp.join(
+                    self._ASSESSMENT_FOLDER,
+                    self._OUTER_FOLD_BASE + str(outer_k + 1),
+                )
+                if not osp.exists(kfold_folder):
+                    os.makedirs(kfold_folder)
 
-            # Perform model selection. This determines a best config
-            # FOR EACH of the k outer folds
-            self.model_selection(
-                kfold_folder,
-                outer_k,
-                debug,
-                execute_config_id,
-                skip_config_ids,
-            )
+                # Perform model selection. This determines a best config
+                # FOR EACH of the k outer folds
+                self.model_selection(
+                    kfold_folder,
+                    outer_k,
+                    debug,
+                    execute_config_id,
+                    skip_config_ids,
+                )
 
-            if self.failure_message is not None:
-                success = False
-                break
-
-            # Must stay separate from Ray distributed computing logic
-            if debug:
-                self.run_final_model(outer_k, True)
                 if self.failure_message is not None:
                     success = False
                     break
 
-        # We launched all model selection jobs, now it is time to wait
-        if not debug and success:
-            # This will also launch the final runs jobs once the model
-            # selection for a specific outer folds is completed.
-            # It returns when everything has completed
-            success = self.wait_configs(skip_config_ids)
+                # Must stay separate from Ray distributed computing logic
+                if debug:
+                    self.run_final_model(outer_k, True)
+                    if self.failure_message is not None:
+                        success = False
+                        break
 
-        if not success or self.failure_message is not None:
-            if self.failure_message is not None:
-                print(self.failure_message)
+            # We launched all model selection jobs, now it is time to wait
+            if not debug and success:
+                # This will also launch the final runs jobs once the model
+                # selection for a specific outer folds is completed.
+                # It returns when everything has completed
+                success = self.wait_configs(skip_config_ids)
+
+            if not success or self.failure_message is not None:
+                if self.failure_message is not None:
+                    print(self.failure_message)
+                if self.progress_actor is not None:
+                    try:
+                        self.progress_actor.close.remote()
+                    except Exception:
+                        pass
+
+                progress_thread.join()
+                return
+
+            # Produces the self._ASSESSMENT_FILENAME file
+            self.compute_risk_assessment_result()
+
             if self.progress_actor is not None:
                 try:
                     self.progress_actor.close.remote()
                 except Exception:
                     pass
 
+        except KeyboardInterrupt:
+            self._request_termination()
+            if self.progress_actor is not None:
+                try:
+                    self.progress_actor.close.remote()
+                except Exception:
+                    pass
             progress_thread.join()
             return
-
-        # Produces the self._ASSESSMENT_FILENAME file
-        self.compute_risk_assessment_result()
-
-        if self.progress_actor is not None:
-            try:
-                self.progress_actor.close.remote()
-            except Exception:
-                pass
 
         progress_thread.join()
 

@@ -7,6 +7,7 @@
 - In non-debug mode, you can now switch between the "global" view and a specific configuration
 - Computation of 95% confidence interval in addition to the standard deviation
 - Utility computation of statistical significance between models using `mlwiz.evaluation.util.compare_statistical_significance`. See the tutorial for more info.
+- Handling termination gracefully via CTRL-C
 
 ## Changed
 

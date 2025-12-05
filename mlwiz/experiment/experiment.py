@@ -1,9 +1,13 @@
 import random
-from typing import Callable, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 import torch
 
+from mlwiz.exceptions import (
+    ExperimentTerminated,
+    TerminationRequested,
+)
 from mlwiz.evaluation.config import Config
 from mlwiz.util import return_class_and_args, s2c
 from mlwiz.model.interface import ModelInterface
@@ -214,6 +218,7 @@ class Experiment:
         training_timeout_seconds,
         logger,
         progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
     ):
         r"""
         This function returns the training and validation results
@@ -266,25 +271,29 @@ class Experiment:
         # inference phase by abstracting the specifics)
         training_engine = self.create_engine(self.model_config, model)
 
-        (
-            train_loss,
-            train_score,
-            _,  # check the ordering is correct
-            val_loss,
-            val_score,
-            _,
-            _,
-            _,
-            _,
-        ) = training_engine.train(
-            train_loader=train_loader,
-            validation_loader=val_loader,
-            test_loader=None,
-            max_epochs=self.model_config["epochs"],
-            logger=logger,
-            training_timeout_seconds=training_timeout_seconds,
-            progress_callback=progress_callback,
-        )
+        try:
+            (
+                train_loss,
+                train_score,
+                _,  # check the ordering is correct
+                val_loss,
+                val_score,
+                _,
+                _,
+                _,
+                _,
+            ) = training_engine.train(
+                train_loader=train_loader,
+                validation_loader=val_loader,
+                test_loader=None,
+                max_epochs=self.model_config["epochs"],
+                logger=logger,
+                training_timeout_seconds=training_timeout_seconds,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        except TerminationRequested as exc:
+            raise ExperimentTerminated("Validation run terminated.") from exc
 
         train_res = {LOSS: train_loss, SCORE: train_score}
         val_res = {LOSS: val_loss, SCORE: val_score}
@@ -296,6 +305,7 @@ class Experiment:
         training_timeout_seconds,
         logger,
         progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
     ):
         """
         This function returns the training, validation and test results
@@ -354,25 +364,29 @@ class Experiment:
         # inference phase by abstracting the specifics)
         training_engine = self.create_engine(self.model_config, model)
 
-        (
-            train_loss,
-            train_score,
-            _,
-            val_loss,
-            val_score,
-            _,
-            test_loss,
-            test_score,
-            _,
-        ) = training_engine.train(
-            train_loader=train_loader,
-            validation_loader=val_loader,
-            test_loader=test_loader,
-            max_epochs=self.model_config["epochs"],
-            logger=logger,
-            training_timeout_seconds=training_timeout_seconds,
-            progress_callback=progress_callback,
-        )
+        try:
+            (
+                train_loss,
+                train_score,
+                _,
+                val_loss,
+                val_score,
+                _,
+                test_loss,
+                test_score,
+                _,
+            ) = training_engine.train(
+                train_loader=train_loader,
+                validation_loader=val_loader,
+                test_loader=test_loader,
+                max_epochs=self.model_config["epochs"],
+                logger=logger,
+                training_timeout_seconds=training_timeout_seconds,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        except TerminationRequested as exc:
+            raise ExperimentTerminated("Final run terminated.") from exc
 
         train_res = {LOSS: train_loss, SCORE: train_score}
         val_res = {LOSS: val_loss, SCORE: val_score}

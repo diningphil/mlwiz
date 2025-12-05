@@ -35,11 +35,22 @@ class ProgressManagerActor:
     def __init__(self):
         self._pending_messages = []
         self._closed = False
+        self._terminated = False
 
     def push(self, payload: dict):
         if self._closed:
             return
         self._pending_messages.append(deepcopy(payload))
+
+    def terminate(self):
+        """
+        Requests all workers to terminate gracefully and stops further updates.
+        """
+        self._terminated = True
+        self._closed = True
+
+    def is_terminated(self) -> bool:
+        return self._terminated
 
     def drain(self):
         """
