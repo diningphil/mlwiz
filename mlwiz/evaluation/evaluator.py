@@ -19,7 +19,11 @@ from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
-from mlwiz.ui.progress_manager import ProgressManager, ProgressManagerActor
+from mlwiz.ui.progress_manager import (
+    ProgressManager,
+    ProgressManagerActor,
+    clear_screen,
+)
 from mlwiz.experiment.experiment import Experiment
 from mlwiz.exceptions import ExperimentTerminated
 from mlwiz.log.logger import Logger
@@ -469,6 +473,7 @@ class RiskAssesser:
         """
         Signals all workers and the UI to terminate gracefully.
         """
+        clear_screen()
         print("Termination requested. Stopping scheduled jobs...")
         self.failure_message = "Execution interrupted by user."
         if self.progress_actor is not None:
