@@ -471,7 +471,7 @@ class TrainingEngine(EventDispatcher):
                 # reset
                 self.cumulative_unsent_time = 0.0
             else:
-                self.cumulative_unsent_time += self.batch_progress_time_delta
+                self.cumulative_unsent_time += batch_progress_time_delta
 
             batch_progress_time = time.time()
 
@@ -1061,6 +1061,6 @@ class DataStreamTrainingEngine(TrainingEngine):
                 # reset
                 self.cumulative_unsent_time = 0.0
             else:
-                self.cumulative_unsent_time += self.batch_progress_time_delta
+                self.cumulative_unsent_time += batch_progress_time_delta
 
             batch_progress_time = time.time()
