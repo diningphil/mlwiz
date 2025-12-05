@@ -453,7 +453,7 @@ class TrainingEngine(EventDispatcher):
             )
 
             if (
-                id_batch == 0
+                self.cumulative_unsent_time == 0
                 or batch_progress_time_delta >= TIME_DELTA
                 or self.cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
