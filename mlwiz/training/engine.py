@@ -125,7 +125,8 @@ class TrainingEngine(EventDispatcher):
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
     """
-    cumulative_unsent_time: float = 0.0
+    cumulative_batch_unsent_time: float = 0.0
+    cumulative_epoch_unsent_time: float = 0.0
 
     def __init__(
         self,
@@ -453,9 +454,8 @@ class TrainingEngine(EventDispatcher):
             )
 
             if (
-                self.cumulative_unsent_time == 0
-                or batch_progress_time_delta >= TIME_DELTA
-                or self.cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                batch_progress_time_delta >= TIME_DELTA
+                or self.cumulative_batch_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
                 # Batch has completed
                 _notify_progress(
@@ -469,9 +469,9 @@ class TrainingEngine(EventDispatcher):
                     },
                 )
                 # reset
-                self.cumulative_unsent_time = 0.0
+                self.cumulative_batch_unsent_time = 0.0
             else:
-                self.cumulative_unsent_time += batch_progress_time_delta
+                self.cumulative_batch_unsent_time += batch_progress_time_delta
 
             batch_progress_time = time.time()
 
@@ -811,7 +811,7 @@ class TrainingEngine(EventDispatcher):
                     if (
                         epoch == 0
                         and epoch_progress_time_delta >= TIME_DELTA
-                        or self.cumulative_unsent_time
+                        or self.cumulative_epoch_unsent_time
                         > CUMULATIVE_UNSENT_DELTA
                     ):
                         _notify_progress(
@@ -826,9 +826,9 @@ class TrainingEngine(EventDispatcher):
                             },
                         )
                         # reset
-                        self.cumulative_unsent_time = 0.0
+                        self.cumulative_epoch_unsent_time = 0.0
                     else:
-                        self.cumulative_unsent_time += (
+                        self.cumulative_epoch_unsent_time += (
                             epoch_progress_time_delta
                         )
 
@@ -1045,7 +1045,7 @@ class DataStreamTrainingEngine(TrainingEngine):
 
             if (
                 batch_progress_time_delta >= TIME_DELTA
-                or self.cumulative_unsent_time > CUMULATIVE_UNSENT_DELTA
+                or self.cumulative_batch_unsent_time > CUMULATIVE_UNSENT_DELTA
             ):
                 # Batch has completed
                 _notify_progress(
@@ -1059,8 +1059,8 @@ class DataStreamTrainingEngine(TrainingEngine):
                     },
                 )
                 # reset
-                self.cumulative_unsent_time = 0.0
+                self.cumulative_batch_unsent_time = 0.0
             else:
-                self.cumulative_unsent_time += batch_progress_time_delta
+                self.cumulative_batch_unsent_time += batch_progress_time_delta
 
             batch_progress_time = time.time()

@@ -12,6 +12,7 @@
 ## Changed
 
 - Handling errors more gracefully in the terminal, can check individual errors in non-debug mode already from terminal
+- Using atomic torch save util to save tensorboard logs
 
 ## [1.2.7] Out-of-time (OOT) experiments
 
