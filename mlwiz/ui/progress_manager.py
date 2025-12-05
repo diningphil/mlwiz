@@ -229,7 +229,9 @@ class ProgressManager:
                     int(values[2]) - 1,
                     int(values[3]) - 1,
                 )
-                self._last_seen_model_selection_identifier = f"{outer + 1} {inner + 1} {config + 1}{run + 1}"
+                self._last_seen_model_selection_identifier = (
+                    f"{outer + 1} {inner + 1} {config + 1} {run + 1}"
+                )
                 msg = self._last_run_messages[int(outer)][int(inner)][
                     int(config)
                 ][int(run)]
@@ -466,7 +468,7 @@ class ProgressManager:
         outer, run = values
 
         if direction > 0:
-            if run < self.config_runs:
+            if run < self.final_runs:
                 run += 1
             elif outer < self.outer_folds:
                 outer += 1
@@ -476,7 +478,7 @@ class ProgressManager:
                 run -= 1
             elif outer > 1:
                 outer -= 1
-                run = self.config_runs
+                run = self.final_runs
 
         return outer, run
 
