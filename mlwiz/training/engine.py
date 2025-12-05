@@ -449,7 +449,7 @@ class TrainingEngine(EventDispatcher):
             self._loop_helper()
 
             batch_progress_time_delta = (
-                time.time() - self.batch_progress_time
+                time.time() - batch_progress_time
             )
 
             if (
