@@ -1,3 +1,4 @@
+import traceback
 import json
 import operator
 import os
@@ -171,7 +172,7 @@ def run_valid(
                     str(IS_FINAL): False,
                     str(EPOCH): 0,
                     str(TOTAL_EPOCHS): 0,
-                    "message": e,
+                    "message": f"{e}\n{traceback.format_exc()}",
                 },
             )
 
@@ -280,7 +281,7 @@ def run_test(
                     str(IS_FINAL): True,
                     str(EPOCH): 0,
                     str(TOTAL_EPOCHS): 0,
-                    "message": e,
+                    "message": f"{e}\n{traceback.format_exc()}",
                 },
             )
             elapsed = -1
@@ -944,7 +945,7 @@ class RiskAssesser:
                                             str(IS_FINAL): False,
                                             str(EPOCH): 0,
                                             str(TOTAL_EPOCHS): 0,
-                                            "message": e,
+                                            "message": f"{e}\n{traceback.format_exc()}",
                                         },
                                     )
 
@@ -1114,7 +1115,7 @@ class RiskAssesser:
                                 str(IS_FINAL): True,
                                 str(EPOCH): 0,
                                 str(TOTAL_EPOCHS): 0,
-                                "message": e,
+                                "message": f"{e}\n{traceback.format_exc()}",
                             },
                         )
 
