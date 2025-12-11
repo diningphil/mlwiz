@@ -1,6 +1,7 @@
 from pydoc import locate
 from typing import Tuple, Callable
 
+import os
 import dill
 from mlwiz.static import *
 
@@ -87,5 +88,6 @@ def dill_load(filepath: str) -> object:
     """
     with open(filepath, "rb") as file:
         return dill.load(file)
+
 
 
