@@ -92,7 +92,7 @@ def _push_progress_update(progress_actor, payload: dict):
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
+    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -224,7 +224,7 @@ def run_valid(
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
+    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
