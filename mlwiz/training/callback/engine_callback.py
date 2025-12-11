@@ -5,7 +5,7 @@ from pathlib import Path
 from mlwiz.static import *
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_save
+from mlwiz.training.util import atomic_torch_save
 
 
 class EngineCallback(EventHandler):
@@ -77,7 +77,7 @@ class EngineCallback(EventHandler):
                 LAST_RUN_ELAPSED_TIME: state.current_elapsed_time,
             }
             last_ckpt.update(state.epoch_results)
-            atomic_save(
+            atomic_torch_save(
                 last_ckpt, Path(state.exp_path, LAST_CHECKPOINT_FILENAME)
             )
 

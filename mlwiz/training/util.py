@@ -5,7 +5,7 @@ import torch
 from mlwiz.static import *
 
 
-def atomic_save(data: dict, filepath: str):
+def atomic_torch_save(data: dict, filepath: str):
     r"""
     Atomically stores a dictionary that can be serialized by
     :func:`torch.save`, exploiting the atomic :func:`os.replace`.

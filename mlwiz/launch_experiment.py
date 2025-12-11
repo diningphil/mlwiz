@@ -102,6 +102,9 @@ def evaluation(options: argparse.Namespace):
     skip_config_ids = kwargs.get(SKIP_CONFIG_IDS, None)
     if execute_config_id is not None:
         execute_config_id = int(execute_config_id)
+    if skip_config_ids is not None:
+        skip_config_ids = skip_config_ids.split(" ")
+        skip_config_ids = [int(s) for s in skip_config_ids]
 
     configs_dict = yaml.load(
         open(kwargs[CONFIG_FILE], "r"), Loader=yaml.FullLoader
@@ -139,7 +142,9 @@ def evaluation(options: argparse.Namespace):
             exit(0)
 
         gpus_per_task = configs_dict[GPUS_PER_TASK]
-
+    
+    os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
+    
     # we probably don't need this anymore, but keep it commented in case
     # OMP_NUM_THREADS = 'OMP_NUM_THREADS'
     # os.environ[OMP_NUM_THREADS] = "1"  # This is CRUCIAL to avoid
@@ -180,20 +185,32 @@ def evaluation(options: argparse.Namespace):
     experiment_class = s2c(experiment)
     exp_path = os.path.join(configs_dict[RESULT_FOLDER], f"{search.exp_name}")
 
-    os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
-
     # You can make MLWiz work on a cluster of machines!
     if os.environ.get("ip_head") is not None:
         assert os.environ.get("redis_password") is not None
-        ray.init(
-            address=os.environ.get("ip_head"),
-            _redis_password=os.environ.get("redis_password"),
-        )
+        try:
+            ray.init(
+                address=os.environ.get("ip_head"),
+                _redis_password=os.environ.get("redis_password"),
+                include_dashboard=False,
+                _metrics_export_port=0
+
+            )
+        except Exception:
+            ray.init(
+                address=os.environ.get("ip_head"),
+                _redis_password=os.environ.get("redis_password"),
+                include_dashboard=False,
+            )
         print("Connected to Ray cluster.")
         print(f"Available nodes: {ray.nodes()}")
     # Or you can work on your single server
     else:
-        ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus)
+        try:
+            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False, _metrics_export_port=0)
+        except Exception:
+            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False)
+    
         print("Started local ray instance.")
 
     data_splits_file = configs_dict[DATA_SPLITS_FILE]

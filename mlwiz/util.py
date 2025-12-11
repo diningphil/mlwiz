@@ -61,7 +61,7 @@ def s2c(class_name: str) -> Callable[..., object]:
     return result
 
 
-def dill_save(data: object, filepath: str) -> object:
+def atomic_dill_save(data: object, filepath: str) -> object:
     """
     Saves a dill object to a file.
     :param data: the dill object to save

@@ -28,7 +28,7 @@ from mlwiz.experiment.experiment import Experiment
 from mlwiz.exceptions import ExperimentTerminated
 from mlwiz.log.logger import Logger
 from mlwiz.static import *
-from mlwiz.util import dill_load, dill_save, s2c
+from mlwiz.util import dill_load, atomic_dill_save, s2c
 
 
 def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
@@ -90,9 +90,27 @@ def _push_progress_update(progress_actor, payload: dict):
         pass
 
 
+def _set_cuda_memory_limit_from_env():
+    """
+    Best-effort limit of per-process GPU memory based on the configured Ray
+    GPU fraction. No-op if CUDA is unavailable or the value is invalid.
+    """
+    gpus_per_task = float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK))
+
+    if torch.cuda.is_available():
+        torch.cuda.init()
+        visible_gpus = torch.cuda.device_count()
+        for gpu_idx in range(visible_gpus):
+            torch.cuda.memory.set_per_process_memory_fraction(
+                gpus_per_task,
+                device=torch.device(f"cuda:{gpu_idx}")
+            )
+            # print(f"Setting max GPU {gpu_idx} memory of process to: {gpus_per_task}")
+
+
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
+    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -162,6 +180,7 @@ def run_valid(
 
     if not osp.exists(fold_results_torch_path):
         try:
+            _set_cuda_memory_limit_from_env()
             experiment = experiment_class(config, fold_exp_folder, exp_seed)
 
             # This is used to comunicate with the progress manager
@@ -189,7 +208,7 @@ def run_valid(
             elapsed = extract_and_sum_elapsed_seconds(
                 osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
             )
-            dill_save((train_res, val_res, elapsed), fold_results_torch_path)
+            atomic_dill_save((train_res, val_res, elapsed), fold_results_torch_path)
         except ExperimentTerminated:
             return None
         except Exception as e:
@@ -224,7 +243,7 @@ def run_valid(
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, default=1)),
+    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -293,6 +312,7 @@ def run_test(
 
     if not osp.exists(final_run_torch_path):
         try:
+            _set_cuda_memory_limit_from_env()
             experiment = experiment_class(
                 best_config[CONFIG], final_run_exp_path, exp_seed
             )
@@ -323,7 +343,7 @@ def run_test(
                 osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
             )
             train_res, val_res, test_res = res
-            dill_save(
+            atomic_dill_save(
                 (train_res, val_res, test_res, elapsed), final_run_torch_path
             )
         except ExperimentTerminated:
@@ -1016,7 +1036,7 @@ class RiskAssesser:
                                             EXPERIMENT_LOGFILE,
                                         )
                                     )
-                                    dill_save(
+                                    atomic_dill_save(
                                         (
                                             training_score,
                                             validation_score,
@@ -1193,7 +1213,7 @@ class RiskAssesser:
                         )
 
                         training_res, val_res, test_res = res
-                        dill_save(
+                        atomic_dill_save(
                             (training_res, val_res, test_res, elapsed),
                             final_run_torch_path,
                         )
@@ -1318,7 +1338,7 @@ class RiskAssesser:
         with open(fold_info_filename, "w") as fp:
             json.dump(results_dict, fp, sort_keys=False, indent=4)
 
-        dill_save(
+        atomic_dill_save(
             (
                 {
                     LOSS: {MAIN_LOSS: results_dict[f"{TRAINING}_{LOSS}"]},
