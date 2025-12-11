@@ -102,6 +102,9 @@ def evaluation(options: argparse.Namespace):
     skip_config_ids = kwargs.get(SKIP_CONFIG_IDS, None)
     if execute_config_id is not None:
         execute_config_id = int(execute_config_id)
+    if skip_config_ids is not None:
+        skip_config_ids = skip_config_ids.split(" ")
+        skip_config_ids = [int(s) for s in skip_config_ids]
 
     configs_dict = yaml.load(
         open(kwargs[CONFIG_FILE], "r"), Loader=yaml.FullLoader

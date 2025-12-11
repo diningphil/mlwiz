@@ -6,7 +6,7 @@
 
 - atomic dill save of results
 - fixed MLWIZ_RAY_NUM_GPUS_PER_TASK not found by the remote tasks, which caused using more memory than set in the config file
-
+- fixed logic of skip-config-ids
 
 ## [1.3.0] Majorly Improved CLI and Added Statistical Significance Utilities 
 
