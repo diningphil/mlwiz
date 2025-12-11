@@ -11,7 +11,7 @@ from sklearn.model_selection import (
 )
 
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.util import s2c, dill_load, dill_save
+from mlwiz.util import s2c, dill_load, atomic_dill_save
 
 
 class Fold:
@@ -472,7 +472,7 @@ class Splitter:
             inner_split
         ) in self.inner_folds:  # len(self.inner_folds) == # of **outer** folds
             savedict["inner_folds"].append([i.todict() for i in inner_split])
-        dill_save(savedict, path)
+        atomic_dill_save(savedict, path)
         print("Done.")
 
 

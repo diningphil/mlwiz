@@ -5,7 +5,7 @@ from pathlib import Path
 from mlwiz.static import *
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_save
+from mlwiz.training.util import atomic_torch_save
 
 
 class EarlyStopper(EventHandler):
@@ -81,7 +81,7 @@ class EarlyStopper(EventHandler):
                 SCHEDULER_STATE
             ]  # computed by scheduler
             if self.checkpoint:
-                atomic_save(
+                atomic_torch_save(
                     state.best_epoch_results,
                     Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
                 )
@@ -104,7 +104,7 @@ class EarlyStopper(EventHandler):
                     SCHEDULER_STATE
                 ]  # computed by scheduler
                 if self.checkpoint:
-                    atomic_save(
+                    atomic_torch_save(
                         state.best_epoch_results,
                         Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
                     )

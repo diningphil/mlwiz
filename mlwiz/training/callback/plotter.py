@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 from mlwiz.static import *
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_save
+from mlwiz.training.util import atomic_torch_save
 
 
 class Plotter(EventHandler):
@@ -89,7 +89,7 @@ class Plotter(EventHandler):
 
         if self.store_on_disk:
             try:
-                atomic_save(self.stored_metrics, self.stored_metrics_path)
+                atomic_torch_save(self.stored_metrics, self.stored_metrics_path)
             except RuntimeError as e:
                 print(e)
 

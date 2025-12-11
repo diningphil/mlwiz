@@ -4,7 +4,7 @@ import os.path as osp
 import warnings
 from typing import Callable
 
-from mlwiz.util import s2c, dill_load, dill_save, return_class_and_args
+from mlwiz.util import s2c, dill_load, atomic_dill_save, return_class_and_args
 from mlwiz.static import STORAGE_FOLDER, SKIP_SPLITS_CHECK
 
 
@@ -104,7 +104,7 @@ def preprocess_data(options: dict) -> dict:
     kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.pt")
 
     get_or_create_dir(kwargs_folder)
-    dill_save(dataset_args, kwargs_path)
+    atomic_dill_save(dataset_args, kwargs_path)
 
     # Process data splits
 

@@ -8,7 +8,7 @@ import torchvision
 from torch_geometric.datasets import TUDataset, Planetoid
 
 from mlwiz.data.util import get_or_create_dir
-from mlwiz.util import dill_save, dill_load
+from mlwiz.util import atomic_dill_save, dill_load
 
 
 class DatasetInterface:
@@ -90,7 +90,7 @@ class DatasetInterface:
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
-        dill_save(dataset, dataset_filepath)
+        atomic_dill_save(dataset, dataset_filepath)
 
     @staticmethod
     def _load_dataset(dataset_filepath):
@@ -703,4 +703,4 @@ class ToyIterableDataset(IterableDatasetInterface):
 
                 fake_samples.append(fake_sample)
 
-            dill_save(fake_samples, self.dataset_filepaths[i])
+            atomic_dill_save(fake_samples, self.dataset_filepaths[i])
