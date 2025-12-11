@@ -1,7 +1,9 @@
 from pydoc import locate
 from typing import Tuple, Callable
 
+import os
 import dill
+from mlwiz.static import *
 
 
 def return_class_and_args(
@@ -65,8 +67,17 @@ def dill_save(data: object, filepath: str) -> object:
     :param data: the dill object to save
     :param filepath: the path to the dill object to save
     """
-    with open(filepath, "wb") as file:
-        return dill.dump(data, file)
+    tmp_path = str(filepath) + ATOMIC_SAVE_EXTENSION
+    try:
+        with open(tmp_path, "wb") as f:
+            dill.dump(data, f)
+        os.replace(tmp_path, filepath)
+    finally:
+        # Best-effort cleanup of temp file (if replace failed)
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
 
 
 def dill_load(filepath: str) -> object:
@@ -77,3 +88,6 @@ def dill_load(filepath: str) -> object:
     """
     with open(filepath, "rb") as file:
         return dill.load(file)
+
+
+
