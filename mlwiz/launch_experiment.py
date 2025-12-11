@@ -139,7 +139,9 @@ def evaluation(options: argparse.Namespace):
             exit(0)
 
         gpus_per_task = configs_dict[GPUS_PER_TASK]
-
+    
+    os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
+    
     # we probably don't need this anymore, but keep it commented in case
     # OMP_NUM_THREADS = 'OMP_NUM_THREADS'
     # os.environ[OMP_NUM_THREADS] = "1"  # This is CRUCIAL to avoid
@@ -179,8 +181,6 @@ def evaluation(options: argparse.Namespace):
     experiment = search.experiment
     experiment_class = s2c(experiment)
     exp_path = os.path.join(configs_dict[RESULT_FOLDER], f"{search.exp_name}")
-
-    os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
 
     # You can make MLWiz work on a cluster of machines!
     if os.environ.get("ip_head") is not None:
