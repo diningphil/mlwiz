@@ -185,15 +185,29 @@ def evaluation(options: argparse.Namespace):
     # You can make MLWiz work on a cluster of machines!
     if os.environ.get("ip_head") is not None:
         assert os.environ.get("redis_password") is not None
-        ray.init(
-            address=os.environ.get("ip_head"),
-            _redis_password=os.environ.get("redis_password"),
-        )
+        try:
+            ray.init(
+                address=os.environ.get("ip_head"),
+                _redis_password=os.environ.get("redis_password"),
+                include_dashboard=False,
+                _metrics_export_port=0
+
+            )
+        except Exception:
+            ray.init(
+                address=os.environ.get("ip_head"),
+                _redis_password=os.environ.get("redis_password"),
+                include_dashboard=False,
+            )
         print("Connected to Ray cluster.")
         print(f"Available nodes: {ray.nodes()}")
     # Or you can work on your single server
     else:
-        ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus)
+        try:
+            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False, _metrics_export_port=0)
+        except Exception:
+            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False)
+    
         print("Started local ray instance.")
 
     data_splits_file = configs_dict[DATA_SPLITS_FILE]
