@@ -431,7 +431,7 @@ def run_test(
                 "type": RUN_PROGRESS,
                 OUTER_FOLD: dataset_getter.outer_k,
                 INNER_FOLD: None,
-                CONFIG_ID: progress_config_id,
+                CONFIG_ID: best_config["best_config_id"] - 1,
                 RUN_ID: run_id,
                 IS_FINAL: True,
                 EPOCH: 0,
