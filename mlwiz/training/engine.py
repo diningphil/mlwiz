@@ -917,7 +917,6 @@ class TrainingEngine(EventDispatcher):
             raise
         except (KeyboardInterrupt, RuntimeError, FileNotFoundError) as e:
             report = self.profiler.report()
-            print(str(e))
             log(str(e), logger)
             log(report, logger)
             raise e
