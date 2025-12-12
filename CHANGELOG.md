@@ -2,11 +2,15 @@
 
 ## [1.3.1] Minor fixes
 
+## Added
+
+- more comments in the progress_manager cause the UI code is becoming challenging to parse
+
 ## Fixed
 
 - atomic dill save of results
 - fixed MLWIZ_RAY_NUM_GPUS_PER_TASK not found by the remote tasks, which caused using more memory than set in the config file
-- fixed logic of skip-config-ids
+- fixed minor bug of skip-config-ids. The right best config was not selected in this case.
 
 ## [1.3.0] Majorly Improved CLI and Added Statistical Significance Utilities 
 

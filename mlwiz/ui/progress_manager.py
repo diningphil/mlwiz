@@ -20,6 +20,7 @@ def clear_screen():
     """
     Clears the CLI interface.
     """
+    # Shared helper called before drawing headers, bars, or switching views.
     # Mimic Ctrl+L: clear visible screen and move cursor to top without
     # wiping scrollback/history.
     print("\033[2J\033[H", end="", flush=True)
@@ -33,11 +34,13 @@ class ProgressManagerActor:
     """
 
     def __init__(self):
+        # Buffer messages coming from workers while the driver polls via drain().
         self._pending_messages = []
         self._closed = False
         self._terminated = False
 
     def push(self, payload: dict):
+        # Enqueue updates from workers; ignored when actor is marked closed.
         if self._closed:
             return
         self._pending_messages.append(deepcopy(payload))
@@ -46,21 +49,25 @@ class ProgressManagerActor:
         """
         Requests all workers to terminate gracefully and stops further updates.
         """
+        # Exposed so evaluator can broadcast shutdown and stop buffering.
         self._terminated = True
         self._closed = True
 
     def is_terminated(self) -> bool:
+        # Queried by workers to decide whether to exit early.
         return self._terminated
 
     def drain(self):
         """
         Returns buffered messages and clears the buffer.
         """
+        # Called by ProgressManager.update_state to fetch and clear messages.
         pending = self._pending_messages
         self._pending_messages = []
         return pending, self._closed
 
     def close(self):
+        # Signals no further messages should be accepted.
         self._closed = True
 
 
@@ -99,6 +106,7 @@ class ProgressManager:
         progress_actor=None,
         poll_interval: float = 0.2,
     ):
+        # Wire progress data structures and start UI scaffolding used by render/refresh.
         self.ncols = 100
         self.outer_folds = outer_folds
         self.inner_folds = inner_folds
@@ -170,6 +178,7 @@ class ProgressManager:
 
         :param model_configs: list of hparams
         """
+        # Called from evaluator to provide config data used by _format_run_message.
         self._model_configs = model_configs
 
     def _change_view_mode(
@@ -185,6 +194,7 @@ class ProgressManager:
             to visualize in the form of "outer_id_inner_id_config_id_run_id"
 
         """
+        # Switch between global view and focused run view; drives rendering pipeline.
         assert not self.debug, "Cannot change view mode in debug mode"
         identifier = (identifier or "g").strip()
 
@@ -260,8 +270,25 @@ class ProgressManager:
                     msg, store=False
                 )  # do not store message already stored
 
-        except KeyError:
-            print("ProgressManager: waiting for the next update...")
+        except KeyError as e:
+            try:
+                if len(values) == 2:
+                    outer, run = values
+                    msg = (
+                        f"ProgressManager: waiting for updates for final run {run} "
+                        f"of outer fold {outer} (missing key {e})..."
+                    )
+                elif len(values) == 4:
+                    outer, inner, config, run = values
+                    msg = (
+                        "ProgressManager: waiting for updates for model selection "
+                        f"run {run} of config {config} (outer {outer}, inner {inner}) "
+                        f"(missing key {e})..."
+                    )
+            except Exception:
+                msg = f"ProgressManager: waiting for the next update (missing key {e})..."
+            print(msg)
+            
         except Exception:
             clear_screen()
             print(invalid_id_msg, end="", flush=True)
@@ -270,6 +297,7 @@ class ProgressManager:
         self._render_user_input()
 
     def _start_input_listener(self):
+        # Spawn non-blocking stdin listener to drive view navigation commands.
         if self.debug or self.progress_actor is None:
             return
         if self._input_thread is not None:
@@ -325,6 +353,7 @@ class ProgressManager:
             self._clear_input_overlay()
 
     def _handle_keypress(self, char: str):
+        # Route keyboard input into navigation or command handling.
         arrow_handlers = {
             "\x1b[A": self._handle_arrow_up,
             "\x1b[B": self._handle_arrow_down,
@@ -372,18 +401,23 @@ class ProgressManager:
         self._render_user_input()
 
     def _handle_arrow_up(self):
+        # Toggle between last seen selection/final views.
         self._toggle_last_views()
 
     def _handle_arrow_down(self):
+        # Toggle between last seen selection/final views.
         self._toggle_last_views()
 
     def _handle_arrow_right(self):
+        # Move forward through run identifiers.
         self._navigate_identifier(direction=1)
 
     def _handle_arrow_left(self):
+        # Move backward through run identifiers.
         self._navigate_identifier(direction=-1)
 
     def _toggle_last_views(self):
+        # Switch focus between the most recently viewed selection and final run.
         selection_id = self._last_seen_model_selection_identifier
         final_id = self._last_seen_final_run_identifier
         kind, *_ = self._parse_view_identifier(self._to_visualize) or (None,)
@@ -396,6 +430,7 @@ class ProgressManager:
             pass  # global view, don't do anything
 
     def _navigate_identifier(self, direction: int):
+        # Step to the next/previous logical identifier based on current focus.
         current_identifier = self._to_visualize
         parsed = self._parse_view_identifier(current_identifier)
         if parsed is None:
@@ -419,6 +454,7 @@ class ProgressManager:
         self._change_view_mode(new_identifier)
 
     def _parse_view_identifier(self, identifier):
+        # Parse user-entered identifier into typed tuple for navigation.
         if not identifier or identifier in {"g", "global"}:
             return None
         try:
@@ -433,6 +469,7 @@ class ProgressManager:
         return None
 
     def _format_view_identifier(self, kind: str, values):
+        # Rebuild identifier string after navigation step.
         if kind == "final":
             outer, run = values
             return f"{outer} {run}"
@@ -440,6 +477,7 @@ class ProgressManager:
         return f"{outer} {inner} {config} {run}"
 
     def _step_selection(self, values, direction: int):
+        # Increment/decrement selection run coordinates with wraparound semantics.
         outer, inner, config, run = values
 
         if direction > 0:
@@ -476,6 +514,7 @@ class ProgressManager:
         return outer, inner, config, run
 
     def _step_final(self, values, direction: int):
+        # Increment/decrement final run coordinates with wraparound semantics.
         outer, run = values
 
         if direction > 0:
@@ -494,6 +533,7 @@ class ProgressManager:
         return outer, run
 
     def _clear_input_overlay(self):
+        # Reset command overlay state and trigger redraw.
         with self._input_lock:
             self._input_buffer = ""
             self._input_active = False
@@ -503,12 +543,14 @@ class ProgressManager:
         """
         Force a redraw of the current view (global or focused).
         """
+        # Forces a full render pass using current selection/global mode.
         if self.debug:
             return
         identifier = self._to_visualize or "g"
         self._change_view_mode(identifier, force_refresh=True)
 
     def _render_user_input(self):
+        # Paint the command-line overlay while preserving current bars.
         if self.debug or not sys.stdout.isatty():
             self._render_failure_message()
             return
@@ -533,6 +575,7 @@ class ProgressManager:
         """
         Render a persistent failure message at the bottom-left corner.
         """
+        # Keeps latest failure visible alongside overlay without disrupting bars.
         if self._failure_message == "":
             return
         if not sys.stdout.isatty():
@@ -591,6 +634,7 @@ class ProgressManager:
         """
         Clear previous progress lines and invoke the provided printer.
         """
+        # Centralized rendering hook used by message handlers to draw bars/text.
         # Render from a fixed top-left anchor so scrolling does not confuse the cursor.
         if not sys.stdout.isatty():
             rendered_lines = printer()
@@ -619,6 +663,7 @@ class ProgressManager:
         Prepare configuration dictionaries for display.
         Ensures keys are strings and class specs show up as class_name(args).
         """
+        # Used by _format_run_message to pretty-print configs.
 
         class _ClassSpec:
             def __init__(self, class_name, args):
@@ -660,6 +705,7 @@ class ProgressManager:
         """
         Render the readable config without dict braces, as key: value lines.
         """
+        # Converts processed config into multiline string for focused view.
         if not isinstance(readable_config, dict):
             return pformat(readable_config, sort_dicts=False)
 
@@ -678,6 +724,7 @@ class ProgressManager:
         Format the progress message, appending the config (pretty printed)
         when available.
         """
+        # Builds user-facing message combining payload and config details.
         base_message = msg.get("message") or ""
         config_id = msg.get(CONFIG_ID)
         config = self._model_configs[config_id]
@@ -695,6 +742,7 @@ class ProgressManager:
         Handle a single progress message (shared between the polling loop
         and view replays).
         """
+        # Core dispatcher that updates cached messages and drives rendering.
         type = msg.get("type")
 
         outer_fold = msg.get(OUTER_FOLD)
@@ -819,6 +867,7 @@ class ProgressManager:
         """
         Simple progress bar printer for debug mode, avoids tqdm dependency.
         """
+        # Used when debug mode disables tqdm; renders in-place via buffer helpers.
         total = max(total_batches, 1)
         progress = min(batch_id, total)
         filled = int(30 * progress / total)
@@ -841,6 +890,7 @@ class ProgressManager:
         on screen, see :func:`refresh`) by pulling batched updates from
         the progress actor.
         """
+        # Polls actor for new messages and routes them through _handle_message.
         if self.progress_actor is None:
             print(
                 "ProgressManager: cannot update the UI, no progress actor provided..."
@@ -866,6 +916,7 @@ class ProgressManager:
         """
         Moves cursor one line up without clearing it.
         """
+        # Helper for manual rendering path in debug mode.
         # ANSI: move cursor up one line.
         self._moves_buffer += "\033[F"
 
@@ -873,6 +924,7 @@ class ProgressManager:
         """
         Moves cursor one line down without adding a newline.
         """
+        # Helper for manual rendering path in debug mode.
         # ANSI: move cursor down one line.
         self._moves_buffer += "\033[E"
 
@@ -880,6 +932,7 @@ class ProgressManager:
         """
         Clears the current line in the terminal.
         """
+        # Helper for manual rendering path in debug mode.
         # ANSI: return carriage then clear to end of line.
         self._moves_buffer += "\r\033[K"
 
@@ -887,15 +940,18 @@ class ProgressManager:
         """
         Clears the moves buffer.
         """
+        # Shared buffer to batch cursor moves + messages.
         self._moves_buffer += msg
 
     def _clear_moves_buffer(self):
         """
         Clears the moves buffer.
         """
+        # Reset buffered cursor/text before reuse.
         self._moves_buffer = ""
 
     def _flush_buffer(self):
+        # Emit buffered cursor moves/text and redraw overlays.
         # Dump buffered cursor moves + text, then redraw the input overlay.
         print(self._moves_buffer, end="", flush=True)
         self._clear_moves_buffer()
@@ -909,6 +965,7 @@ class ProgressManager:
             i (int): the id of the outer fold (from 0 to outer folds - 1)
             j (int): the id of the inner fold (from 0 to inner folds - 1)
         """
+        # Creates tqdm bar representing one inner fold/config grid slot.
         position = i * self.inner_folds + j
         pbar = tqdm.tqdm(
             total=self.no_configs,
@@ -931,6 +988,7 @@ class ProgressManager:
         Args:
             i (int): the id of the outer fold (from 0 to outer folds - 1)
         """
+        # Creates tqdm bar tracking final runs per outer fold.
         position = self.outer_folds * self.inner_folds + i
         pbar = tqdm.tqdm(
             total=self.final_runs,
@@ -955,6 +1013,7 @@ class ProgressManager:
         \033[A --> move cursor up one line
         \033[<N>A --> move cursor up N lines
         """
+        # Draws banner; called before rendering bars.
         print(
             f"\033[F\033[A{'*' * ((self.ncols - 21) // 2 + 1)} "
             f"Experiment Progress {'*' * ((self.ncols - 21) // 2)}\n",
@@ -966,12 +1025,14 @@ class ProgressManager:
         """
         Prints the footer of the progress bar
         """
+        # Placeholder for future footer output; kept for symmetry.
         pass  # need to work how how to print after tqdm
 
     def refresh(self):
         """
         Refreshes the progress bar
         """
+        # Recomputes tqdm postfixes and redraws global view.
         if self.debug:
             return
         if self._to_visualize in {"g", "global", None}:
@@ -1017,10 +1078,11 @@ class ProgressManager:
         """
         Stores the latest progress message for a specific run.
         """
+        # Keeps latest raw payloads for replay when user focuses a run.
         outer = msg.get(OUTER_FOLD)
         run = msg.get(RUN_ID)
 
-        if msg.get(IS_FINAL, False):
+        if msg.get(IS_FINAL):
             if outer not in self._final_run_messages:
                 self._final_run_messages[outer] = {}
             self._final_run_messages[outer][run] = msg
@@ -1042,10 +1104,11 @@ class ProgressManager:
         """
         Stores the latest formatted progress text for a specific run.
         """
+        # Persists rendered text per run for immediate replay in focused view.
         outer = msg.get(OUTER_FOLD)
         run = msg.get(RUN_ID)
 
-        if msg.get(IS_FINAL, False):
+        if msg.get(IS_FINAL):
             if outer not in self._final_progress_messages:
                 self._final_progress_messages[outer] = {}
             self._final_progress_messages[outer][run] = progress_msg
