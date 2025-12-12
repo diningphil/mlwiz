@@ -907,7 +907,7 @@ class ProgressManager:
                 time.sleep(self._poll_interval)
 
         except Exception as e:
-            print(e)
+            print(f"{e}\n{traceback.format_exc()}")
             return
         finally:
             self._stop_input_event.set()

@@ -359,7 +359,7 @@ def run_test(
                     {
                         OUTER_FOLD: dataset_getter.outer_k,
                         INNER_FOLD: None,
-                        CONFIG_ID: best_config["best_config_id"],
+                        CONFIG_ID: best_config["best_config_id"] - 1,
                         RUN_ID: run_id,
                         IS_FINAL: True,
                     }
@@ -390,7 +390,7 @@ def run_test(
                     "type": RUN_FAILED,
                     str(OUTER_FOLD): dataset_getter.outer_k,
                     str(INNER_FOLD): None,
-                    str(CONFIG_ID): best_config["best_config_id"],
+                    str(CONFIG_ID): best_config["best_config_id"] - 1,
                     str(RUN_ID): run_id,
                     str(IS_FINAL): True,
                     str(EPOCH): 0,
@@ -714,8 +714,8 @@ class RiskAssesser:
                 if self.progress_actor is not None:
                     try:
                         self.progress_actor.close.remote()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"{e}\n{traceback.format_exc()}")
 
                 progress_thread.join()
                 return
@@ -727,7 +727,7 @@ class RiskAssesser:
                 try:
                     self.progress_actor.close.remote()
                 except Exception:
-                    pass
+                    print
 
         except KeyboardInterrupt:
             self._request_termination()
@@ -1163,7 +1163,7 @@ class RiskAssesser:
                 osp.join(model_selection_folder, self._WINNER_CONFIG), "w"
             ) as fp:
                 json.dump(
-                    dict(best_config_id=0, config=self.model_configs[0]),
+                    dict(best_config_id=1, config=self.model_configs[0]),
                     fp,
                     sort_keys=False,
                     indent=4,
@@ -1265,7 +1265,7 @@ class RiskAssesser:
                             {
                                 OUTER_FOLD: dataset_getter.outer_k,
                                 INNER_FOLD: None,
-                                CONFIG_ID: best_config["best_config_id"],
+                                CONFIG_ID: best_config["best_config_id"] - 1,
                                 RUN_ID: i,
                                 IS_FINAL: True,
                             }
@@ -1296,7 +1296,7 @@ class RiskAssesser:
                                 "type": RUN_FAILED,
                                 str(OUTER_FOLD): dataset_getter.outer_k,
                                 str(INNER_FOLD): None,
-                                str(CONFIG_ID): best_config["best_config_id"],
+                                str(CONFIG_ID): best_config["best_config_id"] - 1,
                                 str(RUN_ID): i,
                                 str(IS_FINAL): True,
                                 str(EPOCH): 0,
