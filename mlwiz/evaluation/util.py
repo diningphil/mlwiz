@@ -463,24 +463,27 @@ def create_latex_table_from_assessment_results(
 
     # Loop through each experiment folder
     for exp_folder, model, dataset in exp_metadata:
-        # Load the assessment results from the JSON file
-        if not use_single_outer_fold:
-            assessment_results = get_scores_from_assessment_results(
-                exp_folder, metric_key
-            )
-        else:
-            assessment_results = get_scores_from_outer_results(
-                exp_folder, 1, metric_key
-            )
+        try:
+            # Load the assessment results from the JSON file
+            if not use_single_outer_fold:
+                assessment_results = get_scores_from_assessment_results(
+                    exp_folder, metric_key
+                )
+            else:
+                assessment_results = get_scores_from_outer_results(
+                    exp_folder, 1, metric_key
+                )
 
-        assessment_results["model"] = model
-        assessment_results["dataset"] = dataset
+            assessment_results["model"] = model
+            assessment_results["dataset"] = dataset
 
-        # Convert the dictionary to a DataFrame with a single row
-        df = pd.DataFrame(assessment_results, index=[0])
+            # Convert the dictionary to a DataFrame with a single row
+            df = pd.DataFrame(assessment_results, index=[0])
 
-        # Append the DataFrame to the list
-        dataframes.append(df)
+            # Append the DataFrame to the list
+            dataframes.append(df)
+        except Exception as e:
+            print(f"Unable to retrieve results for {model} on {dataset}, check {exp_folder}...")
 
     # Concatenate all the DataFrames into a single DataFrame
     combined_df = pd.concat(dataframes, ignore_index=True)

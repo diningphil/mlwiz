@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.1] Utilities improvements
+
+## Changed
+
+- `create_latex_table_from_assessment_results` does not break if it does not find an experiment's folder
+
 ## [1.3.1] Minor fixes
 
 ## Added
