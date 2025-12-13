@@ -699,7 +699,6 @@ class RiskAssesser:
         # Cached (already completed) runs that must be replayed
 
         def handle_model_selection_result(result):
-            nonlocal waiting
             outer_k, inner_k, config_id, run_id, elapsed = result
 
             ms_exp_path = osp.join(
