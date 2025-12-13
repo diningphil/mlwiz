@@ -121,7 +121,7 @@ def run_valid(
     config: dict,
     config_id: int,
     run_id: int,
-    fold_exp_folder: str,
+    fold_run_exp_folder: str,
     fold_run_results_torch_path: str,
     exp_seed: int,
     training_timeout_seconds: int,
@@ -142,7 +142,7 @@ def run_valid(
         config (dict): the configuration of this specific experiment
         config_id (int): the id of the configuration (for bookkeeping reasons)
         run_id (int): the id of the training run (for bookkeeping reasons)
-        fold_exp_folder (str): path of the experiment root folder
+        fold_run_exp_folder (str): path of the experiment root folder
         fold_run_results_torch_path (str): path where to store the
             results of the experiment
         exp_seed (int): seed of the experiment
@@ -181,7 +181,7 @@ def run_valid(
     # if not osp.exists(fold_run_results_torch_path):
     try:
         _set_cuda_memory_limit_from_env()
-        experiment = experiment_class(config, fold_exp_folder, exp_seed)
+        experiment = experiment_class(config, fold_run_exp_folder, exp_seed)
 
         # This is used to comunicate with the progress manager
         # to display the UI
@@ -206,9 +206,9 @@ def run_valid(
             should_terminate=_should_terminate,
         )
         elapsed = extract_and_sum_elapsed_seconds(
-            osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
+            osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE)
         )
-        atomic_dill_save((train_res, val_res, elapsed), fold_results_torch_path)
+        atomic_dill_save((train_res, val_res, elapsed), fold_run_results_torch_path)
     except ExperimentTerminated:
         return None
     except Exception as e:
@@ -543,8 +543,11 @@ class RiskAssesser:
         self._WINNER_CONFIG = "winner_config.json"
 
         # Used to keep track of the scheduled jobs
-        self.outer_folds_job_list = []
+        self.model_selection_job_list = []
         self.final_runs_job_list = []
+        # Runs that were already completed on disk (restart flow)
+        self.completed_model_selection_runs = []
+        self.completed_final_runs = []
         self.progress_actor = None
 
         # telegram config
@@ -574,7 +577,7 @@ class RiskAssesser:
             except Exception:
                 pass
         else:
-            for job in self.outer_folds_job_list + self.final_runs_job_list:
+            for job in self.model_selection_job_list + self.final_runs_job_list:
                 try:
                     ray.cancel(job, force=True)
                 except Exception:
@@ -617,6 +620,11 @@ class RiskAssesser:
 
         # Reset failure state at the beginning of each evaluation
         self.failure_message = None
+
+        self.model_selection_job_list = []
+        self.final_runs_job_list = []
+        self.completed_model_selection_runs = []
+        self.completed_final_runs = []
 
         self.progress_actor = None
         try:
@@ -754,17 +762,125 @@ class RiskAssesser:
         skip_model_selection = no_model_configs == 1
 
         # Copy the list of jobs (only for model selection atm)
-        waiting = [el for el in self.outer_folds_job_list]
+        waiting = [el for el in self.model_selection_job_list]
 
         # Counters to keep track of what has completed
         inner_runs_completed = np.zeros(
             (self.outer_folds, no_model_configs, self.inner_folds), dtype=int
         )
-        final_runs_completed = np.zeros(self.outer_folds, dtype=int)
-
         # keeps track of the final run jobs completed for each outer fold
         # the max value for each position is self.risk_assessment_training_runs
         final_runs_completed = [0 for _ in range(self.outer_folds)]
+
+        # Cached (already completed) runs that must be replayed
+
+        def handle_model_selection_result(result):
+            nonlocal waiting
+            outer_k, inner_k, config_id, run_id, elapsed = result
+
+            ms_exp_path = osp.join(
+                self._ASSESSMENT_FOLDER,
+                self._OUTER_FOLD_BASE + str(outer_k + 1),
+                self._SELECTION_FOLDER,
+            )
+            config_folder = osp.join(
+                ms_exp_path, self._CONFIG_BASE + str(config_id + 1)
+            )
+
+            config_inner_fold_folder = osp.join(
+                config_folder, self._INNER_FOLD_BASE + str(inner_k + 1)
+            )
+
+            # if all runs for a certain config and inner fold are
+            # completed, then update the progress manager
+            inner_runs_completed[outer_k][config_id][inner_k] += 1
+            if (
+                inner_runs_completed[outer_k][config_id][inner_k]
+                == self.model_selection_training_runs
+            ):
+                _push_progress_update(
+                    self.progress_actor,
+                    dict(
+                        type=END_CONFIG,
+                        outer_fold=outer_k,
+                        inner_fold=inner_k,
+                        config_id=config_id,
+                        elapsed=elapsed,
+                        message=[
+                            f"Outer fold {outer_k + 1}, "
+                            f"inner fold {inner_k + 1}, "
+                            f"configuration {config_id + 1} completed."
+                        ],
+                    ),
+                )
+
+                self.process_model_selection_runs(config_inner_fold_folder, inner_k)
+
+            # if all inner folds completed (including their runs),
+            # process that configuration and compute its average scores
+            if (
+                inner_runs_completed[outer_k, config_id, :].sum()
+                == self.inner_folds * self.model_selection_training_runs
+            ):
+                self.process_config_results_across_inner_folds(
+                    config_folder,
+                    deepcopy(self.model_configs[config_id]),
+                )
+
+            # if model selection is complete, launch final runs
+            if (
+                inner_runs_completed[outer_k, :, :].sum()
+                == self.inner_folds
+                * no_model_configs
+                * self.model_selection_training_runs
+            ):  # outer fold completed - schedule final runs
+                self.compute_best_hyperparameters(
+                    ms_exp_path,
+                    outer_k,
+                    len(self.model_configs),
+                    skip_config_ids,
+                )
+                self.run_final_model(outer_k, False)
+
+                # Append the NEW jobs to the waiting list
+                waiting.extend(
+                    self.final_runs_job_list[
+                        -self.risk_assessment_training_runs :
+                    ]
+                )
+
+        def handle_final_run_result(result):
+            outer_k, run_id, elapsed = result
+            _push_progress_update(
+                self.progress_actor,
+                dict(
+                    type=END_FINAL_RUN,
+                    outer_fold=outer_k,
+                    run_id=run_id,
+                    elapsed=elapsed,
+                    message=[
+                        f"Outer fold {outer_k + 1}, "
+                        f"final run {run_id + 1} completed."
+                    ],
+                ),
+            )
+
+            final_runs_completed[outer_k] += 1
+            if (
+                final_runs_completed[outer_k]
+                == self.risk_assessment_training_runs
+            ):
+                # Time to produce self._OUTER_RESULTS_FILENAME
+                self.compute_final_runs_score_per_fold(outer_k)
+
+
+        def process_cached_results():
+            for cached in self.completed_model_selection_runs:
+                handle_model_selection_result(cached)
+            self.completed_model_selection_runs = []
+            for cached in self.completed_final_runs:
+                handle_final_run_result(cached)
+            self.completed_final_runs = []
 
         if skip_model_selection:
             for outer_k in range(self.outer_folds):
@@ -777,6 +893,7 @@ class RiskAssesser:
                         -self.risk_assessment_training_runs :
                     ]
                 )
+            process_cached_results()
 
         # Ad-hoc code to skip configs in the evaluator
         for skipped_config_id in skip_config_ids:
@@ -802,11 +919,18 @@ class RiskAssesser:
                         ),
                     )
 
+        # This is necessary in case all model selection runs
+        # have been completed and we only need to launch
+        # the final runs. If this is not called and waiting is empty,
+        # handle_model_selection_result will not launch the final
+        # run jobs
+        process_cached_results()
+
         success = True
         while waiting:
             completed, waiting = ray.wait(waiting)
             for future in completed:
-                is_model_selection_run = future in self.outer_folds_job_list
+                is_model_selection_run = future in self.model_selection_job_list
                 is_final_run = future in self.final_runs_job_list
                 result = ray.get(future)
 
@@ -818,109 +942,13 @@ class RiskAssesser:
                             if is_model_selection_run
                             else "A final run failed; skipping outer fold scoring and final assessment. "
                             "Check the run logs for details."
-                        )
+                            )
                     success = False
 
                 elif is_model_selection_run:  # Model selection
-                    outer_k, inner_k, config_id, run_id, elapsed = result
-
-                    ms_exp_path = osp.join(
-                        self._ASSESSMENT_FOLDER,
-                        self._OUTER_FOLD_BASE + str(outer_k + 1),
-                        self._SELECTION_FOLDER,
-                    )
-                    config_folder = osp.join(
-                        ms_exp_path, self._CONFIG_BASE + str(config_id + 1)
-                    )
-
-                    fold_exp_folder = osp.join(
-                        config_folder, self._INNER_FOLD_BASE + str(inner_k + 1)
-                    )
-
-                    # if all runs for a certain config and inner fold are
-                    # completed, then update the progress manager
-                    inner_runs_completed[outer_k][config_id][inner_k] += 1
-                    if (
-                        inner_runs_completed[outer_k][config_id][inner_k]
-                        == self.model_selection_training_runs
-                    ):
-                        _push_progress_update(
-                            self.progress_actor,
-                            dict(
-                                type=END_CONFIG,
-                                outer_fold=outer_k,
-                                inner_fold=inner_k,
-                                config_id=config_id,
-                                elapsed=elapsed,
-                                message=[
-                                    f"Outer fold {outer_k + 1}, "
-                                    f"inner fold {inner_k + 1}, "
-                                    f"configuration {config_id + 1} completed."
-                                ],
-                            ),
-                        )
-
-                        self.process_model_selection_runs(
-                            fold_exp_folder, inner_k
-                        )
-
-                    # if all inner folds completed (including their runs),
-                    # process that configuration and compute its average scores
-                    if (
-                        inner_runs_completed[outer_k, config_id, :].sum()
-                        == self.inner_folds
-                        * self.model_selection_training_runs
-                    ):
-                        self.process_config_results_across_inner_folds(
-                            config_folder,
-                            deepcopy(self.model_configs[config_id]),
-                        )
-
-                    # if model selection is complete, launch final runs
-                    if (
-                        inner_runs_completed[outer_k, :, :].sum()
-                        == self.inner_folds
-                        * no_model_configs
-                        * self.model_selection_training_runs
-                    ):  # outer fold completed - schedule final runs
-                        self.compute_best_hyperparameters(
-                            ms_exp_path,
-                            outer_k,
-                            len(self.model_configs),
-                            skip_config_ids,
-                        )
-                        self.run_final_model(outer_k, False)
-
-                        # Append the NEW jobs to the waiting list
-                        waiting.extend(
-                            self.final_runs_job_list[
-                                -self.risk_assessment_training_runs :
-                            ]
-                        )
-
+                    handle_model_selection_result(result)
                 elif is_final_run:  # Risk ass. final runs
-                    outer_k, run_id, elapsed = result
-                    _push_progress_update(
-                        self.progress_actor,
-                        dict(
-                            type=END_FINAL_RUN,
-                            outer_fold=outer_k,
-                            run_id=run_id,
-                            elapsed=elapsed,
-                            message=[
-                                f"Outer fold {outer_k + 1}, "
-                                f"final run {run_id + 1} completed."
-                            ],
-                        ),
-                    )
-
-                    final_runs_completed[outer_k] += 1
-                    if (
-                        final_runs_completed[outer_k]
-                        == self.risk_assessment_training_runs
-                    ):
-                        # Time to produce self._OUTER_RESULTS_FILENAME
-                        self.compute_final_runs_score_per_fold(outer_k)
+                    handle_final_run_result(result)
 
         return success
 
@@ -1012,7 +1040,7 @@ class RiskAssesser:
 
                 for k in range(self.inner_folds):
                     # Create a separate folder for each fold for each config.
-                    fold_exp_folder = osp.join(
+                    config_inner_fold_folder = osp.join(
                         config_folder, self._INNER_FOLD_BASE + str(k + 1)
                     )
 
@@ -1022,7 +1050,7 @@ class RiskAssesser:
 
                     for run_id in range(self.model_selection_training_runs):
                         fold_run_exp_folder = osp.join(
-                            fold_exp_folder, f"run_{run_id + 1}"
+                            config_inner_fold_folder, f"run_{run_id + 1}"
                         )
                         fold_run_results_torch_path = osp.join(
                             fold_run_exp_folder,
@@ -1056,6 +1084,15 @@ class RiskAssesser:
                         if not debug:
                             if osp.exists(fold_run_results_torch_path):
                                 train_res, val_res, elapsed = dill_load(fold_run_results_torch_path)
+                                self.completed_model_selection_runs.append(
+                                    (
+                                        dataset_getter.outer_k,
+                                        dataset_getter.inner_k,
+                                        config_id,
+                                        run_id,
+                                        elapsed,
+                                    )
+                                )
 
                                 # When reusing cached results, still surface a progress message so the UI
                                 # can show the latest information for this run.
@@ -1105,7 +1142,7 @@ class RiskAssesser:
                                     logger,
                                     self.progress_actor,
                                 )
-                                self.outer_folds_job_list.append(future)
+                                self.model_selection_job_list.append(future)
                         else:  # debug mode
                             if not osp.exists(fold_run_results_torch_path):
                                 experiment = self.experiment_class(
@@ -1183,7 +1220,7 @@ class RiskAssesser:
                                     return None
 
                     if debug:
-                        self.process_model_selection_runs(fold_exp_folder, k)
+                        self.process_model_selection_runs(config_inner_fold_folder, k)
                 if debug:
                     self.process_config_results_across_inner_folds(
                         config_folder, deepcopy(config)
@@ -1274,13 +1311,17 @@ class RiskAssesser:
             )
 
             if not debug:
-                if not osp.exists(final_run_torch_path): 
-                    res = dill_load(final_run_torch_path)
+                if osp.exists(final_run_torch_path):
                     try:
+                        res = dill_load(final_run_torch_path)
                         train_res, val_res, test_res, elapsed = res
                     except Exception:
                         train_res, val_res, test_res = None, None, None
                         elapsed = res[-1]
+
+                    self.completed_final_runs.append(
+                        (dataset_getter.outer_k, i, elapsed)
+                    )
 
                     cached_msg = "Recovered cached result."
                     try:
@@ -1305,7 +1346,7 @@ class RiskAssesser:
                             OUTER_FOLD: dataset_getter.outer_k,
                             INNER_FOLD: None,
                             CONFIG_ID: best_config["best_config_id"] - 1,
-                            RUN_ID: run_id,
+                            RUN_ID: i,
                             IS_FINAL: True,
                             EPOCH: 0,
                             TOTAL_EPOCHS: 0,
@@ -1397,22 +1438,22 @@ class RiskAssesser:
             self.compute_final_runs_score_per_fold(outer_k)
 
     def process_model_selection_runs(
-        self, inner_fold_exp_folder: str, inner_k: int
+        self, inner_fold_config_folder: str, inner_k: int
     ):
         r"""
         Computes the average performances for the training runs about
             a specific configuration and a specific inner_fold split
 
         Args:
-            inner_fold_exp_folder (str): an inner fold experiment folder
+            inner_fold_config_folder (str): an inner fold experiment folder
                 of a specific configuration
             inner_k (int): the inner fold id
         """
         fold_results_filename = osp.join(
-            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.dill"
+            inner_fold_config_folder, f"fold_{str(inner_k + 1)}_results.dill"
         )
         fold_info_filename = osp.join(
-            inner_fold_exp_folder, f"fold_{str(inner_k + 1)}_results.info"
+            inner_fold_config_folder, f"fold_{str(inner_k + 1)}_results.info"
         )
         run_dict = [{} for _ in range(self.model_selection_training_runs)]
         results_dict = {}
@@ -1420,7 +1461,7 @@ class RiskAssesser:
         assert not self.model_selection_training_runs <= 0
         for run_id in range(self.model_selection_training_runs):
             fold_run_exp_folder = osp.join(
-                inner_fold_exp_folder, f"run_{run_id + 1}"
+                inner_fold_config_folder, f"run_{run_id + 1}"
             )
             fold_run_results_torch_path = osp.join(
                 fold_run_exp_folder, f"run_{run_id + 1}_results.dill"
@@ -1524,11 +1565,11 @@ class RiskAssesser:
         assert not self.inner_folds <= 0
         for k in range(self.inner_folds):
             # Set up a log file for this experiment (run in a separate process)
-            fold_exp_folder = osp.join(
+            config_inner_fold_folder = osp.join(
                 config_folder, self._INNER_FOLD_BASE + str(k + 1)
             )
             fold_results_torch_path = osp.join(
-                fold_exp_folder, f"fold_{str(k + 1)}_results.dill"
+                config_inner_fold_folder, f"fold_{str(k + 1)}_results.dill"
             )
 
             training_res, validation_res, _ = dill_load(
