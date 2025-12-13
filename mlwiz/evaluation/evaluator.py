@@ -230,42 +230,6 @@ def run_valid(
 
         elapsed = -1
         return None
-    # else:
-    # train_res, val_res, elapsed = dill_load(fold_results_torch_path)
-
-    # # When reusing cached results, still surface a progress message so the UI
-    # # can show the latest information for this run.
-    # cached_msg = "Recovered cached result."
-    # try:
-    #     summary_parts = []
-    #     tr_loss = float(train_res[LOSS][MAIN_LOSS])
-    #     val_loss = float(val_res[LOSS][MAIN_LOSS])
-    #     tr_score = float(train_res[SCORE][MAIN_SCORE])
-    #     val_score = float(val_res[SCORE][MAIN_SCORE])
-    #     summary_parts.append(
-    #         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
-    #     )
-    #     if summary_parts:
-    #         cached_msg = " | ".join(summary_parts)
-    # except Exception as e:
-    #     cached_msg += f" {e}\n{traceback.format_exc()}",
-
-    # _push_progress_update(
-    #     progress_actor,
-    #     {
-    #         "type": RUN_PROGRESS,
-    #         OUTER_FOLD: dataset_getter.outer_k,
-    #         INNER_FOLD: dataset_getter.inner_k,
-    #         CONFIG_ID: config_id,
-    #         RUN_ID: run_id,
-    #         IS_FINAL: False,
-    #         EPOCH: 0,
-    #         TOTAL_EPOCHS: 0,
-    #         BATCH: 1,
-    #         TOTAL_BATCHES: 1,
-    #         "message": cached_msg,
-    #     },
-    # )
 
     return (
         dataset_getter.outer_k,
@@ -402,46 +366,6 @@ def run_test(
         elapsed = -1
         return None
 
-    # else:
-        # res = dill_load(final_run_torch_path)
-        # try:
-        #     train_res, val_res, test_res, elapsed = res
-        # except Exception:
-        #     train_res, val_res, test_res = None, None, None
-        #     elapsed = res[-1]
-
-        # cached_msg = "Recovered cached result."
-        # try:
-        #     summary_parts = []
-        #     tr_loss = float(train_res[LOSS][MAIN_LOSS])
-        #     val_loss = float(val_res[LOSS][MAIN_LOSS])
-        #     test_loss = float(test_res[LOSS][MAIN_LOSS])
-        #     tr_score = float(train_res[SCORE][MAIN_SCORE])
-        #     val_score = float(val_res[SCORE][MAIN_SCORE])
-        #     test_score = float(test_res[SCORE][MAIN_SCORE])
-        #     summary_parts.append(
-        #         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/{test_loss:.2f} TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/{test_score:.2f}"
-        #     )
-        #     cached_msg = " | ".join(summary_parts)
-        # except Exception as e:
-        #     cached_msg += f" {e}\n{traceback.format_exc()}",
-
-        # _push_progress_update(
-        #     progress_actor,
-        #     {
-        #         "type": RUN_PROGRESS,
-        #         OUTER_FOLD: dataset_getter.outer_k,
-        #         INNER_FOLD: None,
-        #         CONFIG_ID: best_config["best_config_id"] - 1,
-        #         RUN_ID: run_id,
-        #         IS_FINAL: True,
-        #         EPOCH: 0,
-        #         TOTAL_EPOCHS: 0,
-        #         BATCH: 1,
-        #         TOTAL_BATCHES: 1,
-        #         "message": cached_msg,
-        #     },
-        # )
     return outer_k, run_id, elapsed
 
 
