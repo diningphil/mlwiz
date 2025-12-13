@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.4] Cached elapsed recomputation
+
+## Changed
+
+- When resuming cached model selection or final runs, recompute elapsed time from the experiment log (falling back to cached value if missing) so durations reflect restarts.
+
 ## [1.3.3] Final run resume fix
 
 ## Fixed
