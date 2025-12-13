@@ -763,14 +763,10 @@ class RiskAssesser:
                     len(self.model_configs),
                     skip_config_ids,
                 )
+                # Only enqueue newly scheduled final runs to avoid duplicates
+                prev_len = len(self.final_runs_job_list)
                 self.run_final_model(outer_k, False)
-
-                # Append the NEW jobs to the waiting list
-                waiting.extend(
-                    self.final_runs_job_list[
-                        -self.risk_assessment_training_runs :
-                    ]
-                )
+                waiting.extend(self.final_runs_job_list[prev_len:])
 
         def handle_final_run_result(result):
             outer_k, run_id, elapsed = result
@@ -808,14 +804,9 @@ class RiskAssesser:
         if skip_model_selection:
             for outer_k in range(self.outer_folds):
                 # no need to call process_inner_results() here
+                prev_len = len(self.final_runs_job_list)
                 self.run_final_model(outer_k, False)
-
-                # Append the NEW jobs to the waiting list
-                waiting.extend(
-                    self.final_runs_job_list[
-                        -self.risk_assessment_training_runs :
-                    ]
-                )
+                waiting.extend(self.final_runs_job_list[prev_len:])
             process_cached_results()
 
         # Ad-hoc code to skip configs in the evaluator

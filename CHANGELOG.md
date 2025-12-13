@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.3.3] Final run resume fix
+
+## Fixed
+
+- Prevent duplicate Ray waitables when skipping cached final runs so restarts no longer fail with `ValueError: Wait requires a list of unique ray_waitables`.
+
 ## [1.3.2] Utilities improvements
 
 ## Changed
