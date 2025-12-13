@@ -1,10 +1,11 @@
 # Changelog
 
-## [1.3.1] Utilities improvements
+## [1.3.2] Utilities improvements
 
 ## Changed
 
 - `create_latex_table_from_assessment_results` does not break if it does not find an experiment's folder
+- No need to launch a ray job when resuming only to check if an experimetn has finished. This dramatically accelerates the restart when many configurations are launched, avoid frustrating waitings.
 
 ## [1.3.1] Minor fixes
 

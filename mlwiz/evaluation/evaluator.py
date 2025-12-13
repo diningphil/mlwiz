@@ -122,7 +122,7 @@ def run_valid(
     config_id: int,
     run_id: int,
     fold_exp_folder: str,
-    fold_results_torch_path: str,
+    fold_run_results_torch_path: str,
     exp_seed: int,
     training_timeout_seconds: int,
     logger: Logger,
@@ -143,7 +143,7 @@ def run_valid(
         config_id (int): the id of the configuration (for bookkeeping reasons)
         run_id (int): the id of the training run (for bookkeeping reasons)
         fold_exp_folder (str): path of the experiment root folder
-        fold_results_torch_path (str): path where to store the
+        fold_run_results_torch_path (str): path where to store the
             results of the experiment
         exp_seed (int): seed of the experiment
         training_timeout_seconds (int): timeout for the experiment in seconds
@@ -178,94 +178,95 @@ def run_valid(
     if _should_terminate():
         return None
 
-    if not osp.exists(fold_results_torch_path):
-        try:
-            _set_cuda_memory_limit_from_env()
-            experiment = experiment_class(config, fold_exp_folder, exp_seed)
+    # if not osp.exists(fold_run_results_torch_path):
+    try:
+        _set_cuda_memory_limit_from_env()
+        experiment = experiment_class(config, fold_exp_folder, exp_seed)
 
-            # This is used to comunicate with the progress manager
-            # to display the UI
-            def _report_progress(payload: dict):
-                payload = deepcopy(payload)
-                payload.update(
-                    {
-                        OUTER_FOLD: dataset_getter.outer_k,
-                        INNER_FOLD: dataset_getter.inner_k,
-                        CONFIG_ID: config_id,
-                        RUN_ID: run_id,
-                        IS_FINAL: False,
-                    }
-                )
-                _push_progress_update(progress_actor, payload)
-
-            train_res, val_res = experiment.run_valid(
-                dataset_getter,
-                training_timeout_seconds,
-                logger,
-                progress_callback=_report_progress,
-                should_terminate=_should_terminate,
-            )
-            elapsed = extract_and_sum_elapsed_seconds(
-                osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
-            )
-            atomic_dill_save((train_res, val_res, elapsed), fold_results_torch_path)
-        except ExperimentTerminated:
-            return None
-        except Exception as e:
-
-            _push_progress_update(
-                progress_actor,
+        # This is used to comunicate with the progress manager
+        # to display the UI
+        def _report_progress(payload: dict):
+            payload = deepcopy(payload)
+            payload.update(
                 {
-                    "type": RUN_FAILED,
-                    str(OUTER_FOLD): dataset_getter.outer_k,
-                    str(INNER_FOLD): dataset_getter.inner_k,
-                    str(CONFIG_ID): config_id,
-                    str(RUN_ID): run_id,
-                    str(IS_FINAL): False,
-                    str(EPOCH): 0,
-                    str(TOTAL_EPOCHS): 0,
-                    "message": f"{e}\n{traceback.format_exc()}",
-                },
+                    OUTER_FOLD: dataset_getter.outer_k,
+                    INNER_FOLD: dataset_getter.inner_k,
+                    CONFIG_ID: config_id,
+                    RUN_ID: run_id,
+                    IS_FINAL: False,
+                }
             )
+            _push_progress_update(progress_actor, payload)
 
-            elapsed = -1
-            return None
-    else:
-        train_res, val_res, elapsed = dill_load(fold_results_torch_path)
-
-        # When reusing cached results, still surface a progress message so the UI
-        # can show the latest information for this run.
-        cached_msg = "Recovered cached result."
-        try:
-            summary_parts = []
-            tr_loss = float(train_res[LOSS][MAIN_LOSS])
-            val_loss = float(val_res[LOSS][MAIN_LOSS])
-            tr_score = float(train_res[SCORE][MAIN_SCORE])
-            val_score = float(val_res[SCORE][MAIN_SCORE])
-            summary_parts.append(
-                f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
-            )
-            if summary_parts:
-                cached_msg = " | ".join(summary_parts)
-        except Exception as e:
-            cached_msg += f" {e}\n{traceback.format_exc()}",
+        train_res, val_res = experiment.run_valid(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=_report_progress,
+            should_terminate=_should_terminate,
+        )
+        elapsed = extract_and_sum_elapsed_seconds(
+            osp.join(fold_exp_folder, EXPERIMENT_LOGFILE)
+        )
+        atomic_dill_save((train_res, val_res, elapsed), fold_results_torch_path)
+    except ExperimentTerminated:
+        return None
+    except Exception as e:
 
         _push_progress_update(
             progress_actor,
             {
-                "type": RUN_PROGRESS,
-                OUTER_FOLD: dataset_getter.outer_k,
-                INNER_FOLD: dataset_getter.inner_k,
-                CONFIG_ID: config_id,
-                RUN_ID: run_id,
-                IS_FINAL: False,
-                EPOCH: 0,
-                TOTAL_EPOCHS: 0,
-                BATCH: 1,
-                TOTAL_BATCHES: 1,
-                "message": cached_msg,
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): dataset_getter.inner_k,
+                str(CONFIG_ID): config_id,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): False,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
             },
         )
+
+        elapsed = -1
+        return None
+    # else:
+    # train_res, val_res, elapsed = dill_load(fold_results_torch_path)
+
+    # # When reusing cached results, still surface a progress message so the UI
+    # # can show the latest information for this run.
+    # cached_msg = "Recovered cached result."
+    # try:
+    #     summary_parts = []
+    #     tr_loss = float(train_res[LOSS][MAIN_LOSS])
+    #     val_loss = float(val_res[LOSS][MAIN_LOSS])
+    #     tr_score = float(train_res[SCORE][MAIN_SCORE])
+    #     val_score = float(val_res[SCORE][MAIN_SCORE])
+    #     summary_parts.append(
+    #         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
+    #     )
+    #     if summary_parts:
+    #         cached_msg = " | ".join(summary_parts)
+    # except Exception as e:
+    #     cached_msg += f" {e}\n{traceback.format_exc()}",
+
+    # _push_progress_update(
+    #     progress_actor,
+    #     {
+    #         "type": RUN_PROGRESS,
+    #         OUTER_FOLD: dataset_getter.outer_k,
+    #         INNER_FOLD: dataset_getter.inner_k,
+    #         CONFIG_ID: config_id,
+    #         RUN_ID: run_id,
+    #         IS_FINAL: False,
+    #         EPOCH: 0,
+    #         TOTAL_EPOCHS: 0,
+    #         BATCH: 1,
+    #         TOTAL_BATCHES: 1,
+    #         "message": cached_msg,
+    #     },
+    # )
+
     return (
         dataset_getter.outer_k,
         dataset_getter.inner_k,
@@ -344,103 +345,103 @@ def run_test(
     if _should_terminate():
         return None
 
-    if not osp.exists(final_run_torch_path):
-        try:
-            _set_cuda_memory_limit_from_env()
-            experiment = experiment_class(
-                best_config[CONFIG], final_run_exp_path, exp_seed
-            )
+    # if not osp.exists(final_run_torch_path):
+    try:
+        _set_cuda_memory_limit_from_env()
+        experiment = experiment_class(
+            best_config[CONFIG], final_run_exp_path, exp_seed
+        )
 
-            # This is used to comunicate with the progress manager
-            # to display the UI
-            def _report_progress(payload: dict):
-                payload = deepcopy(payload)
-                payload.update(
-                    {
-                        OUTER_FOLD: dataset_getter.outer_k,
-                        INNER_FOLD: None,
-                        CONFIG_ID: best_config["best_config_id"] - 1,
-                        RUN_ID: run_id,
-                        IS_FINAL: True,
-                    }
-                )
-                _push_progress_update(progress_actor, payload)
-
-            res = experiment.run_test(
-                dataset_getter,
-                training_timeout_seconds,
-                logger,
-                progress_callback=_report_progress,
-                should_terminate=_should_terminate,
-            )
-            elapsed = extract_and_sum_elapsed_seconds(
-                osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
-            )
-            train_res, val_res, test_res = res
-            atomic_dill_save(
-                (train_res, val_res, test_res, elapsed), final_run_torch_path
-            )
-        except ExperimentTerminated:
-            return None
-        except Exception as e:
-
-            _push_progress_update(
-                progress_actor,
+        # This is used to comunicate with the progress manager
+        # to display the UI
+        def _report_progress(payload: dict):
+            payload = deepcopy(payload)
+            payload.update(
                 {
-                    "type": RUN_FAILED,
-                    str(OUTER_FOLD): dataset_getter.outer_k,
-                    str(INNER_FOLD): None,
-                    str(CONFIG_ID): best_config["best_config_id"] - 1,
-                    str(RUN_ID): run_id,
-                    str(IS_FINAL): True,
-                    str(EPOCH): 0,
-                    str(TOTAL_EPOCHS): 0,
-                    "message": f"{e}\n{traceback.format_exc()}",
-                },
+                    OUTER_FOLD: dataset_getter.outer_k,
+                    INNER_FOLD: None,
+                    CONFIG_ID: best_config["best_config_id"] - 1,
+                    RUN_ID: run_id,
+                    IS_FINAL: True,
+                }
             )
-            elapsed = -1
-            return None
+            _push_progress_update(progress_actor, payload)
 
-    else:
-        res = dill_load(final_run_torch_path)
-        try:
-            train_res, val_res, test_res, elapsed = res
-        except Exception:
-            train_res, val_res, test_res = None, None, None
-            elapsed = res[-1]
-
-        cached_msg = "Recovered cached result."
-        try:
-            summary_parts = []
-            tr_loss = float(train_res[LOSS][MAIN_LOSS])
-            val_loss = float(val_res[LOSS][MAIN_LOSS])
-            test_loss = float(test_res[LOSS][MAIN_LOSS])
-            tr_score = float(train_res[SCORE][MAIN_SCORE])
-            val_score = float(val_res[SCORE][MAIN_SCORE])
-            test_score = float(test_res[SCORE][MAIN_SCORE])
-            summary_parts.append(
-                f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/{test_loss:.2f} TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/{test_score:.2f}"
-            )
-            cached_msg = " | ".join(summary_parts)
-        except Exception as e:
-            cached_msg += f" {e}\n{traceback.format_exc()}",
+        res = experiment.run_test(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=_report_progress,
+            should_terminate=_should_terminate,
+        )
+        elapsed = extract_and_sum_elapsed_seconds(
+            osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+        )
+        train_res, val_res, test_res = res
+        atomic_dill_save(
+            (train_res, val_res, test_res, elapsed), final_run_torch_path
+        )
+    except ExperimentTerminated:
+        return None
+    except Exception as e:
 
         _push_progress_update(
             progress_actor,
             {
-                "type": RUN_PROGRESS,
-                OUTER_FOLD: dataset_getter.outer_k,
-                INNER_FOLD: None,
-                CONFIG_ID: best_config["best_config_id"] - 1,
-                RUN_ID: run_id,
-                IS_FINAL: True,
-                EPOCH: 0,
-                TOTAL_EPOCHS: 0,
-                BATCH: 1,
-                TOTAL_BATCHES: 1,
-                "message": cached_msg,
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): None,
+                str(CONFIG_ID): best_config["best_config_id"] - 1,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): True,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
             },
         )
+        elapsed = -1
+        return None
+
+    # else:
+        # res = dill_load(final_run_torch_path)
+        # try:
+        #     train_res, val_res, test_res, elapsed = res
+        # except Exception:
+        #     train_res, val_res, test_res = None, None, None
+        #     elapsed = res[-1]
+
+        # cached_msg = "Recovered cached result."
+        # try:
+        #     summary_parts = []
+        #     tr_loss = float(train_res[LOSS][MAIN_LOSS])
+        #     val_loss = float(val_res[LOSS][MAIN_LOSS])
+        #     test_loss = float(test_res[LOSS][MAIN_LOSS])
+        #     tr_score = float(train_res[SCORE][MAIN_SCORE])
+        #     val_score = float(val_res[SCORE][MAIN_SCORE])
+        #     test_score = float(test_res[SCORE][MAIN_SCORE])
+        #     summary_parts.append(
+        #         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/{test_loss:.2f} TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/{test_score:.2f}"
+        #     )
+        #     cached_msg = " | ".join(summary_parts)
+        # except Exception as e:
+        #     cached_msg += f" {e}\n{traceback.format_exc()}",
+
+        # _push_progress_update(
+        #     progress_actor,
+        #     {
+        #         "type": RUN_PROGRESS,
+        #         OUTER_FOLD: dataset_getter.outer_k,
+        #         INNER_FOLD: None,
+        #         CONFIG_ID: best_config["best_config_id"] - 1,
+        #         RUN_ID: run_id,
+        #         IS_FINAL: True,
+        #         EPOCH: 0,
+        #         TOTAL_EPOCHS: 0,
+        #         BATCH: 1,
+        #         TOTAL_BATCHES: 1,
+        #         "message": cached_msg,
+        #     },
+        # )
     return outer_k, run_id, elapsed
 
 
@@ -1053,21 +1054,58 @@ class RiskAssesser:
                             )
                         )
                         if not debug:
-                            # Launch the job and append to list of outer jobs
-                            future = run_valid.remote(
-                                self.experiment_class,
-                                dataset_getter,
-                                config,
-                                config_id,
-                                run_id,
-                                fold_run_exp_folder,
-                                fold_run_results_torch_path,
-                                exp_seed,
-                                self.training_timeout_seconds,
-                                logger,
-                                self.progress_actor,
-                            )
-                            self.outer_folds_job_list.append(future)
+                            if osp.exists(fold_run_results_torch_path):
+                                train_res, val_res, elapsed = dill_load(fold_run_results_torch_path)
+
+                                # When reusing cached results, still surface a progress message so the UI
+                                # can show the latest information for this run.
+                                cached_msg = "Recovered cached result."
+                                try:
+                                    summary_parts = []
+                                    tr_loss = float(train_res[LOSS][MAIN_LOSS])
+                                    val_loss = float(val_res[LOSS][MAIN_LOSS])
+                                    tr_score = float(train_res[SCORE][MAIN_SCORE])
+                                    val_score = float(val_res[SCORE][MAIN_SCORE])
+                                    summary_parts.append(
+                                        f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
+                                    )
+                                    if summary_parts:
+                                        cached_msg = " | ".join(summary_parts)
+                                except Exception as e:
+                                    cached_msg += f" {e}\n{traceback.format_exc()}",
+
+                                _push_progress_update(
+                                    self.progress_actor,
+                                    {
+                                        "type": RUN_PROGRESS,
+                                        OUTER_FOLD: dataset_getter.outer_k,
+                                        INNER_FOLD: dataset_getter.inner_k,
+                                        CONFIG_ID: config_id,
+                                        RUN_ID: run_id,
+                                        IS_FINAL: False,
+                                        EPOCH: 0,
+                                        TOTAL_EPOCHS: 0,
+                                        BATCH: 1,
+                                        TOTAL_BATCHES: 1,
+                                        "message": cached_msg,
+                                    },
+                                )
+                            else:
+                                # Launch the job and append to list of outer jobs
+                                future = run_valid.remote(
+                                    self.experiment_class,
+                                    dataset_getter,
+                                    config,
+                                    config_id,
+                                    run_id,
+                                    fold_run_exp_folder,
+                                    fold_run_results_torch_path,
+                                    exp_seed,
+                                    self.training_timeout_seconds,
+                                    logger,
+                                    self.progress_actor,
+                                )
+                                self.outer_folds_job_list.append(future)
                         else:  # debug mode
                             if not osp.exists(fold_run_results_torch_path):
                                 experiment = self.experiment_class(
@@ -1236,21 +1274,62 @@ class RiskAssesser:
             )
 
             if not debug:
-                # Launch the job and append to list of final runs jobs
-                future = run_test.remote(
-                    self.experiment_class,
-                    dataset_getter,
-                    best_config,
-                    outer_k,
-                    i,
-                    final_run_exp_path,
-                    final_run_torch_path,
-                    exp_seed,
-                    self.training_timeout_seconds,
-                    logger,
-                    self.progress_actor,
-                )
-                self.final_runs_job_list.append(future)
+                if not osp.exists(final_run_torch_path): 
+                    res = dill_load(final_run_torch_path)
+                    try:
+                        train_res, val_res, test_res, elapsed = res
+                    except Exception:
+                        train_res, val_res, test_res = None, None, None
+                        elapsed = res[-1]
+
+                    cached_msg = "Recovered cached result."
+                    try:
+                        summary_parts = []
+                        tr_loss = float(train_res[LOSS][MAIN_LOSS])
+                        val_loss = float(val_res[LOSS][MAIN_LOSS])
+                        test_loss = float(test_res[LOSS][MAIN_LOSS])
+                        tr_score = float(train_res[SCORE][MAIN_SCORE])
+                        val_score = float(val_res[SCORE][MAIN_SCORE])
+                        test_score = float(test_res[SCORE][MAIN_SCORE])
+                        summary_parts.append(
+                            f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/{test_loss:.2f} TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/{test_score:.2f}"
+                        )
+                        cached_msg = " | ".join(summary_parts)
+                    except Exception as e:
+                        cached_msg += f" {e}\n{traceback.format_exc()}",
+
+                    _push_progress_update(
+                        self.progress_actor,
+                        {
+                            "type": RUN_PROGRESS,
+                            OUTER_FOLD: dataset_getter.outer_k,
+                            INNER_FOLD: None,
+                            CONFIG_ID: best_config["best_config_id"] - 1,
+                            RUN_ID: run_id,
+                            IS_FINAL: True,
+                            EPOCH: 0,
+                            TOTAL_EPOCHS: 0,
+                            BATCH: 1,
+                            TOTAL_BATCHES: 1,
+                            "message": cached_msg,
+                        },
+                    )
+                else:
+                    # Launch the job and append to list of final runs jobs
+                    future = run_test.remote(
+                        self.experiment_class,
+                        dataset_getter,
+                        best_config,
+                        outer_k,
+                        i,
+                        final_run_exp_path,
+                        final_run_torch_path,
+                        exp_seed,
+                        self.training_timeout_seconds,
+                        logger,
+                        self.progress_actor,
+                    )
+                    self.final_runs_job_list.append(future)
             else:
                 if not osp.exists(final_run_torch_path):
                     experiment = self.experiment_class(
