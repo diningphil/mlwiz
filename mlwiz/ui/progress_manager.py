@@ -6,10 +6,8 @@ import sys
 import termios
 import threading
 import time
-import traceback
 import tty
 from copy import deepcopy
-from dataclasses import dataclass
 from pprint import pformat
 from typing import Callable
 import tqdm
@@ -26,26 +24,6 @@ def clear_screen():
     # Mimic Ctrl+L: clear visible screen and move cursor to top without
     # wiping scrollback/history.
     print("\033[2J\033[H", end="", flush=True)
-
-
-@dataclass
-class _RenderState:
-    header: str = ""
-    last_progress: str = ""
-    failure: str = ""
-    moves: str = ""
-    rendered_lines: int = 0
-    origin_row: int = 1
-
-    def reset_area(self):
-        self.rendered_lines = 0
-        self.origin_row = 1
-
-    def append_moves(self, text: str):
-        self.moves += text
-
-    def clear_moves(self):
-        self.moves = ""
 
 
 @ray.remote(num_cpus=0)
@@ -156,8 +134,14 @@ class ProgressManager:
         self._last_seen_model_selection_identifier = None
         self._last_seen_final_run_identifier = None
 
-        # Track what is currently visible on screen.
-        self._render_state = _RenderState()
+        # used to combine printing of multiple information in debug mode
+        self._header_run_message = ""
+        self._last_progress_msg = ""
+        self._moves_buffer = ""
+        self._failure_message = ""
+        self._rendered_lines = 0
+        # Anchor row (1-based) where custom rendering starts; keeps drawing absolute.
+        self._render_origin_row = 1
 
         # when NOT in debug mode, this is None
         # when the global view is active, otherwise
@@ -220,7 +204,8 @@ class ProgressManager:
         if force_refresh or self._to_visualize != identifier:
             self._to_visualize = identifier
             clear_screen()
-            self._render_state.reset_area()
+            self._rendered_lines = 0
+            self._render_origin_row = 1
 
         if self._to_visualize in {"g", "global"}:
             self.refresh()
@@ -229,91 +214,87 @@ class ProgressManager:
 
         invalid_id_msg = 'ProgressManager: invalid identifier format, use "outer inner config run" format or "outer run" format...'
 
-        parsed_identifier = self._parse_view_identifier(self._to_visualize)
-        if parsed_identifier is None or any(
-            value <= 0 for value in parsed_identifier[1:]
-        ):
-            self._render_invalid_identifier(invalid_id_msg)
+        # put last stored message on screen to display it
+        try:
+            values = self._to_visualize.split(" ")
+            if (
+                (len(values) != 2 and len(values) != 4)
+                or "0" in values
+                or 0 in values
+            ):
+                raise Exception(invalid_id_msg)
+        except Exception:
+            clear_screen()
+            self._render_origin_row = 1
+            print(invalid_id_msg, end="", flush=True)
             return
 
-        kind, *raw_values = parsed_identifier
-        zero_based = [value - 1 for value in raw_values]
-
-        self._render_state.last_progress = ""
+        self._last_progress_msg = ""
         try:
-            if kind == "final":
-                msg, progress_msg = self._final_view_state(zero_based)
-            else:
-                msg, progress_msg = self._selection_view_state(zero_based)
+            msg = None
+            progress_msg = ""
+            if len(values) == 2:
+                outer, run = int(values[0]) - 1, int(values[1]) - 1
+                self._last_seen_final_run_identifier = f"{outer + 1} {run + 1}"
 
-            self._render_state.last_progress = progress_msg or ""
+                msg = self._final_run_messages[int(outer)][int(run)]
+                progress_msg = self._final_progress_messages.get(
+                    int(outer), {}
+                ).get(int(run), "")
+                self._header_run_message = f"Risk assessment run {run + 1} for outer fold {outer + 1}..."
+
+            elif len(values) == 4:
+                outer, inner, config, run = (
+                    int(values[0]) - 1,
+                    int(values[1]) - 1,
+                    int(values[2]) - 1,
+                    int(values[3]) - 1,
+                )
+                self._last_seen_model_selection_identifier = (
+                    f"{outer + 1} {inner + 1} {config + 1} {run + 1}"
+                )
+                msg = self._last_run_messages[int(outer)][int(inner)][
+                    int(config)
+                ][int(run)]
+                progress_msg = (
+                    self._last_progress_messages.get(int(outer), {})
+                    .get(int(inner), {})
+                    .get(int(config), {})
+                    .get(int(run), "")
+                )
+                self._header_run_message = f"Model selection run {run + 1} for config {config + 1} for outer fold {outer + 1}, inner fold {inner + 1}..."
+
+            self._last_progress_msg = progress_msg or ""
             if msg is not None:
-                self._handle_message(msg, store=False)
+                self._handle_message(
+                    msg, store=False
+                )  # do not store message already stored
 
         except KeyError as e:
-            self._print_missing_update(kind, raw_values, e)
-
+            try:
+                if len(values) == 2:
+                    outer, run = values
+                    msg = (
+                        f"ProgressManager: waiting for updates for final run {run} "
+                        f"of outer fold {outer} (missing key {e})..."
+                    )
+                elif len(values) == 4:
+                    outer, inner, config, run = values
+                    msg = (
+                        "ProgressManager: waiting for updates for model selection "
+                        f"run {run} of config {config} (outer {outer}, inner {inner}) "
+                        f"(missing key {e})..."
+                    )
+            except Exception:
+                msg = f"ProgressManager: waiting for the next update (missing key {e})..."
+            print(msg)
+            
         except Exception:
-            self._render_invalid_identifier(invalid_id_msg)
+            clear_screen()
+            print(invalid_id_msg, end="", flush=True)
             return
 
         self._render_user_input()
-
-    def _render_invalid_identifier(self, invalid_id_msg: str):
-        clear_screen()
-        self._render_state.reset_area()
-        print(invalid_id_msg, end="", flush=True)
-
-    def _final_view_state(self, values):
-        outer, run = values
-        self._last_seen_final_run_identifier = f"{outer + 1} {run + 1}"
-        self._render_state.header = (
-            f"Risk assessment run {run + 1} for outer fold {outer + 1}..."
-        )
-        msg = self._final_run_messages[outer][run]
-        progress_msg = self._get_progress_text(
-            self._final_progress_messages, outer, run
-        )
-        return msg, progress_msg
-
-    def _selection_view_state(self, values):
-        outer, inner, config, run = values
-        self._last_seen_model_selection_identifier = (
-            f"{outer + 1} {inner + 1} {config + 1} {run + 1}"
-        )
-        self._render_state.header = (
-            f"Model selection run {run + 1} for config {config + 1} "
-            f"for outer fold {outer + 1}, inner fold {inner + 1}..."
-        )
-        msg = self._last_run_messages[outer][inner][config][run]
-        progress_msg = self._get_progress_text(
-            self._last_progress_messages, outer, run, inner, config
-        )
-        return msg, progress_msg
-
-    def _print_missing_update(self, kind, values, missing_key):
-        if kind == "final":
-            outer, run = values
-            msg = (
-                f"ProgressManager: waiting for updates for final run {run} "
-                f"of outer fold {outer} (missing key {missing_key})..."
-            )
-        else:
-            outer, inner, config, run = values
-            msg = (
-                "ProgressManager: waiting for updates for model selection "
-                f"run {run} of config {config} (outer {outer}, inner {inner}) "
-                f"(missing key {missing_key})..."
-            )
-        print(msg)
-
-    def _get_progress_text(
-        self, container: dict, outer: int, run: int, inner: int = None, config: int = None
-    ) -> str:
-        current = container.get(outer, {})
-        if inner is not None:
-            current = current.get(inner, {}).get(config, {})
-        return current.get(run, "")
 
     def _start_input_listener(self):
         # Spawn non-blocking stdin listener to drive view navigation commands.
@@ -595,8 +576,7 @@ class ProgressManager:
         Render a persistent failure message at the bottom-left corner.
         """
         # Keeps latest failure visible alongside overlay without disrupting bars.
-        failure = self._render_state.failure
-        if failure == "":
+        if self._failure_message == "":
             return
         if not sys.stdout.isatty():
             return
@@ -612,7 +592,7 @@ class ProgressManager:
         max_width = overlay_start - 1 if overlay_start > 1 else cols
         max_width = max(1, max_width)
 
-        text = failure[:max_width].ljust(max_width)
+        text = self._failure_message[:max_width].ljust(max_width)
         # Save/restore cursor so we don't move the tqdm cursor.
         print(f"\0337\033[{rows};1H{text}\0338", end="", flush=True)
 
@@ -656,26 +636,25 @@ class ProgressManager:
         """
         # Centralized rendering hook used by message handlers to draw bars/text.
         # Render from a fixed top-left anchor so scrolling does not confuse the cursor.
-        render_state = self._render_state
         if not sys.stdout.isatty():
             rendered_lines = printer()
-            render_state.rendered_lines = (
+            self._rendered_lines = (
                 rendered_lines if isinstance(rendered_lines, int) else 0
             )
             return
 
-        lines_to_clear = max(1, render_state.rendered_lines)
+        lines_to_clear = max(1, self._rendered_lines)
         # Jump to the anchor row before clearing anything.
-        render_state.append_moves(f"\033[{render_state.origin_row};1H")
+        self._moves_buffer += f"\033[{self._render_origin_row};1H"
         for idx in range(lines_to_clear):
             self._clear_line()
             if idx < lines_to_clear - 1:
                 self._cursor_down()
 
         # Reset to the anchor and render the new content.
-        render_state.append_moves(f"\033[{render_state.origin_row};1H")
+        self._moves_buffer += f"\033[{self._render_origin_row};1H"
         rendered_lines = printer()
-        render_state.rendered_lines = (
+        self._rendered_lines = (
             rendered_lines if isinstance(rendered_lines, int) else 0
         )
 
@@ -764,27 +743,21 @@ class ProgressManager:
         and view replays).
         """
         # Core dispatcher that updates cached messages and drives rendering.
-        msg_type = msg.get("type")
-        render_state = self._render_state
+        type = msg.get("type")
 
         outer_fold = msg.get(OUTER_FOLD)
         inner_fold = msg.get(INNER_FOLD)
         config_id = msg.get(CONFIG_ID)
         run_id = msg.get(RUN_ID)
 
-        if msg_type == START_CONFIG:
+        if type == START_CONFIG:
             # Avoid changing the header while a specific configuration view is active.
             if inner_fold is None and self._is_active_view(msg):
-                render_state.header = (
-                    f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
-                )
+                self._header_run_message = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
             elif self._is_active_view(msg):
-                render_state.header = (
-                    f"Model selection run {run_id + 1} for config {config_id + 1} "
-                    f"for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
-                )
+                self._header_run_message = f"Model selection run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}..."
 
-        elif msg_type == BATCH_PROGRESS:
+        elif type == BATCH_PROGRESS:
             if self._is_active_view(msg):
                 batch_id = msg.get(BATCH)
                 total_batches = msg.get(TOTAL_BATCHES)
@@ -799,7 +772,7 @@ class ProgressManager:
             if store:
                 self._store_last_run_message(msg)
 
-        elif msg_type == RUN_PROGRESS:
+        elif type == RUN_PROGRESS:
             progress_msg = self._format_run_message(msg)
             if store:
                 self._store_last_run_message(msg)
@@ -810,17 +783,17 @@ class ProgressManager:
                 total_batches = msg.get(TOTAL_BATCHES)
                 epoch = msg.get(EPOCH)
                 desc = msg.get(MODE)
-                render_state.last_progress = progress_msg
+                self._last_progress_msg = progress_msg
                 self._render_progress(
                     lambda: self._print_train_progress_bar(
                         batch_id, total_batches, epoch, desc
                     )
                 )
 
-        elif msg_type == RUN_COMPLETED:
+        elif type == RUN_COMPLETED:
             pass  # do not store this message, not useful for now
 
-        elif msg_type in {RUN_FAILED}:
+        elif type in {RUN_FAILED}:
             if store:
                 self._store_last_run_message(msg)
 
@@ -831,7 +804,7 @@ class ProgressManager:
 
             if self._is_active_view(msg):
                 clear_screen()
-                render_state.reset_area()
+                self._render_origin_row = 1
 
                 print(
                     f"Run failed: run {run_id + 1} for config {config_id + 1} for outer fold {outer_fold + 1}, inner fold {inner_fold + 1}... \nMessage: {msg.get('message')}"
@@ -844,10 +817,10 @@ class ProgressManager:
                 if inner_fold is not None:
                     failure_desc += f", inner fold {inner_fold + 1}"
                 failure_desc += f"... Message: {msg.get('message')}"
-                render_state.failure = failure_desc
+                self._failure_message = failure_desc
                 self._render_failure_message()
 
-        elif msg_type == END_CONFIG:
+        elif type == END_CONFIG:
             position = outer_fold * self.inner_folds + inner_fold
             elapsed = msg.get(ELAPSED)
             configs_times = self.times[position]
@@ -867,7 +840,7 @@ class ProgressManager:
                 pbar.n += 1
                 pbar.last_print_n = pbar.n
 
-        elif msg_type == END_FINAL_RUN:
+        elif type == END_FINAL_RUN:
             position = self.outer_folds * self.inner_folds + outer_fold
             elapsed = msg.get(ELAPSED)
             configs_times = self.times[position]
@@ -886,7 +859,7 @@ class ProgressManager:
                 pbar.n += 1
                 pbar.last_print_n = pbar.n
         else:
-            print(f"Cannot parse type of message {msg_type}, fix this.")
+            print(f"Cannot parse type of message {type}, fix this.")
 
     def _print_train_progress_bar(
         self, batch_id: int, total_batches: int, epoch: int, desc: str
@@ -902,11 +875,10 @@ class ProgressManager:
         percentage = int(progress / total * 100)
         msg = f"{desc} Epoch {epoch}: [{bar}] {percentage:3d}% ({progress}/{total})"
 
-        render_state = self._render_state
-        if render_state.header:
-            msg = render_state.header + "\n" + msg
-        if render_state.last_progress:
-            msg = msg + "\n" + render_state.last_progress
+        if self._header_run_message != "":
+            msg = self._header_run_message + "\n" + msg
+        if self._last_progress_msg != "":
+            msg = msg + "\n" + self._last_progress_msg
 
         self._append_to_buffer(msg)
         self._flush_buffer()
@@ -946,7 +918,7 @@ class ProgressManager:
         """
         # Helper for manual rendering path in debug mode.
         # ANSI: move cursor up one line.
-        self._render_state.append_moves("\033[F")
+        self._moves_buffer += "\033[F"
 
     def _cursor_down(self):
         """
@@ -954,7 +926,7 @@ class ProgressManager:
         """
         # Helper for manual rendering path in debug mode.
         # ANSI: move cursor down one line.
-        self._render_state.append_moves("\033[E")
+        self._moves_buffer += "\033[E"
 
     def _clear_line(self):
         """
@@ -962,26 +934,26 @@ class ProgressManager:
         """
         # Helper for manual rendering path in debug mode.
         # ANSI: return carriage then clear to end of line.
-        self._render_state.append_moves("\r\033[K")
+        self._moves_buffer += "\r\033[K"
 
     def _append_to_buffer(self, msg: str):
         """
-        Appends text or ANSI moves to the pending buffer.
+        Clears the moves buffer.
         """
         # Shared buffer to batch cursor moves + messages.
-        self._render_state.append_moves(msg)
+        self._moves_buffer += msg
 
     def _clear_moves_buffer(self):
         """
         Clears the moves buffer.
         """
         # Reset buffered cursor/text before reuse.
-        self._render_state.clear_moves()
+        self._moves_buffer = ""
 
     def _flush_buffer(self):
         # Emit buffered cursor moves/text and redraw overlays.
         # Dump buffered cursor moves + text, then redraw the input overlay.
-        print(self._render_state.moves, end="", flush=True)
+        print(self._moves_buffer, end="", flush=True)
         self._clear_moves_buffer()
         self._render_user_input()
 
@@ -1102,16 +1074,6 @@ class ProgressManager:
             self.show_footer()
         self._render_user_input()
 
-    def _selection_slot(self, container, outer, inner, config):
-        return (
-            container.setdefault(outer, {})
-            .setdefault(inner, {})
-            .setdefault(config, {})
-        )
-
-    def _final_slot(self, container, outer):
-        return container.setdefault(outer, {})
-
     def _store_last_run_message(self, msg: dict):
         """
         Stores the latest progress message for a specific run.
@@ -1121,16 +1083,22 @@ class ProgressManager:
         run = msg.get(RUN_ID)
 
         if msg.get(IS_FINAL):
-            self._final_slot(self._final_run_messages, outer)[run] = msg
+            if outer not in self._final_run_messages:
+                self._final_run_messages[outer] = {}
+            self._final_run_messages[outer][run] = msg
             return
             
         inner = msg.get(INNER_FOLD)
         config = msg.get(CONFIG_ID)
 
-        selection_runs = self._selection_slot(
-            self._last_run_messages, outer, inner, config
-        )
-        selection_runs[run] = msg
+        if outer not in self._last_run_messages:
+            self._last_run_messages[outer] = {}
+        if inner not in self._last_run_messages[outer]:
+            self._last_run_messages[outer][inner] = {}
+        if config not in self._last_run_messages[outer][inner]:
+            self._last_run_messages[outer][inner][config] = {}
+
+        self._last_run_messages[outer][inner][config][run] = msg
 
     def _store_last_progress_message(self, msg: dict, progress_msg: str):
         """
@@ -1141,15 +1109,21 @@ class ProgressManager:
         run = msg.get(RUN_ID)
 
         if msg.get(IS_FINAL):
-            self._final_slot(self._final_progress_messages, outer)[
-                run
-            ] = progress_msg
+            if outer not in self._final_progress_messages:
+                self._final_progress_messages[outer] = {}
+            self._final_progress_messages[outer][run] = progress_msg
             return
 
         inner = msg.get(INNER_FOLD)
         config = msg.get(CONFIG_ID)
 
-        selection_runs = self._selection_slot(
-            self._last_progress_messages, outer, inner, config
+        if outer not in self._last_progress_messages:
+            self._last_progress_messages[outer] = {}
+        if inner not in self._last_progress_messages[outer]:
+            self._last_progress_messages[outer][inner] = {}
+        if config not in self._last_progress_messages[outer][inner]:
+            self._last_progress_messages[outer][inner][config] = {}
+
+        self._last_progress_messages[outer][inner][config][run] = (
+            progress_msg or ""
         )
-        selection_runs[run] = progress_msg or ""
