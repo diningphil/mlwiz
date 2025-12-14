@@ -997,7 +997,19 @@ class RiskAssesser:
                         )
                         if not debug:
                             if osp.exists(fold_run_results_torch_path):
-                                train_res, val_res, elapsed = dill_load(fold_run_results_torch_path)
+                                train_res, val_res, cached_elapsed = dill_load(
+                                    fold_run_results_torch_path
+                                )
+                                run_log_path = osp.join(
+                                    fold_run_exp_folder, EXPERIMENT_LOGFILE
+                                )
+                                elapsed = (
+                                    extract_and_sum_elapsed_seconds(
+                                        run_log_path
+                                    )
+                                    if osp.exists(run_log_path)
+                                    else cached_elapsed
+                                )
                                 self.completed_model_selection_runs.append(
                                     (
                                         dataset_getter.outer_k,
@@ -1226,12 +1238,24 @@ class RiskAssesser:
 
             if not debug:
                 if osp.exists(final_run_torch_path):
+                    final_run_log_path = osp.join(
+                        final_run_exp_path, EXPERIMENT_LOGFILE
+                    )
+                    cached_elapsed = None
                     try:
                         res = dill_load(final_run_torch_path)
-                        train_res, val_res, test_res, elapsed = res
+                        cached_elapsed = res[-1]
+                        train_res, val_res, test_res = res[:3]
+
+                        elapsed = (
+                            extract_and_sum_elapsed_seconds(final_run_log_path)
+                            if osp.exists(final_run_log_path)
+                            else cached_elapsed
+                        )
                     except Exception:
                         train_res, val_res, test_res = None, None, None
-                        elapsed = res[-1]
+                        elapsed = 0.
+
 
                     self.completed_final_runs.append(
                         (dataset_getter.outer_k, i, elapsed)
