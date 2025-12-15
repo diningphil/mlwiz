@@ -3,6 +3,7 @@ import os
 import select
 import shutil
 import sys
+import signal
 import termios
 import threading
 import time
@@ -40,6 +41,7 @@ class _RenderState:
     moves: str = ""
     rendered_lines: int = 0
     origin_row: int = 1
+    global_header: str = ""
 
     def reset_area(self):
         self.rendered_lines = 0
@@ -162,6 +164,7 @@ class ProgressManager:
 
         # Track what is currently visible on screen.
         self._render_state = _RenderState()
+        self._render_state.global_header = self._build_global_header()
 
         # when NOT in debug mode, this is None
         # when the global view is active, otherwise
@@ -190,6 +193,7 @@ class ProgressManager:
 
             self.times = [{} for _ in range(len(self.pbars))]
             self._start_input_listener()
+        self._register_resize_handler()
 
     def set_model_configs(self, model_configs):
         """
@@ -227,7 +231,7 @@ class ProgressManager:
             self._render_state.reset_area()
 
         if self._to_visualize in {"g", "global"}:
-            self.refresh()
+            self.refresh_global_view()
             self._render_user_input()
             return
 
@@ -341,6 +345,26 @@ class ProgressManager:
             target=self._listen_for_user_input, daemon=True
         )
         self._input_thread.start()
+
+    def _register_resize_handler(self) -> None:
+        """Repaint the current view when the terminal is resized."""
+        if self.debug or not sys.stdout.isatty():
+            return
+        try:
+            signal.signal(signal.SIGWINCH, self._handle_resize)
+        except Exception:
+            pass
+
+    def _handle_resize(self, signum, frame) -> None:
+        """Signal handler that refreshes the UI on terminal resize."""
+        if self.debug or not sys.stdout.isatty():
+            return
+        cols, _ = shutil.get_terminal_size((self.ncols, 24))
+        self.ncols = cols
+        self._render_state.global_header = self._build_global_header()
+        for pbar in self.pbars:
+            pbar.ncols = self.ncols
+        self._refresh_view()
 
     def _listen_for_user_input(self) -> None:
         """Poll stdin in cbreak mode to capture keypresses without blocking tqdm."""
@@ -606,8 +630,11 @@ class ProgressManager:
         cols, rows = shutil.get_terminal_size((self.ncols, 24))
         with self._input_lock:
             text = self._input_buffer if self._input_active else ""
-            width = max(self._input_render_len, len(text))
-            self._input_render_len = len(text)
+            prev_width = self._input_render_len
+            width = min(max(prev_width, len(text)), cols)
+            if len(text) > width and width > 0:
+                text = text[-width:]
+            self._input_render_len = width if self._input_active else 0
 
         if width == 0:
             self._render_failure_message()
@@ -889,7 +916,7 @@ class ProgressManager:
             # Update progress bar only when global view is visible to avoid redraws.
             if self._to_visualize in {"g", "global", None}:
                 self.pbars[position].update()
-                self.refresh()  # does not do anything in debug mode
+                self.refresh_global_view()
             else:
                 # manually modify the state only, otherwise tqdm will redraw
                 pbar = self.pbars[position]
@@ -908,7 +935,7 @@ class ProgressManager:
             # Update progress bar only when global view is visible to avoid redraws.
             if self._to_visualize in {"g", "global", None}:
                 self.pbars[position].update()
-                self.refresh()  # does not do anything in debug mode
+                self.refresh_global_view()  # does not do anything in debug mode
             else:
                 # manually modify the state only, otherwise tqdm will redraw
                 pbar = self.pbars[position]
@@ -1007,13 +1034,12 @@ class ProgressManager:
         # Reset buffered cursor/text before reuse.
         self._render_state.clear_moves()
 
-    def _flush_buffer(self) -> None:
-        """Emit buffered cursor moves/text and redraw overlays."""
-        # Emit buffered cursor moves/text and redraw overlays.
-        # Dump buffered cursor moves + text, then redraw the input overlay.
+    def _flush_buffer(self, render_overlay: bool = True) -> None:
+        """Emit buffered cursor moves/text and optionally redraw overlays."""
         print(self._render_state.moves, end="", flush=True)
         self._clear_moves_buffer()
-        self._render_user_input()
+        if render_overlay:
+            self._render_user_input()
 
     def _init_selection_pbar(self, i: int, j: int) -> tqdm.tqdm:
         """
@@ -1062,6 +1088,58 @@ class ProgressManager:
         pbar.set_postfix_str(f"(1 run every {mean})")
         return pbar
 
+    def _build_global_header(self) -> str:
+        """Construct the banner shown in the global (aggregated) view."""
+        left = "*" * ((self.ncols - 21) // 2 + 1)
+        right = "*" * ((self.ncols - 21) // 2)
+        return f"\033[F\033[A{left} Experiment Progress {right}\n\n"
+
+    def _render_global_header(self) -> None:
+        """Render the global header using the stored render state."""
+        if self.debug:
+            return
+        header = self._render_state.global_header or self._build_global_header()
+        self._render_state.global_header = header
+        self._append_to_buffer(header)
+        self._flush_buffer(render_overlay=False)
+
+    def _render_global_view(self) -> None:
+        """Render the header and all progress bars for the global view."""
+        self._render_global_header()
+        for i, pbar in enumerate(self.pbars):
+            pbar.ncols = self.ncols
+            # When resuming, do not consider completed exp. (delta approx. < 1)
+            completion_times = [
+                delta
+                for k, (delta, completed) in self.times[i].items()
+                if completed and delta > 1
+            ]
+
+            if len(completion_times) > 0:
+                min_seconds = min(completion_times)
+                max_seconds = max(completion_times)
+                mean_seconds = sum(completion_times) / len(completion_times)
+            else:
+                min_seconds = 0
+                max_seconds = 0
+                mean_seconds = 0
+
+            mean_time = str(datetime.timedelta(seconds=mean_seconds)).split(
+                "."
+            )[0]
+            min_time = str(datetime.timedelta(seconds=min_seconds)).split(
+                "."
+            )[0]
+            max_time = str(datetime.timedelta(seconds=max_seconds)).split(
+                "."
+            )[0]
+
+            pbar.set_postfix_str(
+                f"min:{min_time}|avg:{mean_time}|max:{max_time}"
+            )
+            pbar.refresh()
+        self.show_footer()
+
     def show_header(self):
         """
         Prints the header of the progress bar
@@ -1072,12 +1150,7 @@ class ProgressManager:
         \033[<N>A --> move cursor up N lines
         """
         # Draws banner; called before rendering bars.
-        print(
-            f"\033[F\033[A{'*' * ((self.ncols - 21) // 2 + 1)} "
-            f"Experiment Progress {'*' * ((self.ncols - 21) // 2)}\n",
-            end="\n",
-            flush=True,
-        )
+        self._render_global_header()
 
     def show_footer(self):
         """
@@ -1086,7 +1159,7 @@ class ProgressManager:
         # Placeholder for future footer output; kept for symmetry.
         pass  # need to work how how to print after tqdm
 
-    def refresh(self):
+    def refresh_global_view(self):
         """
         Refreshes the progress bar
         """
@@ -1094,42 +1167,7 @@ class ProgressManager:
         if self.debug:
             return
         if self._to_visualize in {"g", "global", None}:
-            self.show_header()
-            for i, pbar in enumerate(self.pbars):
-                # When resuming, do not consider completed exp. (delta approx. < 1)
-                completion_times = [
-                    delta
-                    for k, (delta, completed) in self.times[i].items()
-                    if completed and delta > 1
-                ]
-
-                if len(completion_times) > 0:
-                    min_seconds = min(completion_times)
-                    max_seconds = max(completion_times)
-                    mean_seconds = sum(completion_times) / len(
-                        completion_times
-                    )
-                else:
-                    min_seconds = 0
-                    max_seconds = 0
-                    mean_seconds = 0
-
-                mean_time = str(
-                    datetime.timedelta(seconds=mean_seconds)
-                ).split(".")[0]
-                min_time = str(datetime.timedelta(seconds=min_seconds)).split(
-                    "."
-                )[0]
-                max_time = str(datetime.timedelta(seconds=max_seconds)).split(
-                    "."
-                )[0]
-
-                pbar.set_postfix_str(
-                    f"min:{min_time}|avg:{mean_time}|max:{max_time}"
-                )
-
-                pbar.refresh()
-            self.show_footer()
+            self._render_global_view()
         self._render_user_input()
 
     def _selection_slot(

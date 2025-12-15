@@ -5,6 +5,8 @@
 ## Changed
 
 - When resuming cached model selection or final runs, recompute elapsed time from the experiment log (falling back to cached value if missing) so durations reflect restarts.
+- Better handling of terminal reshaping
+- Minor refactoring of code in evaluator and progress manager to improve readability.
 
 ## [1.3.3] Final run resume fix
 
