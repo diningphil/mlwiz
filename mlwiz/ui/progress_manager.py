@@ -260,11 +260,13 @@ class ProgressManager:
         self._render_user_input()
 
     def _render_invalid_identifier(self, invalid_id_msg: str):
+        """Clear the screen and display guidance when the view ID is invalid."""
         clear_screen()
         self._render_state.reset_area()
         print(invalid_id_msg, end="", flush=True)
 
     def _final_view_state(self, values):
+        """Prepare header/message pair for a specific final run view."""
         outer, run = values
         self._last_seen_final_run_identifier = f"{outer + 1} {run + 1}"
         self._render_state.header = (
@@ -277,6 +279,7 @@ class ProgressManager:
         return msg, progress_msg
 
     def _selection_view_state(self, values):
+        """Prepare header/message pair for a specific model selection run view."""
         outer, inner, config, run = values
         self._last_seen_model_selection_identifier = (
             f"{outer + 1} {inner + 1} {config + 1} {run + 1}"
@@ -292,6 +295,7 @@ class ProgressManager:
         return msg, progress_msg
 
     def _print_missing_update(self, kind, values, missing_key):
+        """Emit a placeholder line while waiting for a missing cached update."""
         if kind == "final":
             outer, run = values
             msg = (
@@ -310,13 +314,14 @@ class ProgressManager:
     def _get_progress_text(
         self, container: dict, outer: int, run: int, inner: int = None, config: int = None
     ) -> str:
+        """Fetch the last stored progress text for the given run coordinates."""
         current = container.get(outer, {})
         if inner is not None:
             current = current.get(inner, {}).get(config, {})
         return current.get(run, "")
 
     def _start_input_listener(self):
-        # Spawn non-blocking stdin listener to drive view navigation commands.
+        """Start non-blocking stdin listener thread for navigation commands."""
         if self.debug or self.progress_actor is None:
             return
         if self._input_thread is not None:
@@ -330,7 +335,7 @@ class ProgressManager:
         self._input_thread.start()
 
     def _listen_for_user_input(self):
-        # Put stdin in cbreak mode and poll for keypresses without blocking tqdm.
+        """Poll stdin in cbreak mode to capture keypresses without blocking tqdm."""
         fd = sys.stdin.fileno()
         try:
             old_settings = termios.tcgetattr(fd)
@@ -372,7 +377,7 @@ class ProgressManager:
             self._clear_input_overlay()
 
     def _handle_keypress(self, char: str):
-        # Route keyboard input into navigation or command handling.
+        """Route keyboard input into navigation or command handling."""
         arrow_handlers = {
             "\x1b[A": self._handle_arrow_up,
             "\x1b[B": self._handle_arrow_down,
@@ -420,23 +425,23 @@ class ProgressManager:
         self._render_user_input()
 
     def _handle_arrow_up(self):
-        # Toggle between last seen selection/final views.
+        """Toggle between the last seen selection and final views."""
         self._toggle_last_views()
 
     def _handle_arrow_down(self):
-        # Toggle between last seen selection/final views.
+        """Toggle between the last seen selection and final views."""
         self._toggle_last_views()
 
     def _handle_arrow_right(self):
-        # Move forward through run identifiers.
+        """Move forward through run identifiers."""
         self._navigate_identifier(direction=1)
 
     def _handle_arrow_left(self):
-        # Move backward through run identifiers.
+        """Move backward through run identifiers."""
         self._navigate_identifier(direction=-1)
 
     def _toggle_last_views(self):
-        # Switch focus between the most recently viewed selection and final run.
+        """Switch focus between the most recent selection and final run views."""
         selection_id = self._last_seen_model_selection_identifier
         final_id = self._last_seen_final_run_identifier
         kind, *_ = self._parse_view_identifier(self._to_visualize) or (None,)
@@ -449,7 +454,7 @@ class ProgressManager:
             pass  # global view, don't do anything
 
     def _navigate_identifier(self, direction: int):
-        # Step to the next/previous logical identifier based on current focus.
+        """Step to the next or previous identifier based on current focus."""
         current_identifier = self._to_visualize
         parsed = self._parse_view_identifier(current_identifier)
         if parsed is None:
@@ -473,7 +478,7 @@ class ProgressManager:
         self._change_view_mode(new_identifier)
 
     def _parse_view_identifier(self, identifier):
-        # Parse user-entered identifier into typed tuple for navigation.
+        """Parse user-entered identifier into a typed tuple for navigation."""
         if not identifier or identifier in {"g", "global"}:
             return None
         try:
@@ -488,7 +493,7 @@ class ProgressManager:
         return None
 
     def _format_view_identifier(self, kind: str, values):
-        # Rebuild identifier string after navigation step.
+        """Rebuild an identifier string after a navigation step."""
         if kind == "final":
             outer, run = values
             return f"{outer} {run}"
@@ -496,7 +501,7 @@ class ProgressManager:
         return f"{outer} {inner} {config} {run}"
 
     def _step_selection(self, values, direction: int):
-        # Increment/decrement selection run coordinates with wraparound semantics.
+        """Increment/decrement selection run coordinates with wraparound semantics."""
         outer, inner, config, run = values
 
         if direction > 0:
@@ -533,7 +538,7 @@ class ProgressManager:
         return outer, inner, config, run
 
     def _step_final(self, values, direction: int):
-        # Increment/decrement final run coordinates with wraparound semantics.
+        """Increment/decrement final run coordinates with wraparound semantics."""
         outer, run = values
 
         if direction > 0:
@@ -552,7 +557,7 @@ class ProgressManager:
         return outer, run
 
     def _clear_input_overlay(self):
-        # Reset command overlay state and trigger redraw.
+        """Reset command overlay state and trigger redraw."""
         with self._input_lock:
             self._input_buffer = ""
             self._input_active = False
@@ -569,7 +574,7 @@ class ProgressManager:
         self._change_view_mode(identifier, force_refresh=True)
 
     def _render_user_input(self):
-        # Paint the command-line overlay while preserving current bars.
+        """Paint the command-line overlay while preserving current bars."""
         if self.debug or not sys.stdout.isatty():
             self._render_failure_message()
             return
@@ -617,7 +622,7 @@ class ProgressManager:
         print(f"\0337\033[{rows};1H{text}\0338", end="", flush=True)
 
     def _is_active_view(self, msg: dict) -> bool:
-        # Decide whether a progress message belongs to the currently selected view.
+        """Check whether a message targets the currently selected view."""
         if self.debug:
             return True
 
@@ -979,6 +984,7 @@ class ProgressManager:
         self._render_state.clear_moves()
 
     def _flush_buffer(self):
+        """Emit buffered cursor moves/text and redraw overlays."""
         # Emit buffered cursor moves/text and redraw overlays.
         # Dump buffered cursor moves + text, then redraw the input overlay.
         print(self._render_state.moves, end="", flush=True)
@@ -1103,6 +1109,7 @@ class ProgressManager:
         self._render_user_input()
 
     def _selection_slot(self, container, outer, inner, config):
+        """Helper to build nested dict structure for selection runs."""
         return (
             container.setdefault(outer, {})
             .setdefault(inner, {})
@@ -1110,6 +1117,7 @@ class ProgressManager:
         )
 
     def _final_slot(self, container, outer):
+        """Helper to build nested dict structure for final runs."""
         return container.setdefault(outer, {})
 
     def _store_last_run_message(self, msg: dict):
