@@ -108,6 +108,32 @@ def _set_cuda_memory_limit_from_env():
             # print(f"Setting max GPU {gpu_idx} memory of process to: {gpus_per_task}")
 
 
+def _make_termination_checker(progress_actor, min_interval: float = 0.2) -> Callable[[], bool]:
+    """
+    Creates a closure that checks for termination requests without hammering the actor.
+    """
+    termination_state = {"stop": False, "last_check": 0.0}
+
+    def _should_terminate() -> bool:
+        if termination_state["stop"]:
+            return True
+        if progress_actor is None:
+            return False
+        now = time.time()
+        if now - termination_state["last_check"] < min_interval:
+            return False
+        termination_state["last_check"] = now
+        try:
+            termination_state["stop"] = ray.get(
+                progress_actor.is_terminated.remote()
+            )
+        except Exception:
+            return True  # errs on the safe side: stop if we cannot check
+        return termination_state["stop"]
+
+    return _should_terminate
+
+
 @ray.remote(
     num_cpus=1,
     num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
@@ -154,26 +180,7 @@ def run_valid(
         a tuple with outer fold id, inner fold id, config id, run id,
             and time elapsed
     """
-    termination_state = {"stop": False, "last_check": 0.0}
-
-    def _should_terminate():
-        # Poll the progress actor occasionally to see if a termination was requested.
-        # Cache result in termination_state to avoid spamming ray.get.
-        if termination_state["stop"]:
-            return True
-        if progress_actor is None:
-            return False
-        now = time.time()
-        if now - termination_state["last_check"] < 0.2:
-            return False
-        termination_state["last_check"] = now
-        try:
-            termination_state["stop"] = ray.get(
-                progress_actor.is_terminated.remote()
-            )
-        except Exception:
-            return True  # errs on the safe side: stop if we cannot check
-        return termination_state["stop"]
+    _should_terminate = _make_termination_checker(progress_actor)
 
     if _should_terminate():
         return None
@@ -285,26 +292,7 @@ def run_test(
     Returns:
         a tuple with outer fold id, final run id, and time elapsed
     """
-    termination_state = {"stop": False, "last_check": 0.0}
-
-    def _should_terminate():
-        # Poll the progress actor occasionally to see if a termination was requested.
-        # Cache result in termination_state to avoid spamming ray.get.
-        if termination_state["stop"]:
-            return True
-        if progress_actor is None:
-            return False
-        now = time.time()
-        if now - termination_state["last_check"] < 0.2:
-            return False
-        termination_state["last_check"] = now
-        try:
-            termination_state["stop"] = ray.get(
-                progress_actor.is_terminated.remote()
-            )
-        except Exception:
-            return True
-        return termination_state["stop"]
+    _should_terminate = _make_termination_checker(progress_actor)
 
     if _should_terminate():
         return None
@@ -487,6 +475,26 @@ class RiskAssesser:
         )
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
         self.failure_message = None
+
+    def _create_dataset_getter(
+        self, outer_k: int, inner_k: Optional[int]
+    ) -> DataProvider:
+        """
+        Instantiates and configures a dataset provider for the requested folds.
+        """
+        dataset_getter_class = s2c(self.model_configs.dataset_getter)
+        dataset_getter = dataset_getter_class(
+            self.model_configs.storage_folder,
+            self.splits_filepath,
+            s2c(self.model_configs.dataset_class),
+            s2c(self.model_configs.data_loader_class),
+            self.model_configs.data_loader_args,
+            self.outer_folds,
+            self.inner_folds,
+        )
+        dataset_getter.set_outer_k(outer_k)
+        dataset_getter.set_inner_k(inner_k)
+        return dataset_getter
 
     def _request_termination(self):
         """
@@ -902,20 +910,7 @@ class RiskAssesser:
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
         # Create the dataset provider
-        dataset_getter_class = s2c(self.model_configs.dataset_getter)
-        dataset_getter = dataset_getter_class(
-            self.model_configs.storage_folder,
-            self.splits_filepath,
-            s2c(self.model_configs.dataset_class),
-            s2c(self.model_configs.data_loader_class),
-            self.model_configs.data_loader_args,
-            self.outer_folds,
-            self.inner_folds,
-        )
-
-        # Tell the data provider to take data relative
-        # to a specific OUTER split
-        dataset_getter.set_outer_k(outer_k)
+        dataset_getter = self._create_dataset_getter(outer_k, None)
 
         if not osp.exists(model_selection_folder):
             os.makedirs(model_selection_folder)
@@ -1190,20 +1185,7 @@ class RiskAssesser:
         with open(config_fname, "r") as f:
             best_config = json.load(f)
 
-        dataset_getter_class = s2c(self.model_configs.dataset_getter)
-        dataset_getter = dataset_getter_class(
-            self.model_configs.storage_folder,
-            self.splits_filepath,
-            s2c(self.model_configs.dataset_class),
-            s2c(self.model_configs.data_loader_class),
-            self.model_configs.data_loader_args,
-            self.outer_folds,
-            self.inner_folds,
-        )
-        # Tell the data provider to take data relative
-        # to a specific OUTER split
-        dataset_getter.set_outer_k(outer_k)
-        dataset_getter.set_inner_k(None)
+        dataset_getter = self._create_dataset_getter(outer_k, None)
 
         # Mitigate bad random initializations with more runs
         for i in range(self.risk_assessment_training_runs):
