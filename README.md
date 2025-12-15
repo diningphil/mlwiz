@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://github.com/diningphil/MLWiz/blob/main/docs/_static/mlwiz-logo.png"  width="300"/>
+  <img src="https://github.com/diningphil/MLWiz/blob/main/docs/_static/mlwiz-logo2.png"  width="300"/>
 </p>
 
 # MLWiz: the Machine Learning Research Wizard 
