@@ -898,14 +898,9 @@ class RiskAssesser:
                 for instance, when a run is taking too long to execute and you
                 decide it is not worth to wait for it.
         """
-        if len(skip_config_ids) > 0:
-            assert (
-                execute_config_id is None
-            ), "Cannot specify both skip_config_id and execute_config_id"
-        if execute_config_id is not None:
-            assert (
-                len(skip_config_ids) == 0
-            ), "Cannot specify both skip_config_id and execute_config_id"
+        assert not (
+            len(skip_config_ids) > 0 and execute_config_id is not None
+        ), "Cannot specify both skip_config_id and execute_config_id"
 
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
