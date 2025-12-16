@@ -1,5 +1,4 @@
 import os
-import warnings
 from pathlib import Path
 from typing import Callable, List, Union, Tuple, Optional
 
@@ -10,11 +9,38 @@ from torch.utils.data import SequentialSampler
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
-import mlwiz
 from mlwiz.exceptions import TerminationRequested
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
-from mlwiz.static import *
+from mlwiz.static import (
+    BATCH,
+    BATCH_PROGRESS,
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    CUMULATIVE_UNSENT_DELTA,
+    EMB_TUPLE_SUBSTR,
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    LAST_RUN_ELAPSED_TIME,
+    LOSSES,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MODE,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    RUN_COMPLETED,
+    RUN_PROGRESS,
+    SCHEDULER_STATE,
+    SCORES,
+    START_CONFIG,
+    STOP_TRAINING,
+    TEST,
+    TIME_DELTA,
+    TOTAL_BATCHES,
+    TOTAL_EPOCHS,
+    TRAINING,
+    VALIDATION,
+)
 from mlwiz.training.callback.early_stopping import EarlyStopper
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.gradient_clipping import GradientClipper
@@ -60,8 +86,14 @@ def reorder(obj: List[object], perm: List[int]):
     Returns:
         The reordered list of objects
     """
-    assert len(obj) == len(perm) and len(obj) > 0
-    return [y for (x, y) in sorted(zip(perm, obj))]
+    if len(obj) != len(perm) or len(obj) == 0:
+        raise ValueError(
+            "Expected `obj` and `perm` to have the same non-zero length, "
+            f"got len(obj)={len(obj)} and len(perm)={len(perm)}."
+        )
+    return [
+        y for (x, y) in sorted(zip(perm, obj))
+    ]  # sort items by original dataset index
 
 
 class TrainingEngine(EventDispatcher):
@@ -125,6 +157,7 @@ class TrainingEngine(EventDispatcher):
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
     """
+
     cumulative_batch_unsent_time: float = 0.0
     cumulative_epoch_unsent_time: float = 0.0
 
@@ -146,6 +179,38 @@ class TrainingEngine(EventDispatcher):
         eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
     ):
+        """
+        Initialize the training engine and register event callbacks.
+
+        Args:
+            engine_callback (Callable[..., EngineCallback]): Callback class used
+                for data fetching, forward pass, and checkpointing.
+            model (ModelInterface): Model to train.
+            loss (Metric): Metric used as loss (``use_as_loss=True``).
+            optimizer (Optimizer): Optimizer callback.
+            scorer (Metric): Metric used as score (``use_as_loss=False``).
+            scheduler (Scheduler, optional): Learning-rate scheduler callback.
+            early_stopper (EarlyStopper, optional): Early stopping callback.
+            gradient_clipper (GradientClipper, optional): Gradient clipping
+                callback.
+            device (str): Device identifier (e.g., ``'cpu'`` or ``'cuda:0'``).
+            plotter (Plotter, optional): Plotting callback.
+            exp_path (str, optional): Experiment output folder used by some
+                callbacks for logging and checkpoints.
+            evaluate_every (int): Frequency (in epochs) at which epoch-level
+                results are reported/logged.
+            eval_training (bool): Whether to re-evaluate loss/score on the
+                training set after each epoch.
+            eval_test_every_epoch (bool): Whether to evaluate on the test set
+                after each epoch (if available).
+            store_last_checkpoint (bool): Whether to store a checkpoint at the
+                end of each epoch.
+
+        Side effects:
+            Registers all non-``None`` callbacks (loss, scorer, optimizer, etc.)
+            plus an engine callback, and initializes the shared
+            :class:`~mlwiz.training.event.state.State`.
+        """
         super().__init__()
 
         self.engine_callback = engine_callback
@@ -449,9 +514,7 @@ class TrainingEngine(EventDispatcher):
 
             self._loop_helper()
 
-            batch_progress_time_delta = (
-                time.time() - batch_progress_time
-            )
+            batch_progress_time_delta = time.time() - batch_progress_time
 
             if (
                 batch_progress_time_delta >= TIME_DELTA
@@ -487,7 +550,11 @@ class TrainingEngine(EventDispatcher):
 
         self._dispatch(EventHandler.ON_TRAINING_EPOCH_END, self.state)
 
-        assert self.state.epoch_loss is not None
+        if self.state.epoch_loss is None:
+            raise RuntimeError(
+                "TrainingEngine epoch_loss was not computed. "
+                "Ensure the loss Metric callback is registered and the loader yields at least one batch."
+            )
         loss, score = self.state.epoch_loss, self.state.epoch_score
         return loss, score, None
 
@@ -513,60 +580,70 @@ class TrainingEngine(EventDispatcher):
              The data list can be used, for instance, in
              semi-supervised experiments or in incremental architectures
         """
-        self.set_eval_mode()
-        self.state.update(set=set)
+        self.set_eval_mode()  # inference runs with dropout/bn disabled, no gradients
+        self.state.update(
+            set=set
+        )  # track which split (TRAINING/VALIDATION/TEST) is being evaluated
 
-        self._dispatch(EventHandler.ON_EVAL_EPOCH_START, self.state)
+        self._dispatch(
+            EventHandler.ON_EVAL_EPOCH_START, self.state
+        )  # let callbacks reset epoch accumulators
 
         with torch.no_grad():
             self._loop(loader, _notify_progress)  # state has been updated
 
-        self._dispatch(EventHandler.ON_EVAL_EPOCH_END, self.state)
+        self._dispatch(
+            EventHandler.ON_EVAL_EPOCH_END, self.state
+        )  # let callbacks finalize epoch metrics
 
-        assert self.state.epoch_loss is not None
+        if self.state.epoch_loss is None:
+            raise RuntimeError(
+                "TrainingEngine epoch_loss was not computed during inference. "
+                "Ensure the loss Metric callback is registered and the loader yields at least one batch."
+            )
         loss, score, data_list = (
             self.state.epoch_loss,
             self.state.epoch_score,
-            self.state.epoch_data_list,
+            self.state.epoch_data_list,  # per-sample (embedding, target) tuples when return_embeddings=True
         )
 
         # Add the main loss we want to return as a special key
         main_loss_name = self.loss_fun.get_main_metric_name()
-        loss[MAIN_LOSS] = loss[main_loss_name]
+        loss[MAIN_LOSS] = loss[
+            main_loss_name
+        ]  # normalized key for downstream evaluation
 
         # Add the main score we want to return as a special key
         # Needed by the experimental evaluation framework
         main_score_name = self.score_fun.get_main_metric_name()
-        score[MAIN_SCORE] = score[main_score_name]
+        score[MAIN_SCORE] = score[
+            main_score_name
+        ]  # normalized key for downstream evaluation
 
         # If samples been shuffled by the data loader, i.e., in the
-        # last inference phase of the engine, use MLWiz RandomSampler to
-        # recover the permutation and store the embedding data list as in
-        # the original split. This way we recover the same order of the
-        # [train/val/test] idx list in the split file. This is useful for
-        # subsequent experiments that use the data list and must be
-        # consistent, and it is better in general to avoid confusion.
+        # last inference phase of the engine, require a sampler-provided
+        # permutation to restore the embedding/data list in the original
+        # (unshuffled) order.
         if data_list is not None and loader.sampler is not None:
             # if SequentialSampler then shuffle was false
             if not isinstance(loader.sampler, SequentialSampler):
-                if not isinstance(
-                    loader.sampler, mlwiz.data.sampler.RandomSampler
-                ):
-                    warnings.warn(
-                        "Training Engine requires a mlwiz.data.sampler."
-                        "RandomSampler as the sampler of the loader when "
-                        "shuffle=True. Please see the documentation of "
-                        "DataProvider and the _get_loader method. "
-                        "The reason is that, for providers like "
-                        "IterableDataProvider, there is no easy way to return "
-                        "the embeddings in the same order as the urls and the "
-                        "samples within each file where permuted randomly. The"
-                        " user needs to run a loop with a notebook to be sure "
-                        "the mappings input/output/embeddings are correct."
+                permutation = getattr(
+                    loader.sampler, "permutation", None
+                )  # dataset indices in the order sampled
+                if permutation is None:
+                    raise ValueError(
+                        "TrainingEngine requires the DataLoader sampler to expose a non-None "
+                        "`permutation` so embeddings can be returned in the original sample order."
                     )
-                    data_list = []
+
+                if isinstance(permutation, torch.Tensor):
+                    permutation = permutation.tolist()
                 else:
-                    data_list = reorder(data_list, loader.sampler.permutation)
+                    permutation = list(permutation)
+
+                data_list = reorder(
+                    data_list, permutation
+                )  # back to original dataset-index order
 
         return loss, score, data_list
 
@@ -999,7 +1076,10 @@ class TrainingEngine(EventDispatcher):
 
         if self.scheduler is not None and not zero_epoch:
             scheduler_state = ckpt_dict[SCHEDULER_STATE]
-            assert scheduler_state is not None
+            if scheduler_state is None:
+                raise RuntimeError(
+                    "Checkpoint is missing scheduler state, but a scheduler is configured."
+                )
             self.state.update(scheduler_state=scheduler_state)
 
 

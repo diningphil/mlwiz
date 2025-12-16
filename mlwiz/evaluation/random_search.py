@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from mlwiz.evaluation.grid import Grid
 from mlwiz.util import s2c
-from mlwiz.static import *
+from mlwiz.static import ARGS, NUM_SAMPLES, RANDOM_SEARCH, SAMPLE_METHOD
 
 from typing import Iterator, Dict, Any
 
@@ -20,6 +20,22 @@ class RandomSearch(Grid):
     __search_type__ = RANDOM_SEARCH
 
     def __init__(self, configs_dict: dict):
+        r"""
+        Initialize a random-search configuration generator.
+
+        Args:
+            configs_dict (dict): Configuration dictionary specifying the search
+                space and shared experiment settings. It must include
+                ``NUM_SAMPLES`` (see :mod:`mlwiz.static`) to control how many
+                configurations are sampled.
+
+        Raises:
+            KeyError: If ``NUM_SAMPLES`` or other required keys are missing.
+
+        Side effects:
+            Stores ``num_samples`` and initializes the base :class:`~Grid`
+            fields.
+        """
         self.num_samples = configs_dict[NUM_SAMPLES]
         super().__init__(configs_dict)
 
@@ -46,11 +62,12 @@ class RandomSearch(Grid):
                 # LIST CASE: you should call _list_helper recursively on each
                 # element
                 elif isinstance(values, list):
-                    assert len(values) == 1, (
-                        f"Only one {key} value per "
-                        "configuration if you do not "
-                        "specify a sampling method"
-                    )
+                    if len(values) != 1:
+                        raise ValueError(
+                            f"Only one {key} value per "
+                            "configuration if you do not "
+                            "specify a sampling method"
+                        )
                     result[key] = self._dict_helper(deepcopy(values[0]))
 
             yield deepcopy(result)
@@ -75,11 +92,12 @@ class RandomSearch(Grid):
             elif isinstance(values, dict):
                 configs[key] = self._dict_helper(configs[key])
             elif isinstance(values, list):
-                assert len(values) == 1, (
-                    f"Only one {key} value per "
-                    "configuration if you do not "
-                    "specify a sampling method"
-                )
+                if len(values) != 1:
+                    raise ValueError(
+                        f"Only one {key} value per "
+                        "configuration if you do not "
+                        "specify a sampling method"
+                    )
                 configs[key] = self._dict_helper(deepcopy(values[0]))
 
         return configs

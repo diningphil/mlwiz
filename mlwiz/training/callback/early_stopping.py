@@ -2,7 +2,19 @@ import operator
 from copy import deepcopy
 from pathlib import Path
 
-from mlwiz.static import *
+from mlwiz.static import (
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    BEST_EPOCH_RESULTS,
+    LOSSES,
+    MAX,
+    MIN,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    SCHEDULER_STATE,
+    SCORES,
+    TEST,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save
@@ -10,7 +22,7 @@ from mlwiz.training.util import atomic_torch_save
 
 class EarlyStopper(EventHandler):
     """
-    EarlyStopper is the main event handler for optimizers. Just create a
+    EarlyStopper is the main event handler for early stopping. Just create a
     subclass that implements an early stopping method.
 
     Args:
@@ -24,6 +36,26 @@ class EarlyStopper(EventHandler):
     """
 
     def __init__(self, monitor: str, mode: str, checkpoint: bool = False):
+        """
+        Initialize the early stopper.
+
+        Args:
+            monitor (str): Metric key to monitor. The format is
+                ``[TRAINING|VALIDATION]_[METRIC NAME]`` as defined by MLWiz.
+            mode (str): Comparison direction. Use ``MIN`` to stop based on
+                non-increasing metrics (e.g., loss) or ``MAX`` to stop based on
+                non-decreasing metrics (e.g., accuracy).
+            checkpoint (bool): If ``True``, write a checkpoint for the best
+                epoch to disk (see :meth:`on_epoch_end`).
+
+        Raises:
+            NotImplementedError: If ``mode`` is not understood.
+            ValueError: If attempting to monitor a test metric.
+
+        Side effects:
+            Stores the monitoring configuration and selects the comparison
+            operator used to detect improvements.
+        """
         super().__init__()
         self.monitor = monitor
         self.best_metric = None
@@ -36,9 +68,8 @@ class EarlyStopper(EventHandler):
         else:
             raise NotImplementedError("Mode not understood by early stopper.")
 
-        assert (
-            TEST not in monitor
-        ), "Do not apply early stopping to the test set!"
+        if TEST in monitor:
+            raise ValueError("Do not apply early stopping to the test set!")
 
     def on_epoch_end(self, state: State):
         """
@@ -150,6 +181,20 @@ class PatienceEarlyStopper(EarlyStopper):
     """
 
     def __init__(self, monitor, mode, patience=30, checkpoint=False):
+        """
+        Initialize a patience-based early stopper.
+
+        Args:
+            monitor (str): Metric key to monitor.
+            mode (str): Comparison direction (``MIN`` or ``MAX``).
+            patience (int): Number of epochs without improvement before
+                stopping.
+            checkpoint (bool): Whether to write the best-epoch checkpoint.
+
+        Side effects:
+            Stores the patience value and delegates monitoring setup to
+            :class:`EarlyStopper`.
+        """
         super().__init__(monitor, mode, checkpoint)
         self.patience = patience
 

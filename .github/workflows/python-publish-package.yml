@@ -6,74 +6,71 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: Publish Package
+name: Publish Package  # build + publish to PyPI (and update badges)
 
 on:
   release:
     types: [published]
-  workflow_call:
+  workflow_dispatch:  # manual release run (useful for dry-runs)
+
+permissions:
+  contents: write  # needed only for committing badge updates back to the repo
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-   
-  tests-and-coverage:
-    uses: diningphil/mlwiz/.github/workflows/python-test-and-coverage.yml@main
+  tests:  # gate releases on CI
+    uses: ./.github/workflows/python-test-and-coverage.yml
 
-  deploy:
-    needs: tests-and-coverage
+  deploy:  # build and publish artifacts once CI is green
+    needs: tests
+    permissions:
+      contents: write
 
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
-      with:
-        node-version: '20'
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
-        node-version: '20'
+        python-version: "3.11"
+        cache: pip
+        cache-dependency-path: pyproject.toml
     
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build
-        python -m pip install flake8 pytest coverage==7.4.4 coverage-badge interrogate[png] cairosvg
-        python -m pip install .
-
-    - name: Coverage and badge
-      if: github.event_name == 'release'
-      run: |
-        coverage run --source=mlwiz -m pytest tests/
-        coverage report -m
-        coverage-badge -o .badges/coverage_badge.svg -f
-
-    - name: Interrogate badge
-      if: github.event_name == 'release'
-      run: |
-        interrogate -i -M --generate-badge .badges mlwiz
-
-    - name: Commit files
-      if: success()
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
-        git diff --exit-code || git commit -m "Update coverage_badge.svg and interrogate_badge.svg" -a
-
-    - name: Push changes
-      if: success()
-      uses: ad-m/github-push-action@master
-      with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
+        python -m pip install build twine  # build wheels/sdist and validate metadata
 
     - name: Build package
-      if: success()
-      run: python -m build
-    
+      run: |
+        python -m build
+        python -m twine check --strict dist/*
+
     - name: Publish package
-      if: success()
       uses: pypa/gh-action-pypi-publish@27b31702a0e7fc50959f5ad993c78deac1bdfc29
       with:
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
+
+    - name: Download badges
+      uses: actions/download-artifact@v4
+      with:
+        name: badges
+        path: .
+
+    - name: Commit badge updates
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "github-actions[bot]"
+        git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
+        if git diff --cached --quiet; then
+          echo "No badge changes."
+          exit 0
+        fi
+        git commit -m "chore: update badges"
+        git push origin HEAD:main || echo "Badge push failed (branch protection?)"  # non-blocking for publishing

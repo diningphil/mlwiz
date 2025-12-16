@@ -25,6 +25,21 @@ class ModelInterface(torch.nn.Module):
         dim_target: int,
         config: dict,
     ):
+        r"""
+        Initialize the model interface.
+
+        Args:
+            dim_input_features (Union[int, Tuple[int]]): Input feature dimension.
+                For graph datasets this may be a tuple to represent multiple
+                feature blocks (e.g., node features and edge features).
+            dim_target (int): Target dimension (e.g., number of classes or
+                regression outputs).
+            config (dict): Free-form configuration dictionary used by concrete
+                models (hyper-parameters and optional flags).
+
+        Side effects:
+            Stores the arguments as instance attributes.
+        """
         super().__init__()
         self.dim_input_features = dim_input_features
         self.dim_target = dim_target
@@ -32,15 +47,23 @@ class ModelInterface(torch.nn.Module):
 
     def forward(
         self, data: Union[torch.Tensor, torch_geometric.data.Batch]
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
+    ) -> Union[
+        Tuple[torch.Tensor, Optional[torch.Tensor]],
+        Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]],
+    ]:
         r"""
-        Performs a forward pass over a batch of graphs
+        Perform a forward pass over a batch of samples.
 
         Args:
             data: a batch of samples
 
         Returns:
-            a tuple (model's output, [optional] node embeddings,
-            [optional] additional outputs
+            Either:
+
+            - ``(output, embeddings)``
+            - ``(output, embeddings, additional_outputs)``
+
+            where ``embeddings`` and ``additional_outputs`` are optional and may
+            be omitted by models that do not produce them.
         """
         raise NotImplementedError("You need to implement this method!")

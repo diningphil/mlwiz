@@ -2,7 +2,15 @@ import copy
 import os
 from pathlib import Path
 
-from mlwiz.static import *
+from mlwiz.static import (
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    LAST_RUN_ELAPSED_TIME,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    SCHEDULER_STATE,
+    STOP_TRAINING,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save
@@ -14,11 +22,21 @@ class EngineCallback(EventHandler):
      at training time.
 
     Args:
-        store_last_checkpoint (bool): if ``True``, keep the model's
-            checkpoint for the last training epoch
+        store_last_checkpoint (bool): If ``True``, write a checkpoint file
+                at the end of each epoch (see :meth:`on_epoch_end`).
     """
 
     def __init__(self, store_last_checkpoint: bool):
+        r"""
+        Initialize the engine callback.
+
+        Args:
+            store_last_checkpoint (bool): If ``True``, write a checkpoint file
+                at the end of each epoch (see :meth:`on_epoch_end`).
+
+        Side effects:
+            Stores the flag for later use during checkpointing.
+        """
         super().__init__()
         self.store_last_checkpoint = store_last_checkpoint
 

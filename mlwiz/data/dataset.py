@@ -45,6 +45,39 @@ class DatasetInterface:
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
+        r"""
+        Initialize the dataset, processing and caching it on disk if needed.
+
+        If a processed dataset file does not exist yet, this constructor calls
+        :meth:`process_dataset`, optionally applies ``pre_transform`` to every
+        produced sample, and then serializes the resulting Python object to
+        ``self.dataset_filepath``.
+
+        Args:
+            storage_folder (str): Root folder where the dataset-specific
+                directory and processed dataset file are stored.
+            raw_dataset_folder (Optional[str]): Path to a folder containing raw
+                data required by :meth:`process_dataset`. If provided, it must
+                exist.
+            transform_train (Optional[Callable]): Runtime transform applied to
+                samples during training (typically via
+                :class:`mlwiz.data.provider.SubsetTrainEval`).
+            transform_eval (Optional[Callable]): Runtime transform applied to
+                samples during evaluation (typically via
+                :class:`mlwiz.data.provider.SubsetTrainEval`).
+            pre_transform (Optional[Callable]): Pre-processing transform applied
+                once when creating the processed dataset, before it is saved.
+            **kwargs: Additional subclass-specific arguments (unused by the
+                base class).
+
+        Raises:
+            FileNotFoundError: If ``raw_dataset_folder`` is provided but does
+                not exist.
+
+        Side effects:
+            Creates the dataset folder if needed, reads/writes the processed
+            dataset file, and prints progress information to stdout.
+        """
         super().__init__()
         self._name = self.__class__.__name__
         self._storage_folder = storage_folder
@@ -90,61 +123,76 @@ class DatasetInterface:
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
+        r"""
+        Persist a processed dataset object to disk.
+
+        The default implementation uses dill-based serialization. Subclasses
+        may override this method to use alternative serializers (e.g.,
+        :func:`torch.save` for PyG ``Data`` objects).
+
+        Args:
+            dataset (object): In-memory dataset representation to store.
+            dataset_filepath (str | pathlib.Path): Destination path.
+
+        Side effects:
+            Writes to disk.
+        """
         atomic_dill_save(dataset, dataset_filepath)
 
     @staticmethod
     def _load_dataset(dataset_filepath):
+        r"""
+        Load a previously saved processed dataset object from disk.
+
+        Args:
+            dataset_filepath (str | pathlib.Path): Path to the stored dataset.
+
+        Returns:
+            object: The deserialized dataset representation.
+        """
         return dill_load(dataset_filepath)
 
     @property
     def name(self) -> str:
-        """
-        Returns the name of the dataset
-        Returns: a string
-        """
+        """Return the dataset name (defaults to the class name)."""
         return self._name
 
     @property
     def dataset_folder(self) -> Path:
-        """
-        Returns the Path to folder where dataset is stored
-        Returns: a Path object
-        """
+        """Return the folder where processed dataset artifacts are stored."""
         return Path(self._storage_folder, self._name)
 
     @property
     def dataset_name(self) -> str:
-        """
-        Returns the name of the dataset
-        """
+        """Return the dataset name (alias for :attr:`name`)."""
         return self._name
 
     @property
     def raw_dataset_folder(self) -> Path:
-        """
-        Returns the Path to folder where the raw data is stored
-        """
+        """Return the folder where raw dataset files are stored."""
         return Path(self._raw_dataset_folder)
 
     @property
     def dataset_filename(self) -> str:
-        """
-        Returns the name of the single file where the dataset is stored
-        """
+        """Return the filename of the serialized processed dataset."""
         return self._dataset_filename
 
     @property
     def dataset_filepath(self) -> Path:
-        """
-        Returns the full Path to the single file where the dataset is stored
-        """
+        """Return the full path to the serialized processed dataset file."""
         return Path(self.dataset_folder, self._dataset_filename)
 
     def process_dataset(self) -> List[object]:
         r"""
-        Processes the dataset to the :obj:`self.dataset_folder` folder. It
-        should generate files according to the obj:`self.dataset_file_names`
-        list.
+        Build the processed dataset in memory.
+
+        This method is called automatically by :meth:`__init__` when the
+        processed dataset file does not exist yet.
+
+        Returns:
+            List[object]: The processed samples. Each sample is typically a
+            tuple ``(x, y)`` where ``x`` is the model input and ``y`` is the
+            target, but MLWiz does not enforce a specific structure.
         """
         raise NotImplementedError(
             "You should subclass DatasetInterface and implement this method"
@@ -186,6 +234,12 @@ class DatasetInterface:
         return sample
 
     def __iter__(self):
+        r"""
+        Iterate over dataset samples.
+
+        Returns:
+            Iterator[object]: Iterator over the in-memory dataset sequence.
+        """
         return iter(self.dataset)
 
     def __len__(self) -> int:
@@ -198,10 +252,12 @@ class DatasetInterface:
 class MNIST(DatasetInterface):
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
+        """Return the flattened MNIST input dimension (28 * 28)."""
         return 28 * 28
 
     @property
     def dim_target(self) -> Union[int, Tuple[int]]:
+        """Return the MNIST target dimension (10 classes)."""
         return 10
 
     def process_dataset(self) -> List[object]:
@@ -245,18 +301,41 @@ class NCI1(DatasetInterface):
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
+        r"""
+        Save the processed PyG dataset using :func:`torch.save`.
+
+        Args:
+            dataset (object): Dataset object to serialize (typically a sequence
+                of PyG ``Data`` objects).
+            dataset_filepath (str | pathlib.Path): Destination path.
+
+        Side effects:
+            Writes to disk.
+        """
         torch.save(dataset, dataset_filepath)
 
     @staticmethod
     def _load_dataset(dataset_filepath):
+        r"""
+        Load the processed PyG dataset using :func:`torch.load`.
+
+        Args:
+            dataset_filepath (str | pathlib.Path): Path to the serialized
+                dataset.
+
+        Returns:
+            object: The deserialized dataset.
+        """
         return torch.load(dataset_filepath, weights_only=False)
 
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
+        """Return the NCI1 node feature dimension (37)."""
         return 37
 
     @property
     def dim_target(self) -> Union[int, Tuple[int]]:
+        """Return the NCI1 target dimension (2 classes)."""
         return 2
 
     def process_dataset(self) -> List[object]:
@@ -281,18 +360,41 @@ class Cora(DatasetInterface):
 
     @staticmethod
     def _save_dataset(dataset, dataset_filepath):
+        r"""
+        Save the processed PyG dataset using :func:`torch.save`.
+
+        Args:
+            dataset (object): Dataset object to serialize (typically a PyG
+                ``InMemoryDataset`` or list of ``Data`` objects).
+            dataset_filepath (str | pathlib.Path): Destination path.
+
+        Side effects:
+            Writes to disk.
+        """
         torch.save(dataset, dataset_filepath)
 
     @staticmethod
     def _load_dataset(dataset_filepath):
+        r"""
+        Load the processed PyG dataset using :func:`torch.load`.
+
+        Args:
+            dataset_filepath (str | pathlib.Path): Path to the serialized
+                dataset.
+
+        Returns:
+            object: The deserialized dataset.
+        """
         return torch.load(dataset_filepath, weights_only=False)
 
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
+        """Return the Cora node feature dimension (1433)."""
         return 1433
 
     @property
     def dim_target(self) -> Union[int, Tuple[int]]:
+        """Return the Cora target dimension (7 classes)."""
         return 7
 
     def process_dataset(self) -> List[object]:
@@ -318,11 +420,15 @@ class Cora(DatasetInterface):
 class _ReshapeMNISTTemporal(torch.nn.Module):
     def __call__(self, img: torch.Tensor):
         """
-        Will reshape the image into a timeseries of vectors
-        Args:
-            img: the MNIST image
+        Reshape an MNIST tensor into a sequence of vectors.
 
-        Returns: a reshaped MNIST image into a timeseries
+        Args:
+            img (torch.Tensor): MNIST image tensor, typically of shape
+                ``(1, 28, 28)`` after ``ToTensor``.
+
+        Returns:
+            torch.Tensor: Reshaped tensor of shape ``(28, 28)`` where each row
+            can be interpreted as a timestep with 28 features.
         """
         img = torch.reshape(img, (28, 28))
         return img  # (length, n_features)
@@ -331,10 +437,12 @@ class _ReshapeMNISTTemporal(torch.nn.Module):
 class MNISTTemporal(DatasetInterface):
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
+        """Return the per-timestep input dimension (28)."""
         return 28
 
     @property
     def dim_target(self) -> Union[int, Tuple[int]]:
+        """Return the MNIST target dimension (10 classes)."""
         return 10
 
     def process_dataset(self) -> List[object]:
@@ -413,6 +521,39 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
+        r"""
+        Initialize an iterable dataset backed by files on disk.
+
+        The base class expects subclasses to expose a list of file names via
+        :meth:`url_indices`. Each file is assumed to contain either a single
+        sample or a list of samples serialized with dill.
+
+        If any expected file is missing, :meth:`process_dataset` is invoked to
+        (re-)generate the dataset on disk.
+
+        Args:
+            storage_folder (str): Root folder where the dataset directory is
+                stored.
+            raw_dataset_folder (Optional[str]): Optional folder containing raw
+                data required to create the dataset.
+            transform_train (Optional[Callable]): Runtime transform applied to
+                samples during training (after loading from disk).
+            transform_eval (Optional[Callable]): Runtime transform applied to
+                samples during evaluation (after loading from disk).
+            pre_transform (Optional[Callable]): Pre-processing transform applied
+                once at dataset creation time by :meth:`process_dataset`.
+            **kwargs: Additional subclass-specific arguments (unused by the
+                base class).
+
+        Raises:
+            FileNotFoundError: If ``raw_dataset_folder`` is provided but does
+                not exist.
+
+        Side effects:
+            Creates the dataset directory if needed, checks/creates dataset
+            files on disk, and initializes iteration state used by
+            multi-worker data loading.
+        """
         super().__init__()
         self._name = self.__class__.__name__
         self._storage_folder = storage_folder
@@ -452,38 +593,42 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
 
     @property
     def dataset_folder(self) -> Path:
-        """
-        Returns the Path to folder where dataset is stored
-        Returns: a Path object
-        """
+        """Return the folder where dataset files are stored."""
         return Path(self._storage_folder, self._name)
 
     @property
     def dataset_name(self) -> str:
-        """
-        Returns the name of the dataset
-        """
+        """Return the dataset name (defaults to the class name)."""
         return self._name
 
     @property
     def raw_dataset_folder(self) -> Path:
         """
-        Returns the Path to folder where the raw data is stored
+        Return the folder where raw dataset files are stored.
+
+        Notes:
+            Only valid when ``raw_dataset_folder`` was provided at
+            initialization time.
         """
         return Path(self._raw_dataset_folder)
 
     @property
     def dataset_filepaths(self) -> List[Path]:
         """
-        Returns the full Path to the single file where the dataset is stored
+        Return the full paths to all dataset files on disk.
+
+        Returns:
+            List[pathlib.Path]: Paths derived from :meth:`url_indices`.
         """
         return [Path(self.dataset_folder, u) for u in self._url_indices]
 
     @property
     def url_indices(self) -> List[Path]:
         r"""
-        Specifies the ist of file names where you plan to store
-            portions of the large dataset
+        Specify the list of dataset file names (relative to :attr:`dataset_folder`).
+
+        Each entry represents a file containing either a single sample or a
+        list of samples.
         """
         raise NotImplementedError(
             "You should subclass IterableDatasetInterface and implement this method"
@@ -529,12 +674,14 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
 
     def set_eval(self, is_eval: bool):
         """
-        Informs the object that we should either apply transform_train or
-            transform_eval depending on the samples
-        :param is_eval: whether the subset refers to training or evaluation
-            stages, so we can apply the proper transformations.
-            Set to false if training, true otherwise
-        :return:
+        Set whether iteration should apply training or evaluation transforms.
+
+        Args:
+            is_eval (bool): If ``True``, :attr:`transform_eval` is applied during
+                iteration; otherwise :attr:`transform_train` is applied.
+
+        Side effects:
+            Updates the internal ``_eval`` flag used by :meth:`__iter__`.
         """
         self._eval = is_eval
 
@@ -654,6 +801,19 @@ class ToyIterableDataset(IterableDatasetInterface):
         pre_transform: Optional[Callable] = None,
         **kwargs,
     ):
+        """
+        Initialize the built-in toy iterable dataset used in tests/examples.
+
+        Args:
+            storage_folder (str): Root folder where the dataset directory and
+                generated files are stored.
+            raw_dataset_folder (Optional[str]): Unused (kept for API parity).
+            transform_train (Optional[Callable]): Optional runtime transform
+                applied to training samples.
+            pre_transform (Optional[Callable]): Optional pre-processing applied
+                at creation time to each generated sample.
+            **kwargs: Additional unused arguments.
+        """
         super().__init__(
             storage_folder,
             raw_dataset_folder,

@@ -18,6 +18,16 @@ from tests.integration.fake_dataset import (
 
 @pytest.fixture
 def datasets():
+    """
+    Provide dataset/loader pairs used by splitter tests.
+
+    Returns:
+        list[tuple[DatasetInterface, type]]: Tuples of ``(dataset, loader_class)``
+        for different task types (vector, temporal, and graph datasets).
+
+    Side effects:
+        Instantiates fake datasets under ``tests/tmp/DATA`` (may create files).
+    """
     return [
         (FakeMNIST("tests/tmp/DATA"), torch.utils.data.DataLoader),
         (FakeMNISTTemporal("tests/tmp/DATA"), torch.utils.data.DataLoader),
@@ -27,6 +37,16 @@ def datasets():
 
 @pytest.fixture
 def single_graph_datasets():
+    """
+    Provide single-graph dataset/loader pairs used by splitter tests.
+
+    Returns:
+        list[tuple[DatasetInterface, type]]: Tuples of ``(dataset, loader_class)``
+        where the dataset represents a single graph with node-level splits.
+
+    Side effects:
+        Instantiates fake datasets under ``tests/tmp/DATA`` (may create files).
+    """
     return [(FakeCora("tests/tmp/DATA"), torch_geometric.loader.DataLoader)]
 
 

@@ -27,7 +27,49 @@ from mlwiz.ui.progress_manager import (
 from mlwiz.experiment.experiment import Experiment
 from mlwiz.exceptions import ExperimentTerminated
 from mlwiz.log.logger import Logger
-from mlwiz.static import *
+from mlwiz.static import (
+    AVG,
+    BATCH,
+    BEST_CONFIG,
+    CI,
+    CONFIG,
+    CONFIG_ID,
+    END_CONFIG,
+    END_FINAL_RUN,
+    EPOCH,
+    EXPERIMENT_LOGFILE,
+    FOLDS,
+    INNER_FOLD,
+    IS_FINAL,
+    LOG_FINAL_RUNS,
+    LOG_MODEL_SELECTION,
+    LOSS,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MODEL_ASSESSMENT,
+    MODEL_SELECTION_TRAINING_RUNS,
+    OUTER_FOLD,
+    OUTER_TEST,
+    OUTER_TRAIN,
+    OUTER_VALIDATION,
+    RUN_FAILED,
+    RUN_ID,
+    RUN_PROGRESS,
+    SCORE,
+    STD,
+    TELEGRAM_BOT_CHAT_ID,
+    TELEGRAM_BOT_TOKEN,
+    TEST,
+    TOTAL_BATCHES,
+    TOTAL_EPOCHS,
+    TRAINING,
+    TR_LOSS,
+    TR_SCORE,
+    VALIDATION,
+    VL_LOSS,
+    VL_SCORE,
+)
 from mlwiz.util import dill_load, atomic_dill_save, s2c
 
 
@@ -53,6 +95,25 @@ def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
 
 
 def extract_and_sum_elapsed_seconds(file_path):
+    """
+    Sum per-run elapsed time entries from an experiment log file.
+
+    The evaluator writes elapsed-time markers to the experiment log in the
+    form:
+
+        ``Total time of the experiment in seconds: <SECONDS>``
+
+    This helper scans the file for all such entries and returns their sum.
+
+    Args:
+        file_path (str | os.PathLike): Path to the experiment log file.
+
+    Returns:
+        float: Sum of all matched elapsed seconds.
+
+    Side effects:
+        Reads the file from disk.
+    """
     # Open the file and read its contents
     with open(file_path, "r") as f:
         content = f.read()
@@ -95,22 +156,78 @@ def _set_cuda_memory_limit_from_env():
     Best-effort limit of per-process GPU memory based on the configured Ray
     GPU fraction. No-op if CUDA is unavailable or the value is invalid.
     """
-    gpus_per_task = float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK))
+    gpus_per_task = _get_ray_num_gpus_per_task()
+
+    if not (0.0 < gpus_per_task <= 1.0):
+        return
 
     if torch.cuda.is_available():
         torch.cuda.init()
         visible_gpus = torch.cuda.device_count()
         for gpu_idx in range(visible_gpus):
             torch.cuda.memory.set_per_process_memory_fraction(
-                gpus_per_task,
-                device=torch.device(f"cuda:{gpu_idx}")
+                gpus_per_task, device=torch.device(f"cuda:{gpu_idx}")
             )
             # print(f"Setting max GPU {gpu_idx} memory of process to: {gpus_per_task}")
 
 
+def _make_termination_checker(
+    progress_actor, min_interval: float = 0.2
+) -> Callable[[], bool]:
+    """
+    Creates a closure that checks for termination requests without hammering the actor.
+    """
+    termination_state = {"stop": False, "last_check": 0.0}
+
+    def _should_terminate() -> bool:
+        """
+        Check whether the run should terminate.
+
+        This is a lightweight wrapper around the progress actor termination
+        flag with a minimum polling interval. It errs on the safe side: if the
+        actor cannot be queried, it returns ``True``.
+
+        Returns:
+            bool: ``True`` if termination was requested or cannot be checked;
+            ``False`` otherwise.
+        """
+        if termination_state["stop"]:
+            return True
+        if progress_actor is None:
+            return False
+        now = time.time()
+        if now - termination_state["last_check"] < min_interval:
+            return False
+        termination_state["last_check"] = now
+        try:
+            termination_state["stop"] = ray.get(
+                progress_actor.is_terminated.remote()
+            )
+        except Exception:
+            return True  # errs on the safe side: stop if we cannot check
+        return termination_state["stop"]
+
+    return _should_terminate
+
+
+def _get_ray_num_gpus_per_task(default: float = 0.0) -> float:
+    """
+    Return the Ray GPU request per task from the environment.
+
+    This exists primarily to keep module import side-effect free (e.g. during
+    Sphinx autodoc) when the variable is unset or malformed.
+    """
+    raw_value = os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0.0 else default
+
+
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
+    num_gpus=_get_ray_num_gpus_per_task(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -154,26 +271,7 @@ def run_valid(
         a tuple with outer fold id, inner fold id, config id, run id,
             and time elapsed
     """
-    termination_state = {"stop": False, "last_check": 0.0}
-
-    def _should_terminate():
-        # Poll the progress actor occasionally to see if a termination was requested.
-        # Cache result in termination_state to avoid spamming ray.get.
-        if termination_state["stop"]:
-            return True
-        if progress_actor is None:
-            return False
-        now = time.time()
-        if now - termination_state["last_check"] < 0.2:
-            return False
-        termination_state["last_check"] = now
-        try:
-            termination_state["stop"] = ray.get(
-                progress_actor.is_terminated.remote()
-            )
-        except Exception:
-            return True  # errs on the safe side: stop if we cannot check
-        return termination_state["stop"]
+    _should_terminate = _make_termination_checker(progress_actor)
 
     if _should_terminate():
         return None
@@ -186,6 +284,15 @@ def run_valid(
         # This is used to comunicate with the progress manager
         # to display the UI
         def _report_progress(payload: dict):
+            """
+            Forward per-epoch/batch progress updates to the shared progress UI.
+
+            Args:
+                payload (dict): Progress fields produced by the experiment.
+
+            Side effects:
+                Sends the update to the Ray actor backing the terminal UI.
+            """
             payload = deepcopy(payload)
             payload.update(
                 {
@@ -208,7 +315,9 @@ def run_valid(
         elapsed = extract_and_sum_elapsed_seconds(
             osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE)
         )
-        atomic_dill_save((train_res, val_res, elapsed), fold_run_results_torch_path)
+        atomic_dill_save(
+            (train_res, val_res, elapsed), fold_run_results_torch_path
+        )
     except ExperimentTerminated:
         return None
     except Exception as e:
@@ -242,7 +351,7 @@ def run_valid(
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
+    num_gpus=_get_ray_num_gpus_per_task(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -285,26 +394,7 @@ def run_test(
     Returns:
         a tuple with outer fold id, final run id, and time elapsed
     """
-    termination_state = {"stop": False, "last_check": 0.0}
-
-    def _should_terminate():
-        # Poll the progress actor occasionally to see if a termination was requested.
-        # Cache result in termination_state to avoid spamming ray.get.
-        if termination_state["stop"]:
-            return True
-        if progress_actor is None:
-            return False
-        now = time.time()
-        if now - termination_state["last_check"] < 0.2:
-            return False
-        termination_state["last_check"] = now
-        try:
-            termination_state["stop"] = ray.get(
-                progress_actor.is_terminated.remote()
-            )
-        except Exception:
-            return True
-        return termination_state["stop"]
+    _should_terminate = _make_termination_checker(progress_actor)
 
     if _should_terminate():
         return None
@@ -319,6 +409,15 @@ def run_test(
         # This is used to comunicate with the progress manager
         # to display the UI
         def _report_progress(payload: dict):
+            """
+            Forward per-epoch/batch progress updates to the shared progress UI.
+
+            Args:
+                payload (dict): Progress fields produced by the experiment.
+
+            Side effects:
+                Sends the update to the Ray actor backing the terminal UI.
+            """
             payload = deepcopy(payload)
             payload.update(
                 {
@@ -379,7 +478,7 @@ class RiskAssesser:
     Args:
         outer_folds (int): The number K of outer TEST folds.
             You should have generated the splits accordingly
-        outer_folds (int): The number K of inner VALIDATION folds.
+        inner_folds (int): The number K of inner VALIDATION folds.
             You should have generated the splits accordingly
         experiment_class
             (Callable[..., :class:`~mlwiz.experiment.experiment.Experiment`]):
@@ -394,7 +493,7 @@ class RiskAssesser:
             e.g., config.base.Grid
         risk_assessment_training_runs (int): no of final training runs to
             mitigate bad initializations
-        risk_assessment_training_runs (int): no of training runs to mitigate
+        model_selection_training_runs (int): no of training runs to mitigate
             bad initializations at model selection time
         higher_is_better (bool): whether the best model
             for each external fold should be selected by higher
@@ -422,6 +521,34 @@ class RiskAssesser:
         base_seed: int = 42,
         training_timeout_seconds: int = -1,
     ):
+        r"""
+        Initialize the risk assessment evaluator.
+
+        Args:
+            outer_folds (int): Number of outer folds (risk assessment).
+            inner_folds (int): Number of inner folds (model selection).
+            experiment_class (Callable[..., Experiment]): Experiment class used
+                to run training/evaluation.
+            exp_path (str): Root folder where all results will be written.
+            splits_filepath (str): Path to the serialized splits file.
+            model_configs (Grid | RandomSearch): Search object yielding model
+                configurations to evaluate.
+            risk_assessment_training_runs (int): Number of repeated "final"
+                runs per outer fold to reduce variance from random
+                initialization.
+            model_selection_training_runs (int): Number of repeated runs per
+                configuration during model selection.
+            higher_is_better (bool): Whether a larger score indicates a better
+                configuration.
+            gpus_per_task (float): GPUs assigned per Ray task (may be < 1.0).
+            base_seed (int): Base seed used to derive per-run seeds.
+            training_timeout_seconds (int): Optional per-run timeout in seconds.
+                Use ``-1`` to disable.
+
+        Side effects:
+            Seeds NumPy/PyTorch/Python RNGs for reproducibility and initializes
+            internal bookkeeping/state used by Ray jobs and the progress UI.
+        """
         # REPRODUCIBILITY:
         # https://pytorch.org/docs/stable/notes/randomness.html
         self.base_seed = base_seed
@@ -488,6 +615,26 @@ class RiskAssesser:
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
         self.failure_message = None
 
+    def _create_dataset_getter(
+        self, outer_k: int, inner_k: Optional[int]
+    ) -> DataProvider:
+        """
+        Instantiates and configures a dataset provider for the requested folds.
+        """
+        dataset_getter_class = s2c(self.model_configs.dataset_getter)
+        dataset_getter = dataset_getter_class(
+            self.model_configs.storage_folder,
+            self.splits_filepath,
+            s2c(self.model_configs.dataset_class),
+            s2c(self.model_configs.data_loader_class),
+            self.model_configs.data_loader_args,
+            self.outer_folds,
+            self.inner_folds,
+        )
+        dataset_getter.set_outer_k(outer_k)
+        dataset_getter.set_inner_k(inner_k)
+        return dataset_getter
+
     def _request_termination(self):
         """
         Signals all workers and the UI to terminate gracefully.
@@ -501,7 +648,9 @@ class RiskAssesser:
             except Exception:
                 pass
         else:
-            for job in self.model_selection_job_list + self.final_runs_job_list:
+            for job in (
+                self.model_selection_job_list + self.final_runs_job_list
+            ):
                 try:
                     ray.cancel(job, force=True)
                 except Exception:
@@ -699,6 +848,17 @@ class RiskAssesser:
         # Cached (already completed) runs that must be replayed
 
         def handle_model_selection_result(result):
+            """
+            Process a completed model-selection run and update bookkeeping/UI.
+
+            Args:
+                result (tuple): Tuple returned by :func:`run_valid` containing
+                    ``(outer_k, inner_k, config_id, run_id, elapsed)``.
+
+            Side effects:
+                Updates internal completion counters, pushes UI events, and may
+                schedule final runs once an outer fold finishes model selection.
+            """
             outer_k, inner_k, config_id, run_id, elapsed = result
 
             ms_exp_path = osp.join(
@@ -737,7 +897,9 @@ class RiskAssesser:
                     ),
                 )
 
-                self.process_model_selection_runs(config_inner_fold_folder, inner_k)
+                self.process_model_selection_runs(
+                    config_inner_fold_folder, inner_k
+                )
 
             # if all inner folds completed (including their runs),
             # process that configuration and compute its average scores
@@ -769,6 +931,17 @@ class RiskAssesser:
                 waiting.extend(self.final_runs_job_list[prev_len:])
 
         def handle_final_run_result(result):
+            """
+            Process a completed final run and update bookkeeping/UI.
+
+            Args:
+                result (tuple): Tuple returned by :func:`run_test` containing
+                    ``(outer_k, run_id, elapsed)``.
+
+            Side effects:
+                Updates internal completion counters, pushes UI events, and may
+                compute outer-fold results once all final runs complete.
+            """
             outer_k, run_id, elapsed = result
             _push_progress_update(
                 self.progress_actor,
@@ -792,8 +965,14 @@ class RiskAssesser:
                 # Time to produce self._OUTER_RESULTS_FILENAME
                 self.compute_final_runs_score_per_fold(outer_k)
 
-
         def process_cached_results():
+            """
+            Replay previously completed runs to keep UI and counters consistent.
+
+            Side effects:
+                Invokes the local handlers for all cached model-selection and
+                final-run results, then clears the caches.
+            """
             for cached in self.completed_model_selection_runs:
                 handle_model_selection_result(cached)
             self.completed_model_selection_runs = []
@@ -844,7 +1023,9 @@ class RiskAssesser:
         while waiting:
             completed, waiting = ray.wait(waiting)
             for future in completed:
-                is_model_selection_run = future in self.model_selection_job_list
+                is_model_selection_run = (
+                    future in self.model_selection_job_list
+                )
                 is_final_run = future in self.final_runs_job_list
                 result = ray.get(future)
 
@@ -856,7 +1037,7 @@ class RiskAssesser:
                             if is_model_selection_run
                             else "A final run failed; skipping outer fold scoring and final assessment. "
                             "Check the run logs for details."
-                            )
+                        )
                     success = False
 
                 elif is_model_selection_run:  # Model selection
@@ -888,37 +1069,25 @@ class RiskAssesser:
             skip_config_ids: if provided, the provided list of configurations
                 will not be considered for model selection. Use it,
                 for instance, when a run is taking too long to execute and you
-                decide it is not worth to wait for it.
+        decide it is not worth to wait for it.
         """
-        if len(skip_config_ids) > 0:
-            assert (
-                execute_config_id is None
-            ), "Cannot specify both skip_config_id and execute_config_id"
-        if execute_config_id is not None:
-            assert (
-                len(skip_config_ids) == 0
-            ), "Cannot specify both skip_config_id and execute_config_id"
+        if len(skip_config_ids) > 0 and execute_config_id is not None:
+            raise ValueError(
+                "Cannot specify both skip_config_id and execute_config_id"
+            )
 
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
         # Create the dataset provider
-        dataset_getter_class = s2c(self.model_configs.dataset_getter)
-        dataset_getter = dataset_getter_class(
-            self.model_configs.storage_folder,
-            self.splits_filepath,
-            s2c(self.model_configs.dataset_class),
-            s2c(self.model_configs.data_loader_class),
-            self.model_configs.data_loader_args,
-            self.outer_folds,
-            self.inner_folds,
-        )
-
-        # Tell the data provider to take data relative
-        # to a specific OUTER split
-        dataset_getter.set_outer_k(outer_k)
+        dataset_getter = self._create_dataset_getter(outer_k, None)
 
         if not osp.exists(model_selection_folder):
             os.makedirs(model_selection_folder)
+
+        # Inform progress manager about the configs even when model selection is skipped.
+        self.progress_manager.set_model_configs(
+            deepcopy(self.model_configs.hparams)
+        )
 
         # if the # of configs to try is 1, simply skip model selection
         if len(self.model_configs) > 1:
@@ -927,11 +1096,6 @@ class RiskAssesser:
                 for config_id, config in enumerate(self.model_configs)
                 if config_id not in skip_config_ids
             ]
-
-            # inform progress manager about the configs
-            self.progress_manager.set_model_configs(
-                deepcopy(self.model_configs.hparams)
-            )
 
             # Prioritizing executions in debug mode for debugging purposes
             if debug and execute_config_id is not None:
@@ -1027,15 +1191,21 @@ class RiskAssesser:
                                     summary_parts = []
                                     tr_loss = float(train_res[LOSS][MAIN_LOSS])
                                     val_loss = float(val_res[LOSS][MAIN_LOSS])
-                                    tr_score = float(train_res[SCORE][MAIN_SCORE])
-                                    val_score = float(val_res[SCORE][MAIN_SCORE])
+                                    tr_score = float(
+                                        train_res[SCORE][MAIN_SCORE]
+                                    )
+                                    val_score = float(
+                                        val_res[SCORE][MAIN_SCORE]
+                                    )
                                     summary_parts.append(
                                         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
                                     )
                                     if summary_parts:
                                         cached_msg = " | ".join(summary_parts)
                                 except Exception as e:
-                                    cached_msg += f" {e}\n{traceback.format_exc()}",
+                                    cached_msg += (
+                                        f" {e}\n{traceback.format_exc()}",
+                                    )
 
                                 _push_progress_update(
                                     self.progress_actor,
@@ -1078,6 +1248,15 @@ class RiskAssesser:
                                 # This is used to comunicate with the progress manager
                                 # to display the UI
                                 def _report_progress(payload: dict):
+                                    """
+                                    Forward progress updates to the shared UI (debug mode).
+
+                                    Args:
+                                        payload (dict): Progress fields produced by the experiment.
+
+                                    Side effects:
+                                        Sends the update to the Ray actor backing the terminal UI.
+                                    """
                                     payload = deepcopy(payload)
                                     payload.update(
                                         {
@@ -1146,7 +1325,9 @@ class RiskAssesser:
                                     return None
 
                     if debug:
-                        self.process_model_selection_runs(config_inner_fold_folder, k)
+                        self.process_model_selection_runs(
+                            config_inner_fold_folder, k
+                        )
                 if debug:
                     self.process_config_results_across_inner_folds(
                         config_folder, deepcopy(config)
@@ -1190,20 +1371,7 @@ class RiskAssesser:
         with open(config_fname, "r") as f:
             best_config = json.load(f)
 
-        dataset_getter_class = s2c(self.model_configs.dataset_getter)
-        dataset_getter = dataset_getter_class(
-            self.model_configs.storage_folder,
-            self.splits_filepath,
-            s2c(self.model_configs.dataset_class),
-            s2c(self.model_configs.data_loader_class),
-            self.model_configs.data_loader_args,
-            self.outer_folds,
-            self.inner_folds,
-        )
-        # Tell the data provider to take data relative
-        # to a specific OUTER split
-        dataset_getter.set_outer_k(outer_k)
-        dataset_getter.set_inner_k(None)
+        dataset_getter = self._create_dataset_getter(outer_k, None)
 
         # Mitigate bad random initializations with more runs
         for i in range(self.risk_assessment_training_runs):
@@ -1254,8 +1422,7 @@ class RiskAssesser:
                         )
                     except Exception:
                         train_res, val_res, test_res = None, None, None
-                        elapsed = 0.
-
+                        elapsed = 0.0
 
                     self.completed_final_runs.append(
                         (dataset_getter.outer_k, i, elapsed)
@@ -1275,7 +1442,7 @@ class RiskAssesser:
                         )
                         cached_msg = " | ".join(summary_parts)
                     except Exception as e:
-                        cached_msg += f" {e}\n{traceback.format_exc()}",
+                        cached_msg += (f" {e}\n{traceback.format_exc()}",)
 
                     _push_progress_update(
                         self.progress_actor,
@@ -1318,6 +1485,15 @@ class RiskAssesser:
                     # This is used to comunicate with the progress manager
                     # to display the UI
                     def _report_progress(payload: dict):
+                        """
+                        Forward progress updates to the shared UI (debug mode).
+
+                        Args:
+                            payload (dict): Progress fields produced by the experiment.
+
+                        Side effects:
+                            Sends the update to the Ray actor backing the terminal UI.
+                        """
                         payload = deepcopy(payload)
                         payload.update(
                             {
@@ -1354,7 +1530,8 @@ class RiskAssesser:
                                 "type": RUN_FAILED,
                                 str(OUTER_FOLD): dataset_getter.outer_k,
                                 str(INNER_FOLD): None,
-                                str(CONFIG_ID): best_config["best_config_id"] - 1,
+                                str(CONFIG_ID): best_config["best_config_id"]
+                                - 1,
                                 str(RUN_ID): i,
                                 str(IS_FINAL): True,
                                 str(EPOCH): 0,
@@ -1396,7 +1573,11 @@ class RiskAssesser:
         run_dict = [{} for _ in range(self.model_selection_training_runs)]
         results_dict = {}
 
-        assert not self.model_selection_training_runs <= 0
+        if self.model_selection_training_runs <= 0:
+            raise ValueError(
+                "model_selection_training_runs must be > 0, "
+                f"got {self.model_selection_training_runs}."
+            )
         for run_id in range(self.model_selection_training_runs):
             fold_run_exp_folder = osp.join(
                 inner_fold_config_folder, f"run_{run_id + 1}"
@@ -1500,7 +1681,10 @@ class RiskAssesser:
             FOLDS: [{} for _ in range(self.inner_folds)],
         }
 
-        assert not self.inner_folds <= 0
+        if self.inner_folds <= 0:
+            raise ValueError(
+                f"inner_folds must be > 0, got {self.inner_folds}."
+            )
         for k in range(self.inner_folds):
             # Set up a log file for this experiment (run in a separate process)
             config_inner_fold_folder = osp.join(

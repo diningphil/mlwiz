@@ -7,13 +7,20 @@ import pytest
 import yaml
 
 import os
-from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE, MLWIZ_RAY_NUM_GPUS_PER_TASK
-os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(1.)
+from mlwiz.static import (
+    DATA_SPLITS_FILE,
+    LOSS,
+    SCORE,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+)
+
+os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(1.0)
 
 from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
 from mlwiz.experiment import Experiment
-
 
 
 class FakeTask(Experiment):
@@ -24,6 +31,19 @@ class FakeTask(Experiment):
         logger,
         progress_callback,
     ):
+        """
+        Return deterministic train/validation results for evaluator tests.
+
+        Args:
+            dataset_getter: Data provider with ``outer_k`` and ``inner_k`` set.
+            training_timeout_seconds: Unused.
+            logger: Unused.
+            progress_callback: Unused.
+
+        Returns:
+            tuple[dict, dict]: ``(train_res, val_res)`` dictionaries matching
+            the structure expected by the evaluator.
+        """
         outer_k = dataset_getter.outer_k
         inner_k = dataset_getter.inner_k
 
@@ -44,6 +64,19 @@ class FakeTask(Experiment):
         logger,
         progress_callback,
     ):
+        """
+        Return deterministic train/validation/test results for evaluator tests.
+
+        Args:
+            dataset_getter: Data provider with ``outer_k`` set.
+            training_timeout_seconds: Unused.
+            logger: Unused.
+            progress_callback: Unused.
+
+        Returns:
+            tuple[dict, dict, dict]: ``(train_res, val_res, test_res)``
+            dictionaries matching the structure expected by the evaluator.
+        """
         outer_k = dataset_getter.outer_k
 
         train_loss = {MAIN_LOSS: outer_k}
@@ -62,6 +95,17 @@ class FakeTask(Experiment):
 
 # This test activates most of the library's main routines.
 def test_evaluator():
+    """
+    Exercise the RiskAssesser result aggregation logic end-to-end.
+
+    This runs a small synthetic risk assessment in debug mode and asserts that
+    computed means/stds/confidence intervals match the known deterministic
+    FakeTask outputs.
+
+    Side effects:
+        Writes experiment artifacts under ``tests/tmp/debug_evaluator`` and
+        starts/stops a local Ray instance.
+    """
     results_folder = "tests/tmp/debug_evaluator/"
     search = Grid(
         yaml.load(
@@ -159,4 +203,7 @@ def test_evaluator():
 
 @pytest.mark.dependency(depends=["test_evaluator"])
 def test_cleanup():
+    """
+    Remove temporary test artifacts created under ``tests/tmp``.
+    """
     rmtree("tests/tmp/")

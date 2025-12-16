@@ -25,6 +25,17 @@ class Fold:
     """
 
     def __init__(self, train_idxs, val_idxs=None, test_idxs=None):
+        r"""
+        Create a fold container.
+
+        Args:
+            train_idxs (list | tuple): Training indices.
+            val_idxs (list | tuple | None): Validation indices (optional).
+            test_idxs (list | tuple | None): Test indices (optional).
+
+        Side effects:
+            Stores the provided index collections as attributes.
+        """
         self.train_idxs = train_idxs
         self.val_idxs = val_idxs
         self.test_idxs = test_idxs
@@ -78,6 +89,16 @@ class _NoShuffleTrainTestSplit:
     """
 
     def __init__(self, test_ratio):
+        """
+        Initialize the deterministic split helper.
+
+        Args:
+            test_ratio (float): Fraction of samples assigned to the test split.
+                Values are interpreted in the ``[0, 1]`` range.
+
+        Side effects:
+            Stores ``test_ratio``; splitting is performed by :meth:`split`.
+        """
         self.test_ratio = test_ratio
 
     # Leave the arguments as they are. The parameter `y` is needed to
@@ -134,6 +155,32 @@ class Splitter:
         outer_val_ratio: float = 0.1,
         test_ratio: float = 0.1,
     ):
+        r"""
+        Initialize a dataset split manager.
+
+        The splitter stores the split configuration and later generates the
+        outer and inner folds via :meth:`split`. Generated folds can be saved
+        and reloaded for reproducibility.
+
+        Args:
+            n_outer_folds (int): Number of outer folds for risk assessment.
+            n_inner_folds (int): Number of inner folds for model selection.
+            seed (int): Random seed used when shuffling (may be set to ``None``
+                when ``shuffle`` is ``False``).
+            stratify (bool): Whether to stratify splits using target labels.
+            shuffle (bool): Whether to shuffle before splitting.
+            inner_val_ratio (float): Validation fraction for hold-out inner
+                splits (used when ``n_inner_folds == 1``).
+            outer_val_ratio (float): Validation fraction for hold-out outer
+                splits (used for final training runs).
+            test_ratio (float): Test fraction for hold-out outer splits
+                (used when ``n_outer_folds == 1``).
+
+        Side effects:
+            Initializes ``outer_folds`` and ``inner_folds`` as empty lists. If
+            ``shuffle`` is disabled and a seed is provided, the seed is cleared
+            and a message is printed to stdout.
+        """
         self.outer_folds = []
         self.inner_folds = []
         self._stratify = stratify
@@ -211,10 +258,23 @@ class Splitter:
         splitter_args = splits.get("splitter_args")
         splitter = splitter_class(**splitter_args)
 
-        assert splitter.n_outer_folds == len(splits["outer_folds"])
-        assert splitter.n_inner_folds == len(splits["inner_folds"][0])
+        outer_folds = splits["outer_folds"]
+        inner_folds = splits["inner_folds"]
 
-        for fold_data in splits["outer_folds"]:
+        if splitter.n_outer_folds != len(outer_folds):
+            raise ValueError(
+                "Invalid splits file: expected "
+                f"{splitter.n_outer_folds} outer folds, got {len(outer_folds)} "
+                f"({path})."
+            )
+        if splitter.n_inner_folds != len(inner_folds[0]):
+            raise ValueError(
+                "Invalid splits file: expected "
+                f"{splitter.n_inner_folds} inner folds, got {len(inner_folds[0])} "
+                f"({path})."
+            )
+
+        for fold_data in outer_folds:
             splitter.outer_folds.append(
                 OuterFold(
                     fold_data["train"],
@@ -223,7 +283,7 @@ class Splitter:
                 )
             )
 
-        for inner_split in splits["inner_folds"]:
+        for inner_split in inner_folds:
             inner_split_data = []
             for fold_data in inner_split:
                 inner_split_data.append(
@@ -251,9 +311,10 @@ class Splitter:
         """
         if n_splits == 1:
             if not self.shuffle:
-                assert (
-                    stratified is False
-                ), "Stratified not implemented when shuffle is False"
+                if stratified:
+                    raise NotImplementedError(
+                        "Stratified not implemented when shuffle is False"
+                    )
                 splitter = _NoShuffleTrainTestSplit(test_ratio=eval_ratio)
             else:
                 if stratified:
@@ -315,8 +376,14 @@ class Splitter:
         for train_idxs, test_idxs in outer_splitter.split(
             outer_idxs, y=targets if stratified else None
         ):
-            assert set(train_idxs) == set(outer_idxs[train_idxs])
-            assert set(test_idxs) == set(outer_idxs[test_idxs])
+            if set(train_idxs) != set(outer_idxs[train_idxs]):
+                raise RuntimeError(
+                    "Unexpected mismatch between train indices and outer index mapping."
+                )
+            if set(test_idxs) != set(outer_idxs[test_idxs]):
+                raise RuntimeError(
+                    "Unexpected mismatch between test indices and outer index mapping."
+                )
 
             inner_fold_splits = []
             inner_idxs = outer_idxs[
@@ -342,16 +409,22 @@ class Splitter:
                 inner_fold_splits.append(inner_fold)
 
                 # False if empty
-                assert not bool(
+                if bool(
                     set(inner_train_idxs)
                     & set(inner_val_idxs)
                     & set(test_idxs)
-                )
-                assert not bool(
+                ):
+                    raise RuntimeError(
+                        "Data splits overlap across inner train/val/test indices."
+                    )
+                if bool(
                     set(inner_idxs[inner_train_idxs])
                     & set(inner_idxs[inner_val_idxs])
                     & set(test_idxs)
-                )
+                ):
+                    raise RuntimeError(
+                        "Data splits overlap across inner train/val/test indices."
+                    )
 
             self.inner_folds.append(inner_fold_splits)
 
@@ -366,17 +439,26 @@ class Splitter:
             )[0]
 
             # False if empty
-            assert not bool(
+            if bool(
                 set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
-            )
-            assert not bool(
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
+            if bool(
                 set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
-            )
-            assert not bool(
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
+            if bool(
                 set(inner_idxs[outer_train_idxs])
                 & set(inner_idxs[outer_val_idxs])
                 & set(test_idxs)
-            )
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
 
             np.random.shuffle(outer_train_idxs)
             np.random.shuffle(outer_val_idxs)
@@ -400,24 +482,29 @@ class Splitter:
             err_msg = "Data splits overlap! Please check your splitter code for errors."
 
             for outer_fold in self.outer_folds:
-                assert set(outer_fold.train_idxs).isdisjoint(
+                if not set(outer_fold.train_idxs).isdisjoint(
                     set(outer_fold.test_idxs)
-                ), err_msg
-                assert set(outer_fold.val_idxs).isdisjoint(
+                ):
+                    raise RuntimeError(err_msg)
+                if not set(outer_fold.val_idxs).isdisjoint(
                     set(outer_fold.test_idxs)
-                ), err_msg
-                assert set(outer_fold.train_idxs).isdisjoint(
+                ):
+                    raise RuntimeError(err_msg)
+                if not set(outer_fold.train_idxs).isdisjoint(
                     set(outer_fold.val_idxs)
-                ), err_msg
+                ):
+                    raise RuntimeError(err_msg)
 
             for inner_fold_list in self.inner_folds:
                 for inner_fold in inner_fold_list:
-                    assert set(inner_fold.train_idxs).isdisjoint(
+                    if not set(inner_fold.train_idxs).isdisjoint(
                         set(inner_fold.val_idxs)
-                    ), err_msg
-                    assert (
-                        inner_fold.test_idxs is None
-                    ), "Test indices should not be present in the inner folds."
+                    ):
+                        raise RuntimeError(err_msg)
+                    if inner_fold.test_idxs is not None:
+                        raise RuntimeError(
+                            "Test indices should not be present in the inner folds."
+                        )
             print("Check data splits not overlapping: passed.")
 
     def _splitter_args(self) -> dict:
@@ -520,9 +607,10 @@ class SingleGraphSplitter(Splitter):
         torch.cuda.manual_seed(self.seed)
         random.seed(self.seed)
 
-        assert (
-            len(dataset) == 1
-        ), "This class works only with single graph datasets"
+        if len(dataset) != 1:
+            raise ValueError(
+                "This class works only with single graph datasets"
+            )
         idxs = range(dataset[0][0].x.shape[0])
         stratified = self.stratify
         outer_idxs = np.array(idxs)
@@ -537,8 +625,14 @@ class SingleGraphSplitter(Splitter):
         for train_idxs, test_idxs in outer_splitter.split(
             outer_idxs, y=targets
         ):
-            assert set(train_idxs) == set(outer_idxs[train_idxs])
-            assert set(test_idxs) == set(outer_idxs[test_idxs])
+            if set(train_idxs) != set(outer_idxs[train_idxs]):
+                raise RuntimeError(
+                    "Unexpected mismatch between train indices and outer index mapping."
+                )
+            if set(test_idxs) != set(outer_idxs[test_idxs]):
+                raise RuntimeError(
+                    "Unexpected mismatch between test indices and outer index mapping."
+                )
 
             inner_fold_splits = []
             inner_idxs = outer_idxs[
@@ -564,16 +658,22 @@ class SingleGraphSplitter(Splitter):
                 inner_fold_splits.append(inner_fold)
 
                 # False if empty
-                assert not bool(
+                if bool(
                     set(inner_train_idxs)
                     & set(inner_val_idxs)
                     & set(test_idxs)
-                )
-                assert not bool(
+                ):
+                    raise RuntimeError(
+                        "Data splits overlap across inner train/val/test indices."
+                    )
+                if bool(
                     set(inner_idxs[inner_train_idxs])
                     & set(inner_idxs[inner_val_idxs])
                     & set(test_idxs)
-                )
+                ):
+                    raise RuntimeError(
+                        "Data splits overlap across inner train/val/test indices."
+                    )
 
             self.inner_folds.append(inner_fold_splits)
 
@@ -588,17 +688,26 @@ class SingleGraphSplitter(Splitter):
             )[0]
 
             # False if empty
-            assert not bool(
+            if bool(
                 set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
-            )
-            assert not bool(
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
+            if bool(
                 set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
-            )
-            assert not bool(
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
+            if bool(
                 set(inner_idxs[outer_train_idxs])
                 & set(inner_idxs[outer_val_idxs])
                 & set(test_idxs)
-            )
+            ):
+                raise RuntimeError(
+                    "Data splits overlap across outer train/val/test indices."
+                )
 
             np.random.shuffle(outer_train_idxs)
             np.random.shuffle(outer_val_idxs)

@@ -11,6 +11,21 @@ class State:
     """
 
     def __init__(self, model, optimizer, device):
+        """
+        Initialize the training state container.
+
+        Args:
+            model (torch.nn.Module): Model being trained/evaluated.
+            optimizer (mlwiz.training.callback.optimizer.Optimizer): Optimizer
+                callback wrapper.
+            device (str): Device identifier used for computation
+                (e.g., ``'cpu'`` or ``'cuda:0'``).
+
+        Side effects:
+            Initializes common bookkeeping fields (epoch counters, flags, and
+            callback state placeholders) used by the training engine and event
+            handlers.
+        """
         self.initial_epoch = 0
         self.epoch = self.initial_epoch
         self.total_epochs = -1

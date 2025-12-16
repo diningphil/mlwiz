@@ -12,7 +12,20 @@ from scipy import stats
 from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.provider import DataProvider
 from mlwiz.model.interface import ModelInterface
-from mlwiz.static import *
+from mlwiz.static import (
+    CONFIG,
+    DATASET_CLASS,
+    DATASET_GETTER,
+    DATA_LOADER,
+    MODEL,
+    MODEL_ASSESSMENT,
+    MODEL_STATE,
+    SCORE,
+    STORAGE_FOLDER,
+    TEST,
+    TRAINING,
+    VALIDATION,
+)
 from mlwiz.util import dill_load, return_class_and_args, s2c
 
 
@@ -23,28 +36,54 @@ Various options for random search model selection
 
 def choice(*args):
     """
-    Implements a random choice between a list of values
+    Sample one value uniformly at random from the provided arguments.
+
+    Args:
+        *args: Candidate values to sample from.
+
+    Returns:
+        object: One of the provided values.
     """
     return random.choice(args)
 
 
 def uniform(*args):
     """
-    Implements a uniform sampling given an interval
+    Sample a float uniformly at random from an interval.
+
+    Args:
+        *args: Arguments forwarded to :func:`random.uniform` (typically
+            ``(a, b)``).
+
+    Returns:
+        float: Sampled value in the interval.
     """
     return random.uniform(*args)
 
 
 def normal(*args):
     """
-    Implements a univariate normal sampling given its parameters
+    Sample a value from a univariate normal distribution.
+
+    Args:
+        *args: Arguments forwarded to :func:`random.normalvariate`
+            (``(mu, sigma)``).
+
+    Returns:
+        float: Sampled value.
     """
     return random.normalvariate(*args)
 
 
 def randint(*args):
     """
-    Implements a random integer sampling in an interval
+    Sample an integer uniformly at random from an interval.
+
+    Args:
+        *args: Arguments forwarded to :func:`random.randint` (``(a, b)``).
+
+    Returns:
+        int: Sampled integer in the closed interval ``[a, b]``.
     """
     return random.randint(*args)
 
@@ -136,6 +175,16 @@ def create_dataframe(
     """
 
     def _finditem(obj, key):
+        """
+        Recursively search a nested dictionary for a key.
+
+        Args:
+            obj (dict): Dictionary (possibly nested) to search.
+            key (str): Key to locate.
+
+        Returns:
+            object: Found value, or ``None`` if the key is not present.
+        """
         if key in obj:
             return obj[key]
 
@@ -189,6 +238,16 @@ def filter_experiments(
     """
 
     def _finditem(obj, key):
+        """
+        Recursively search a nested dictionary for a key.
+
+        Args:
+            obj (dict): Dictionary (possibly nested) to search.
+            key (str): Key to locate.
+
+        Returns:
+            object: Found value, or ``None`` if the key is not present.
+        """
         if key in obj:
             return obj[key]
 
@@ -200,7 +259,8 @@ def filter_experiments(
 
         return None
 
-    assert logic in ["AND", "OR"], "logic can only be AND/OR case sensitive"
+    if logic not in ["AND", "OR"]:
+        raise ValueError("logic can only be AND/OR case sensitive")
 
     filtered_config_list = []
 
@@ -209,15 +269,17 @@ def filter_experiments(
 
         for k, v in parameters.items():
             cf_v = _finditem(config, k)
-            assert (
-                cf_v is not None
-            ), f"Key {k} not found in the configuration, check your input"
-
-            if type(v) == list:
-                assert len(v) > 0, (
-                    f'the list of values for key "{k}" cannot be'
-                    f" empty, consider removing this key"
+            if cf_v is None:
+                raise ValueError(
+                    f"Key {k} not found in the configuration, check your input"
                 )
+
+            if isinstance(v, list):
+                if len(v) <= 0:
+                    raise ValueError(
+                        f'the list of values for key "{k}" cannot be'
+                        f" empty, consider removing this key"
+                    )
 
                 # the user specified a list of acceptable values
                 # it is sufficient that one of them is present to return True
@@ -413,10 +475,33 @@ def get_scores_from_assessment_results(
 
 
 def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
-    # Pivot the table: index=model, columns=dataset, values=training (training_std)
+    """
+    Convert an assessment-results DataFrame to a formatted LaTeX table.
+
+    Args:
+        df (pandas.DataFrame): DataFrame where each row describes a model/dataset
+            pair and includes score columns such as ``test`` and ``test_std``.
+        no_decimals (int): Number of decimal places to display.
+        model_as_row (bool): If ``True``, models are rows and datasets are
+            columns; otherwise datasets are rows and models are columns.
+
+    Returns:
+        str: LaTeX table string produced by :meth:`pandas.DataFrame.to_latex`.
+    """
     float_format = f".{no_decimals}f"
 
     def format_entry(x, mode="test"):
+        """
+        Format a row into ``mean (std)`` for a given split.
+
+        Args:
+            x (pandas.Series): Row containing ``<mode>`` and ``<mode>_std``.
+            mode (str): Split key to format (e.g., ``'training'``,
+                ``'validation'``, ``'test'``).
+
+        Returns:
+            str: Formatted entry.
+        """
         return f"{round(x[f'{mode}'], no_decimals):{float_format}} ({round(x[f'{mode}_std'], no_decimals):{float_format}})"
 
     # Apply the formatting row-wise
@@ -443,20 +528,21 @@ def _df_to_latex_table(df, no_decimals=2, model_as_row=True):
 def create_latex_table_from_assessment_results(
     exp_metadata,
     metric_key="main_score",
-    no_decimals="2",
+    no_decimals=2,
     model_as_row=True,
     use_single_outer_fold=False,
 ) -> str:
     """
     Creates a LaTeX table from a list of experiment folders, each containing assessment results.
+
     Args:
-        exp_metadata (list[tuple(str,str,str)]): A list of (paths to the experiment folder, model name, dataset name).
+        exp_metadata (list[tuple[str, str, str]]): A list of (paths to the experiment folder, model name, dataset name).
         metric_key (str): The key for the metric to extract. Default is 'main_score'.
         no_decimals (int): The number of rounded decimal places to display in the LaTeX table.
         model_as_row (bool): If True, models are rows and datasets are columns. If False, the opposite.
         use_single_outer_fold (bool): If True, only the first outer fold is used. This is useful
-            because when the number of outer folds is 1, the std in the assessment file is 0,
-            therefore we want to recover the std across the final runs of the unique outer fold.
+            when the number of outer folds is 1, the std in the assessment file is 0, therefore we
+            want to recover the std across the final runs of the unique outer fold.
     """
     # Initialize a list to store the data frames
     dataframes = []
@@ -483,7 +569,9 @@ def create_latex_table_from_assessment_results(
             # Append the DataFrame to the list
             dataframes.append(df)
         except Exception as e:
-            print(f"Unable to retrieve results for {model} on {dataset}, check {exp_folder}...")
+            print(
+                f"Unable to retrieve results for {model} on {dataset}, check {exp_folder}..."
+            )
 
     # Concatenate all the DataFrames into a single DataFrame
     combined_df = pd.concat(dataframes, ignore_index=True)
@@ -497,6 +585,19 @@ def create_latex_table_from_assessment_results(
 
 
 def _list_outer_fold_ids(exp_folder: str) -> List[int]:
+    """
+    List outer fold identifiers available in an experiment's assessment folder.
+
+    Args:
+        exp_folder (str): Path to the experiment folder.
+
+    Returns:
+        list[int]: Sorted list of outer fold ids found under
+        ``<exp_folder>/MODEL_ASSESSMENT``.
+
+    Raises:
+        FileNotFoundError: If the assessment folder is missing.
+    """
     assessment_folder = os.path.join(exp_folder, MODEL_ASSESSMENT)
     if not os.path.isdir(assessment_folder):
         raise FileNotFoundError(
@@ -517,6 +618,27 @@ def _list_outer_fold_ids(exp_folder: str) -> List[int]:
 def _load_final_run_metric_samples(
     exp_folder: str, outer_fold_id: int, set_key: str, metric_key: str
 ) -> np.ndarray:
+    """
+    Load per-run metric samples from cached final-run results.
+
+    This scans ``run_{i}_results.dill`` files under:
+    ``<exp_folder>/MODEL_ASSESSMENT/OUTER_FOLD_<id>/final_run<i>/`` and
+    extracts ``metric_key`` from the selected split.
+
+    Args:
+        exp_folder (str): Path to the experiment folder.
+        outer_fold_id (int): Outer fold id.
+        set_key (str): Split name (case-insensitive): ``'training'``,
+            ``'validation'``, or ``'test'``.
+        metric_key (str): Metric name to extract.
+
+    Returns:
+        numpy.ndarray: 1D array of metric samples (dtype=float).
+
+    Raises:
+        KeyError: If ``metric_key`` is missing from a run result.
+        ValueError: If no run results are found.
+    """
     samples = []
     run_id = 1
     set_key = set_key.lower()
@@ -564,6 +686,26 @@ def _load_final_run_metric_samples(
 def _collect_metric_samples(
     exp_folder: str, metric_key: str, set_key: str
 ) -> Tuple[np.ndarray, str]:
+    """
+    Collect metric samples for an experiment and split.
+
+    If only one outer fold is present, this falls back to using the final-run
+    results as samples; otherwise it uses one sample per outer fold (the fold
+    mean).
+
+    Args:
+        exp_folder (str): Path to the experiment folder.
+        metric_key (str): Metric name to extract.
+        set_key (str): Split name (case-insensitive): ``'training'``,
+            ``'validation'``, or ``'test'``.
+
+    Returns:
+        Tuple[numpy.ndarray, str]: ``(samples, source)`` where ``source`` is
+        either ``'final_runs'`` or ``'outer_fold_means'``.
+
+    Raises:
+        ValueError: If ``set_key`` is invalid or no folds are found.
+    """
     set_key = set_key.lower()
     if set_key not in [TRAINING, VALIDATION, TEST]:
         raise ValueError(
@@ -597,6 +739,17 @@ def _collect_metric_samples(
 
 
 def _summarize_samples(samples: np.ndarray, confidence_level: float):
+    """
+    Compute mean/std and a normal-approximation confidence interval half-width.
+
+    Args:
+        samples (numpy.ndarray): 1D array of metric samples (must be non-empty).
+        confidence_level (float): Confidence level in the ``(0, 1)`` range
+            (e.g., ``0.95``).
+
+    Returns:
+        tuple[float, float, float]: ``(mean, std, ci_half_width)``.
+    """
     mean = float(samples.mean())
     std = float(samples.std())
     z_value = stats.norm.ppf(0.5 + confidence_level / 2.0)

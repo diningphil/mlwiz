@@ -24,7 +24,7 @@ copyright = "2024-ongoing, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags
-release = "1.3.4"
+release = "1.4.0"
 
 
 # -- General configuration ---------------------------------------------------
@@ -64,6 +64,7 @@ autodoc_mock_imports = [
     "dill",
     "pandas",
     "numpy",
+    "scipy",
     "sklearn",
 ]
 
@@ -78,7 +79,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 
 # Logo of the doc
-html_logo = html_static_path[0] + "/" + "mlwiz-logo.png"
+html_logo = html_static_path[0] + "/" + "mlwiz-logo2.png"
 html_theme_options = {
     "logo_only": False,
     "display_version": True,

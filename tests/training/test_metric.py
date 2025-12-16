@@ -29,6 +29,22 @@ class FakeMetric(Metric):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize the fake metric used by unit tests.
+
+        Args:
+            use_as_loss (bool): Whether to treat the metric as a loss.
+            reduction (str): Reduction mode (passed through to :class:`Metric`).
+            accumulate_over_epoch (bool): Whether to accumulate values across
+                an epoch before computing the final metric.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Unused extra keyword arguments.
+
+        Side effects:
+            Initializes a counter used to vary predictions across calls and a
+            fixed ``num_nodes`` used by the synthetic prediction tensor.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -42,6 +58,12 @@ class FakeMetric(Metric):
 
     @property
     def name(self) -> str:
+        """
+        Return the display name of the metric.
+
+        Returns:
+            str: ``"Fake Metric"``.
+        """
         return "Fake Metric"
 
     def get_predictions_and_targets(
@@ -78,9 +100,29 @@ class FakeMetric(Metric):
 
 @pytest.fixture
 def fake_metric():
+    """
+    Provide a factory function that constructs :class:`FakeMetric` instances.
+
+    Returns:
+        Callable[[bool, str, bool, bool], FakeMetric]: Initializer accepting
+        ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
+    """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
+        """
+        Construct a :class:`FakeMetric` with the provided flags.
+
+        Args:
+            use_as_loss (bool): Whether to treat the metric as a loss.
+            reduction (str): Reduction mode.
+            accumulate_over_epoch (bool): Whether to accumulate over the epoch.
+            force_cpu (bool): Whether to force accumulation on CPU.
+
+        Returns:
+            FakeMetric: Configured fake metric instance.
+        """
         return FakeMetric(
             use_as_loss, reduction, accumulate_over_epoch, force_cpu
         )
@@ -197,6 +239,22 @@ class FakeAdditiveLoss(AdditiveLoss):
         device: str = "cpu",
         **losses,
     ):
+        """
+        Initialize the fake additive loss used by unit tests.
+
+        Args:
+            use_as_loss (bool): Whether to use this metric as a loss.
+            reduction (str): Reduction mode (passed through to :class:`Metric`).
+            accumulate_over_epoch (bool): Whether to accumulate values across
+                an epoch before computing the final loss.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **losses: Loss specifications forwarded to :class:`AdditiveLoss`.
+
+        Side effects:
+            Initializes a counter used to vary predictions across calls and a
+            fixed ``num_nodes`` used by the synthetic prediction tensor.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -221,9 +279,29 @@ class FakeAdditiveLoss(AdditiveLoss):
 
 @pytest.fixture
 def fake_additive_loss():
+    """
+    Provide a factory function that constructs :class:`FakeAdditiveLoss` instances.
+
+    Returns:
+        Callable[[bool, str, bool, bool], FakeAdditiveLoss]: Initializer accepting
+        ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
+    """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
+        """
+        Construct a :class:`FakeAdditiveLoss` with three fake component losses.
+
+        Args:
+            use_as_loss (bool): Whether to treat the metric as a loss.
+            reduction (str): Reduction mode.
+            accumulate_over_epoch (bool): Whether to accumulate over the epoch.
+            force_cpu (bool): Whether to force accumulation on CPU.
+
+        Returns:
+            FakeAdditiveLoss: Configured fake additive loss instance.
+        """
         return FakeAdditiveLoss(
             use_as_loss,
             reduction,
@@ -350,6 +428,25 @@ class FakeMultiScore(MultiScore):
         main_scorer: Metric = None,
         **extra_scorers,
     ):
+        """
+        Initialize the fake multi-score metric used by unit tests.
+
+        Args:
+            use_as_loss (bool): Whether to treat the metric as a loss.
+                Must be ``False`` for :class:`MultiScore`.
+            reduction (str): Reduction mode (passed through to :class:`Metric`).
+            accumulate_over_epoch (bool): Whether to accumulate values across
+                an epoch before computing the final score.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            main_scorer (Metric | str | dict): Main scorer specification passed
+                through to :class:`MultiScore`.
+            **extra_scorers: Additional scorer specifications.
+
+        Side effects:
+            Initializes a counter used to vary predictions across calls and a
+            fixed ``num_nodes`` used by the synthetic prediction tensor.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -375,9 +472,29 @@ class FakeMultiScore(MultiScore):
 
 @pytest.fixture
 def fake_multi_score():
+    """
+    Provide a factory function that constructs :class:`FakeMultiScore` instances.
+
+    Returns:
+        Callable[[bool, str, bool, bool], FakeMultiScore]: Initializer accepting
+        ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
+    """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
+        """
+        Construct a :class:`FakeMultiScore` with three fake scorers.
+
+        Args:
+            use_as_loss (bool): Whether to treat the metric as a loss.
+            reduction (str): Reduction mode.
+            accumulate_over_epoch (bool): Whether to accumulate over the epoch.
+            force_cpu (bool): Whether to force accumulation on CPU.
+
+        Returns:
+            FakeMultiScore: Configured fake multi-score instance.
+        """
         return FakeMultiScore(
             use_as_loss,
             reduction,

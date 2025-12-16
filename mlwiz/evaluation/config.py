@@ -11,35 +11,71 @@ class Config:
     """
 
     def __init__(self, config_dict: dict):
+        """
+        Initialize the configuration wrapper.
+
+        Args:
+            config_dict (dict): Configuration dictionary to wrap.
+
+        Side effects:
+            Stores the dictionary on the instance as ``config_dict``.
+        """
         self.config_dict = config_dict
 
     def __getattr__(self, attr: str):
         """
-        Returns the item associated with the key in the dictionary
+        Return the value associated with ``attr`` in the wrapped dictionary.
+
+        Args:
+            attr (str): Dictionary key to look up.
+
+        Returns:
+            object: Value stored under ``attr``.
+
+        Raises:
+            KeyError: If ``attr`` is not present in the dictionary.
         """
         return self.config_dict[attr]
 
     def __getitem__(self, item: str):
         """
-        Returns the item associated with the key in the dictionary
+        Return the value associated with ``item`` in the wrapped dictionary.
+
+        Args:
+            item (str): Dictionary key to look up.
+
+        Returns:
+            object: Value stored under ``item``.
+
+        Raises:
+            KeyError: If ``item`` is not present in the dictionary.
         """
         return self.config_dict[item]
 
     def __contains__(self, item: str) -> bool:
         """
-        Returns true if the dictionary contains a key, false otherwise
+        Return whether the wrapped dictionary contains ``item``.
+
+        Args:
+            item (str): Key to test.
+
+        Returns:
+            bool: ``True`` if present, ``False`` otherwise.
         """
         return item in self.config_dict
 
     def __len__(self) -> int:
         """
-        Returns the number of keys in the dictionary
+        Return the number of keys in the wrapped dictionary.
         """
         return len(self.config_dict)
 
     def __iter__(self):
         """
-        Generates an iterable object from the dictionary
+        Iterate over keys in the wrapped dictionary.
+
+        Returns:
+            Iterator[str]: Iterator over dictionary keys.
         """
         return iter(self.config_dict)
 
@@ -59,24 +95,27 @@ class Config:
 
     def keys(self) -> set:
         r"""
-        Invokes the `keys()` method of the configuration dictionary
+        Return a view on the configuration keys.
 
         Returns:
-            the set of keys in the dictionary
+            dict_keys: View over keys in the dictionary.
         """
         return self.config_dict.keys()
 
     def items(self) -> list:
         r"""
-        Invokes the `items()` method of the configuration dictionary
+        Return a view on (key, value) pairs.
 
         Returns:
-            a list of (key, value) pairs
+            dict_items: View over (key, value) pairs.
         """
         return self.config_dict.items()
 
     def __str__(self) -> str:
         """
-        Computes an indented json representation of the dictionary
+        Return an indented JSON representation of the configuration.
+
+        Returns:
+            str: Pretty-printed JSON string.
         """
         return json.dumps(self.config_dict, sort_keys=True, indent=4)

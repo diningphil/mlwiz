@@ -19,12 +19,37 @@ class MLP(ModelInterface):
         dim_target: int,
         config: dict,
     ):
+        """
+        Initialize a simple multi-layer perceptron for vector inputs.
+
+        Args:
+            dim_input_features (Union[int, Tuple[int]]): Input feature dimension.
+                Must be an ``int`` for this model (flat vector features).
+            dim_target (int): Output dimension (e.g., number of classes).
+            config (dict): Model configuration. Expected keys:
+                - ``dim_embedding`` (int): Hidden embedding size.
+                Optional keys:
+                - ``mlwiz_tests`` (bool): Enable test-only input reshaping
+                  for MNIST-like tensors.
+
+        Raises:
+            TypeError: If ``dim_input_features`` is not an ``int``.
+            KeyError: If ``config`` does not contain ``dim_embedding``.
+
+        Side effects:
+            Initializes internal Torch modules and stores a testing flag in
+            ``self._testing``.
+        """
         super().__init__(
             dim_input_features,
             dim_target,
             config,
         )
-        assert type(dim_input_features) == int
+        if not isinstance(dim_input_features, int):
+            raise TypeError(
+                "dim_input_features must be an int for vector models, "
+                f"got {dim_input_features!r} ({type(dim_input_features).__name__})."
+            )
 
         dim_embedding = config["dim_embedding"]
         self.mlp = torchvision.ops.MLP(
@@ -35,24 +60,43 @@ class MLP(ModelInterface):
 
         self._testing = config.get("mlwiz_tests", False)
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
+    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Implements an MLP forward pass
+        Perform a forward pass of the MLP.
+
+        When running MLWiz integration tests (``config['mlwiz_tests']``),
+        this method supports MNIST-like inputs by flattening images to a
+        vector before applying the MLP.
 
         Args:
-            data (torch.Tensor): a batched tensor
+            data (torch.Tensor): Input batch tensor. Expected shapes:
+                - ``(batch, dim_input_features)`` for standard vector inputs.
+                - ``(batch, 1, H, W)`` or ``(1, 28, 28)`` in test mode, which
+                  will be reshaped to ``(batch, dim_input_features)``.
 
         Returns:
-            a tuple (output, embedddings)
+            Tuple[torch.Tensor, torch.Tensor]:
+                - Model outputs of shape ``(batch, dim_target)``.
+                - Embeddings of shape ``(batch, dim_embedding)``.
+
+            Note:
+                Some MLWiz models return an additional third element with
+                auxiliary outputs. This model returns only ``(output, embeddings)``.
+
+        Raises:
+            ValueError: If test-mode MNIST reshaping encounters an
+                unexpected input shape.
         """
         # time.sleep(0.2)  # simulate some delay
         # for testing
         if self._testing:
             if data.shape[1] == 1:
                 # MNIST dataset, let's remove channel dim and flatten
-                assert len(data.shape) > 2
+                if data.dim() <= 2:
+                    raise ValueError(
+                        "In test mode, expected an MNIST-like tensor with at least 3 dimensions "
+                        f"when data.shape[1] == 1, got shape {tuple(data.shape)}."
+                    )
                 data = data.squeeze(1)
                 data = torch.reshape(data, (-1, self.dim_input_features))
             elif data.shape == (1, 28, 28):
@@ -75,12 +119,32 @@ class CNN(ModelInterface):
         dim_target: int,
         config: dict,
     ):
+        """
+        Initialize a small convolutional network for image-like inputs.
+
+        Args:
+            dim_input_features (Union[int, Tuple[int]]): Input feature dimension.
+                Must be an ``int`` for this model; the input is expected to be
+                an image tensor with a single channel.
+            dim_target (int): Output dimension (e.g., number of classes).
+            config (dict): Model configuration dictionary (currently unused).
+
+        Raises:
+            TypeError: If ``dim_input_features`` is not an ``int``.
+
+        Side effects:
+            Initializes internal convolution/pooling/linear Torch modules.
+        """
         super().__init__(
             dim_input_features,
             dim_target,
             config,
         )
-        assert type(dim_input_features) == int
+        if not isinstance(dim_input_features, int):
+            raise TypeError(
+                "dim_input_features must be an int for vector models, "
+                f"got {dim_input_features!r} ({type(dim_input_features).__name__})."
+            )
 
         # taken from https://medium.com/@bpoyeka1/building-simple-neural-networks-nn-cnn-using-pytorch-for-mnist-dataset-31e459d17788
         self.conv1 = Conv2d(
@@ -103,17 +167,23 @@ class CNN(ModelInterface):
 
         self.fc1 = Linear(16 * 7 * 7, dim_target)
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
+    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Implements an MLP forward pass
+        Perform a forward pass of the CNN.
 
         Args:
-            data (torch.Tensor): a batched tensor
+            data (torch.Tensor): Input image batch tensor of shape
+                ``(batch, 1, H, W)``.
 
         Returns:
-            a tuple (output, node_embedddings)
+            Tuple[torch.Tensor, torch.Tensor]:
+                - Model outputs of shape ``(batch, dim_target)``.
+                - Embeddings/features of shape ``(batch, 16 * 7 * 7)`` for the
+                  default architecture (post-conv flattened representation).
+
+            Note:
+                Some MLWiz models return an additional third element with
+                auxiliary outputs. This model returns only ``(output, embeddings)``.
         """
         h = relu(self.conv1(data))
         h = self.pool(h)

@@ -2,7 +2,20 @@ from copy import deepcopy
 from typing import List
 
 from mlwiz.util import return_class_and_args, s2c
-from mlwiz.static import *
+from mlwiz.static import (
+    DATASET_CLASS,
+    DATASET_GETTER,
+    DATA_LOADER,
+    DATA_LOADER_ARGS,
+    DEVICE,
+    EXPERIMENT,
+    EXP_NAME,
+    GRID_SEARCH,
+    HIGHER_RESULTS_ARE_BETTER,
+    SEED,
+    STORAGE_FOLDER,
+    evaluate_every,
+)
 
 
 class Grid:
@@ -18,6 +31,22 @@ class Grid:
     __search_type__ = GRID_SEARCH
 
     def __init__(self, configs_dict: dict):
+        r"""
+        Initialize a grid-search configuration generator.
+
+        Args:
+            configs_dict (dict): Configuration dictionary specifying the search
+                space and shared experiment settings. It is expected to contain
+                a ``GRID_SEARCH`` section (see :mod:`mlwiz.static`) describing
+                the hyper-parameter grid to expand.
+
+        Raises:
+            KeyError: If required configuration keys are missing.
+
+        Side effects:
+            Parses configuration fields and eagerly generates all hyper-parameter
+            combinations into ``self.hparams``.
+        """
         self.configs_dict = configs_dict
         self.seed = self.configs_dict.get(SEED, None)
         self._exp_name = self.configs_dict.get(EXP_NAME)

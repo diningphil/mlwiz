@@ -8,6 +8,12 @@ class EventDispatcher:
     :class:`~training.event.handler.EventHandler` interface"""
 
     def __init__(self):
+        """
+        Initialize an empty event dispatcher.
+
+        Side effects:
+            Creates the internal list used to store registered event handlers.
+        """
         self._event_handlers = []
 
     def _dispatch(self, event_name: str, state: State):

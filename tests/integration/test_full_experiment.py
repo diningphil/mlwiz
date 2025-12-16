@@ -16,6 +16,15 @@ from mlwiz.static import DEBUG, CONFIG_FILE, SKIP_SPLITS_CHECK
 
 
 def test_datasets_creation():
+    """
+    Build all fake datasets defined in integration data configs.
+
+    This validates the dataset preprocessing pipeline (dataset creation,
+    split generation, and on-disk caching) for each supported dataset type.
+
+    Side effects:
+        Writes processed datasets and split files under ``tests/tmp``.
+    """
     yaml_files = [
         "tests/integration/DATA_CONFIGS/config_FakeMNIST.yml",
         "tests/integration/DATA_CONFIGS/config_FakeMNISTTemporal.yml",
@@ -34,8 +43,30 @@ def test_datasets_creation():
 
 @pytest.mark.dependency(depends=["test_datasets_creation"])
 def test_experiments():
+    """
+    Run a small end-to-end experiment suite in debug mode.
+
+    This test executes the experiment entrypoint for multiple model configs,
+    then verifies that:
+      - the best configuration can be retrieved,
+      - a model can be instantiated and a checkpoint can be loaded, and
+      - inference can be run on a sample.
+
+    Side effects:
+        Writes experiment artifacts under ``tests/tmp/RESULTS``.
+    """
+
     class MockConfig:
         def __init__(self, d):
+            """
+            Wrap a dictionary as an object with attribute-style access.
+
+            Args:
+                d (dict): Mapping from option name to value.
+
+            Side effects:
+                Sets each key/value as an attribute on ``self``.
+            """
             for key in d.keys():
                 setattr(self, key, d[key])
 
@@ -101,4 +132,7 @@ def test_experiments():
 
 @pytest.mark.dependency(depends=["test_experiments"])
 def test_cleanup():
+    """
+    Remove temporary integration-test artifacts created under ``tests/tmp``.
+    """
     rmtree("tests/tmp/")

@@ -7,8 +7,7 @@ from mlwiz.training.event.state import State
 class GradientClipper(EventHandler):
     r"""
     GradientClipper is the main event handler for gradient clippers.
-    Just pass a PyTorch scheduler together with its
-    arguments in the configuration file.
+    Configure it in the experiment configuration to enable gradient clipping.
 
     Args:
         clip_value (float): the gradient will be clipped in
@@ -17,6 +16,18 @@ class GradientClipper(EventHandler):
     """
 
     def __init__(self, clip_value: float, **kwargs: dict):
+        """
+        Initialize the gradient clipper.
+
+        Args:
+            clip_value (float): Clip value used by
+                :func:`torch.nn.utils.clip_grad_value_`.
+            **kwargs: Unused extra arguments (kept for configuration
+                compatibility).
+
+        Side effects:
+            Stores ``clip_value`` on the instance.
+        """
         self.clip_value = clip_value
 
     def on_backward(self, state: State):
