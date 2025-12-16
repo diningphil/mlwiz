@@ -92,9 +92,7 @@ jobs:
           interrogate -i -M --generate-badge .badges mlwiz
 
       - name: Upload badges
-        if: ${{ inputs.generate_badges && matrix.python-version == '3.11' }}
-        uses: actions/upload-artifact@v4
-        if: ${{ github.event_name == 'workflow_call' && matrix.python-version == '3.11' }}
+        if: ${{ inputs.generate_badges && github.event_name == 'workflow_call' && matrix.python-version == '3.11' }}
         uses: actions/upload-artifact@v6
         with:
           name: badges
