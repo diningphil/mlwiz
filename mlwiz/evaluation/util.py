@@ -534,14 +534,15 @@ def create_latex_table_from_assessment_results(
 ) -> str:
     """
     Creates a LaTeX table from a list of experiment folders, each containing assessment results.
+
     Args:
-        exp_metadata (list[tuple(str,str,str)]): A list of (paths to the experiment folder, model name, dataset name).
+        exp_metadata (list[tuple[str, str, str]]): A list of (paths to the experiment folder, model name, dataset name).
         metric_key (str): The key for the metric to extract. Default is 'main_score'.
         no_decimals (int): The number of rounded decimal places to display in the LaTeX table.
         model_as_row (bool): If True, models are rows and datasets are columns. If False, the opposite.
         use_single_outer_fold (bool): If True, only the first outer fold is used. This is useful
-            because when the number of outer folds is 1, the std in the assessment file is 0,
-            therefore we want to recover the std across the final runs of the unique outer fold.
+            when the number of outer folds is 1, the std in the assessment file is 0, therefore we
+            want to recover the std across the final runs of the unique outer fold.
     """
     # Initialize a list to store the data frames
     dataframes = []
