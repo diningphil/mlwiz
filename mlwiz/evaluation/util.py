@@ -568,7 +568,9 @@ def create_latex_table_from_assessment_results(
             # Append the DataFrame to the list
             dataframes.append(df)
         except Exception as e:
-            print(f"Unable to retrieve results for {model} on {dataset}, check {exp_folder}...")
+            print(
+                f"Unable to retrieve results for {model} on {dataset}, check {exp_folder}..."
+            )
 
     # Concatenate all the DataFrames into a single DataFrame
     combined_df = pd.concat(dataframes, ignore_index=True)

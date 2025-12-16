@@ -60,9 +60,7 @@ class MLP(ModelInterface):
 
         self._testing = config.get("mlwiz_tests", False)
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass of the MLP.
 
@@ -169,9 +167,7 @@ class CNN(ModelInterface):
 
         self.fc1 = Linear(16 * 7 * 7, dim_target)
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass of the CNN.
 

@@ -107,6 +107,7 @@ def fake_metric():
         Callable[[bool, str, bool, bool], FakeMetric]: Initializer accepting
         ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
     """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
@@ -285,6 +286,7 @@ def fake_additive_loss():
         Callable[[bool, str, bool, bool], FakeAdditiveLoss]: Initializer accepting
         ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
     """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):
@@ -477,6 +479,7 @@ def fake_multi_score():
         Callable[[bool, str, bool, bool], FakeMultiScore]: Initializer accepting
         ``(use_as_loss, reduction, accumulate_over_epoch, force_cpu)``.
     """
+
     def metric_init_fun(
         use_as_loss, reduction, accumulate_over_epoch, force_cpu
     ):

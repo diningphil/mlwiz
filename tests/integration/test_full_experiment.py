@@ -55,6 +55,7 @@ def test_experiments():
     Side effects:
         Writes experiment artifacts under ``tests/tmp/RESULTS``.
     """
+
     class MockConfig:
         def __init__(self, d):
             """

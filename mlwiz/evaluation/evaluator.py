@@ -163,13 +163,14 @@ def _set_cuda_memory_limit_from_env():
         visible_gpus = torch.cuda.device_count()
         for gpu_idx in range(visible_gpus):
             torch.cuda.memory.set_per_process_memory_fraction(
-                gpus_per_task,
-                device=torch.device(f"cuda:{gpu_idx}")
+                gpus_per_task, device=torch.device(f"cuda:{gpu_idx}")
             )
             # print(f"Setting max GPU {gpu_idx} memory of process to: {gpus_per_task}")
 
 
-def _make_termination_checker(progress_actor, min_interval: float = 0.2) -> Callable[[], bool]:
+def _make_termination_checker(
+    progress_actor, min_interval: float = 0.2
+) -> Callable[[], bool]:
     """
     Creates a closure that checks for termination requests without hammering the actor.
     """
@@ -296,7 +297,9 @@ def run_valid(
         elapsed = extract_and_sum_elapsed_seconds(
             osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE)
         )
-        atomic_dill_save((train_res, val_res, elapsed), fold_run_results_torch_path)
+        atomic_dill_save(
+            (train_res, val_res, elapsed), fold_run_results_torch_path
+        )
     except ExperimentTerminated:
         return None
     except Exception as e:
@@ -627,7 +630,9 @@ class RiskAssesser:
             except Exception:
                 pass
         else:
-            for job in self.model_selection_job_list + self.final_runs_job_list:
+            for job in (
+                self.model_selection_job_list + self.final_runs_job_list
+            ):
                 try:
                     ray.cancel(job, force=True)
                 except Exception:
@@ -874,7 +879,9 @@ class RiskAssesser:
                     ),
                 )
 
-                self.process_model_selection_runs(config_inner_fold_folder, inner_k)
+                self.process_model_selection_runs(
+                    config_inner_fold_folder, inner_k
+                )
 
             # if all inner folds completed (including their runs),
             # process that configuration and compute its average scores
@@ -940,7 +947,6 @@ class RiskAssesser:
                 # Time to produce self._OUTER_RESULTS_FILENAME
                 self.compute_final_runs_score_per_fold(outer_k)
 
-
         def process_cached_results():
             """
             Replay previously completed runs to keep UI and counters consistent.
@@ -999,7 +1005,9 @@ class RiskAssesser:
         while waiting:
             completed, waiting = ray.wait(waiting)
             for future in completed:
-                is_model_selection_run = future in self.model_selection_job_list
+                is_model_selection_run = (
+                    future in self.model_selection_job_list
+                )
                 is_final_run = future in self.final_runs_job_list
                 result = ray.get(future)
 
@@ -1011,7 +1019,7 @@ class RiskAssesser:
                             if is_model_selection_run
                             else "A final run failed; skipping outer fold scoring and final assessment. "
                             "Check the run logs for details."
-                            )
+                        )
                     success = False
 
                 elif is_model_selection_run:  # Model selection
@@ -1165,15 +1173,21 @@ class RiskAssesser:
                                     summary_parts = []
                                     tr_loss = float(train_res[LOSS][MAIN_LOSS])
                                     val_loss = float(val_res[LOSS][MAIN_LOSS])
-                                    tr_score = float(train_res[SCORE][MAIN_SCORE])
-                                    val_score = float(val_res[SCORE][MAIN_SCORE])
+                                    tr_score = float(
+                                        train_res[SCORE][MAIN_SCORE]
+                                    )
+                                    val_score = float(
+                                        val_res[SCORE][MAIN_SCORE]
+                                    )
                                     summary_parts.append(
                                         f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
                                     )
                                     if summary_parts:
                                         cached_msg = " | ".join(summary_parts)
                                 except Exception as e:
-                                    cached_msg += f" {e}\n{traceback.format_exc()}",
+                                    cached_msg += (
+                                        f" {e}\n{traceback.format_exc()}",
+                                    )
 
                                 _push_progress_update(
                                     self.progress_actor,
@@ -1293,7 +1307,9 @@ class RiskAssesser:
                                     return None
 
                     if debug:
-                        self.process_model_selection_runs(config_inner_fold_folder, k)
+                        self.process_model_selection_runs(
+                            config_inner_fold_folder, k
+                        )
                 if debug:
                     self.process_config_results_across_inner_folds(
                         config_folder, deepcopy(config)
@@ -1388,8 +1404,7 @@ class RiskAssesser:
                         )
                     except Exception:
                         train_res, val_res, test_res = None, None, None
-                        elapsed = 0.
-
+                        elapsed = 0.0
 
                     self.completed_final_runs.append(
                         (dataset_getter.outer_k, i, elapsed)
@@ -1409,7 +1424,7 @@ class RiskAssesser:
                         )
                         cached_msg = " | ".join(summary_parts)
                     except Exception as e:
-                        cached_msg += f" {e}\n{traceback.format_exc()}",
+                        cached_msg += (f" {e}\n{traceback.format_exc()}",)
 
                     _push_progress_update(
                         self.progress_actor,
@@ -1497,7 +1512,8 @@ class RiskAssesser:
                                 "type": RUN_FAILED,
                                 str(OUTER_FOLD): dataset_getter.outer_k,
                                 str(INNER_FOLD): None,
-                                str(CONFIG_ID): best_config["best_config_id"] - 1,
+                                str(CONFIG_ID): best_config["best_config_id"]
+                                - 1,
                                 str(RUN_ID): i,
                                 str(IS_FINAL): True,
                                 str(EPOCH): 0,
@@ -1648,7 +1664,9 @@ class RiskAssesser:
         }
 
         if self.inner_folds <= 0:
-            raise ValueError(f"inner_folds must be > 0, got {self.inner_folds}.")
+            raise ValueError(
+                f"inner_folds must be > 0, got {self.inner_folds}."
+            )
         for k in range(self.inner_folds):
             # Set up a log file for this experiment (run in a separate process)
             config_inner_fold_folder = osp.join(

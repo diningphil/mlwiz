@@ -439,11 +439,15 @@ class Splitter:
             )[0]
 
             # False if empty
-            if bool(set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)):
+            if bool(
+                set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
+            ):
                 raise RuntimeError(
                     "Data splits overlap across outer train/val/test indices."
                 )
-            if bool(set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)):
+            if bool(
+                set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
+            ):
                 raise RuntimeError(
                     "Data splits overlap across outer train/val/test indices."
                 )
@@ -604,7 +608,9 @@ class SingleGraphSplitter(Splitter):
         random.seed(self.seed)
 
         if len(dataset) != 1:
-            raise ValueError("This class works only with single graph datasets")
+            raise ValueError(
+                "This class works only with single graph datasets"
+            )
         idxs = range(dataset[0][0].x.shape[0])
         stratified = self.stratify
         outer_idxs = np.array(idxs)
@@ -682,11 +688,15 @@ class SingleGraphSplitter(Splitter):
             )[0]
 
             # False if empty
-            if bool(set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)):
+            if bool(
+                set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
+            ):
                 raise RuntimeError(
                     "Data splits overlap across outer train/val/test indices."
                 )
-            if bool(set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)):
+            if bool(
+                set(outer_train_idxs) & set(outer_val_idxs) & set(test_idxs)
+            ):
                 raise RuntimeError(
                     "Data splits overlap across outer train/val/test indices."
                 )

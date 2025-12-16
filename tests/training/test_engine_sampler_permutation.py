@@ -91,8 +91,12 @@ def _make_engine():
     """
     model = _EmbeddingModel()
     loss = ToyMetric(use_as_loss=True)  # required by engine API (loss metric)
-    scorer = ToyMetric(use_as_loss=False)  # required by engine API (score metric)
-    optimizer = Optimizer(model, "torch.optim.SGD", lr=0.1)  # minimal optimizer wrapper
+    scorer = ToyMetric(
+        use_as_loss=False
+    )  # required by engine API (score metric)
+    optimizer = Optimizer(
+        model, "torch.optim.SGD", lr=0.1
+    )  # minimal optimizer wrapper
     return TrainingEngine(
         EngineCallback,
         model,
@@ -110,15 +114,25 @@ def test_infer_raises_without_sampler_permutation():
     PyTorch's default random sampler (used by ``shuffle=True``) does not expose
     a stable permutation attribute, so the engine must raise.
     """
-    x = torch.arange(5, dtype=torch.float32).unsqueeze(1)  # 5 samples shaped (N, 1)
-    y = torch.arange(5, dtype=torch.float32).unsqueeze(1)  # dummy targets (same shape)
-    loader = DataLoader(TensorDataset(x, y), batch_size=1, shuffle=True)  # => RandomSampler
+    x = torch.arange(5, dtype=torch.float32).unsqueeze(
+        1
+    )  # 5 samples shaped (N, 1)
+    y = torch.arange(5, dtype=torch.float32).unsqueeze(
+        1
+    )  # dummy targets (same shape)
+    loader = DataLoader(
+        TensorDataset(x, y), batch_size=1, shuffle=True
+    )  # => RandomSampler
 
     engine = _make_engine()
-    engine.state.update(return_embeddings=True)  # ask engine to return per-sample embeddings
+    engine.state.update(
+        return_embeddings=True
+    )  # ask engine to return per-sample embeddings
 
     with pytest.raises(ValueError, match="permutation"):
-        engine.infer(loader, TRAINING, _noop_progress)  # should fail: no sampler.permutation
+        engine.infer(
+            loader, TRAINING, _noop_progress
+        )  # should fail: no sampler.permutation
 
 
 def test_infer_reorders_with_sampler_permutation():
@@ -129,14 +143,22 @@ def test_infer_reorders_with_sampler_permutation():
     engine should reorder the embedding list back to the original dataset
     index order.
     """
-    x = torch.arange(5, dtype=torch.float32).unsqueeze(1)  # sample i has value i
+    x = torch.arange(5, dtype=torch.float32).unsqueeze(
+        1
+    )  # sample i has value i
     y = torch.arange(5, dtype=torch.float32).unsqueeze(1)  # dummy targets
     dataset = TensorDataset(x, y)
-    sampler = _FixedPermutationSampler(dataset, [2, 0, 4, 1, 3])  # iteration order
-    loader = DataLoader(dataset, batch_size=1, sampler=sampler)  # sampler order != dataset order
+    sampler = _FixedPermutationSampler(
+        dataset, [2, 0, 4, 1, 3]
+    )  # iteration order
+    loader = DataLoader(
+        dataset, batch_size=1, sampler=sampler
+    )  # sampler order != dataset order
 
     engine = _make_engine()
-    engine.state.update(return_embeddings=True)  # enables `epoch_data_list` collection
+    engine.state.update(
+        return_embeddings=True
+    )  # enables `epoch_data_list` collection
 
     _loss, _score, data_list = engine.infer(loader, TRAINING, _noop_progress)
 

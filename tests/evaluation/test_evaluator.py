@@ -7,13 +7,20 @@ import pytest
 import yaml
 
 import os
-from mlwiz.static import DATA_SPLITS_FILE, LOSS, SCORE, MAIN_LOSS, MAIN_SCORE, MLWIZ_RAY_NUM_GPUS_PER_TASK
-os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(1.)
+from mlwiz.static import (
+    DATA_SPLITS_FILE,
+    LOSS,
+    SCORE,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+)
+
+os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(1.0)
 
 from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
 from mlwiz.experiment import Experiment
-
 
 
 class FakeTask(Experiment):

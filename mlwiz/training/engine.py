@@ -91,7 +91,9 @@ def reorder(obj: List[object], perm: List[int]):
             "Expected `obj` and `perm` to have the same non-zero length, "
             f"got len(obj)={len(obj)} and len(perm)={len(perm)}."
         )
-    return [y for (x, y) in sorted(zip(perm, obj))]  # sort items by original dataset index
+    return [
+        y for (x, y) in sorted(zip(perm, obj))
+    ]  # sort items by original dataset index
 
 
 class TrainingEngine(EventDispatcher):
@@ -155,6 +157,7 @@ class TrainingEngine(EventDispatcher):
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
     """
+
     cumulative_batch_unsent_time: float = 0.0
     cumulative_epoch_unsent_time: float = 0.0
 
@@ -511,9 +514,7 @@ class TrainingEngine(EventDispatcher):
 
             self._loop_helper()
 
-            batch_progress_time_delta = (
-                time.time() - batch_progress_time
-            )
+            batch_progress_time_delta = time.time() - batch_progress_time
 
             if (
                 batch_progress_time_delta >= TIME_DELTA
@@ -580,14 +581,20 @@ class TrainingEngine(EventDispatcher):
              semi-supervised experiments or in incremental architectures
         """
         self.set_eval_mode()  # inference runs with dropout/bn disabled, no gradients
-        self.state.update(set=set)  # track which split (TRAINING/VALIDATION/TEST) is being evaluated
+        self.state.update(
+            set=set
+        )  # track which split (TRAINING/VALIDATION/TEST) is being evaluated
 
-        self._dispatch(EventHandler.ON_EVAL_EPOCH_START, self.state)  # let callbacks reset epoch accumulators
+        self._dispatch(
+            EventHandler.ON_EVAL_EPOCH_START, self.state
+        )  # let callbacks reset epoch accumulators
 
         with torch.no_grad():
             self._loop(loader, _notify_progress)  # state has been updated
 
-        self._dispatch(EventHandler.ON_EVAL_EPOCH_END, self.state)  # let callbacks finalize epoch metrics
+        self._dispatch(
+            EventHandler.ON_EVAL_EPOCH_END, self.state
+        )  # let callbacks finalize epoch metrics
 
         if self.state.epoch_loss is None:
             raise RuntimeError(
@@ -602,12 +609,16 @@ class TrainingEngine(EventDispatcher):
 
         # Add the main loss we want to return as a special key
         main_loss_name = self.loss_fun.get_main_metric_name()
-        loss[MAIN_LOSS] = loss[main_loss_name]  # normalized key for downstream evaluation
+        loss[MAIN_LOSS] = loss[
+            main_loss_name
+        ]  # normalized key for downstream evaluation
 
         # Add the main score we want to return as a special key
         # Needed by the experimental evaluation framework
         main_score_name = self.score_fun.get_main_metric_name()
-        score[MAIN_SCORE] = score[main_score_name]  # normalized key for downstream evaluation
+        score[MAIN_SCORE] = score[
+            main_score_name
+        ]  # normalized key for downstream evaluation
 
         # If samples been shuffled by the data loader, i.e., in the
         # last inference phase of the engine, require a sampler-provided
@@ -616,7 +627,9 @@ class TrainingEngine(EventDispatcher):
         if data_list is not None and loader.sampler is not None:
             # if SequentialSampler then shuffle was false
             if not isinstance(loader.sampler, SequentialSampler):
-                permutation = getattr(loader.sampler, "permutation", None)  # dataset indices in the order sampled
+                permutation = getattr(
+                    loader.sampler, "permutation", None
+                )  # dataset indices in the order sampled
                 if permutation is None:
                     raise ValueError(
                         "TrainingEngine requires the DataLoader sampler to expose a non-None "
@@ -628,7 +641,9 @@ class TrainingEngine(EventDispatcher):
                 else:
                     permutation = list(permutation)
 
-                data_list = reorder(data_list, permutation)  # back to original dataset-index order
+                data_list = reorder(
+                    data_list, permutation
+                )  # back to original dataset-index order
 
         return loss, score, data_list
 

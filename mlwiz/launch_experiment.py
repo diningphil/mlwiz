@@ -166,9 +166,9 @@ def evaluation(options: argparse.Namespace):
             exit(0)
 
         gpus_per_task = configs_dict[GPUS_PER_TASK]
-    
+
     os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
-    
+
     # we probably don't need this anymore, but keep it commented in case
     # OMP_NUM_THREADS = 'OMP_NUM_THREADS'
     # os.environ[OMP_NUM_THREADS] = "1"  # This is CRUCIAL to avoid
@@ -223,8 +223,7 @@ def evaluation(options: argparse.Namespace):
                 address=os.environ.get("ip_head"),
                 _redis_password=os.environ.get("redis_password"),
                 include_dashboard=False,
-                _metrics_export_port=0
-
+                _metrics_export_port=0,
             )
         except Exception:
             ray.init(
@@ -237,10 +236,21 @@ def evaluation(options: argparse.Namespace):
     # Or you can work on your single server
     else:
         try:
-            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False, _metrics_export_port=0)
+            ray.init(
+                address="local",
+                num_cpus=max_cpus,
+                num_gpus=max_gpus,
+                include_dashboard=False,
+                _metrics_export_port=0,
+            )
         except Exception:
-            ray.init(address="local", num_cpus=max_cpus, num_gpus=max_gpus, include_dashboard=False)
-    
+            ray.init(
+                address="local",
+                num_cpus=max_cpus,
+                num_gpus=max_gpus,
+                include_dashboard=False,
+            )
+
         print("Started local ray instance.")
 
     data_splits_file = configs_dict[DATA_SPLITS_FILE]

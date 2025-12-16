@@ -88,6 +88,3 @@ def dill_load(filepath: str) -> object:
     """
     with open(filepath, "rb") as file:
         return dill.load(file)
-
-
-

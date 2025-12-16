@@ -55,9 +55,7 @@ class GRU(ModelInterface):
         )
         self.out_layer = Linear(dim_embedding, dim_target)
 
-    def forward(
-        self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, data: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Perform a forward pass of the GRU model.
 
