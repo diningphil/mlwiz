@@ -58,7 +58,7 @@ jobs:
         password: ${{ secrets.PYPI_API_TOKEN }}
 
     - name: Download badges
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         name: badges
         path: .
