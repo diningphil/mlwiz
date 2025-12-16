@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from mlwiz.evaluation.grid import Grid
 from mlwiz.util import s2c
-from mlwiz.static import *
+from mlwiz.static import ARGS, NUM_SAMPLES, RANDOM_SEARCH, SAMPLE_METHOD
 
 from typing import Iterator, Dict, Any
 

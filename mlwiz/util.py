@@ -3,7 +3,7 @@ from typing import Tuple, Callable
 
 import os
 import dill
-from mlwiz.static import *
+from mlwiz.static import ATOMIC_SAVE_EXTENSION
 
 
 def return_class_and_args(

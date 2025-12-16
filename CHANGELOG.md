@@ -1,12 +1,19 @@
 # Changelog
 
-## [1.3.4] Cached elapsed recomputation
+## [1.3.4] Refactoring, adding Docstrings, more Tests, cached elapsed recomputation
 
 ## Changed
 
 - When resuming cached model selection or final runs, recompute elapsed time from the experiment log (falling back to cached value if missing) so durations reflect restarts.
 - Better handling of terminal reshaping
 - Minor refactoring of code in evaluator and progress manager to improve readability.
+- Automatic addition of docstrings for all functions using Codex and GPT-5.2
+- Replaced asserts with proper error raise
+- Imported static variables that are strictly necessary in each file
+
+## Added
+
+- Automatic addition of tests to cover untested functions using Codex and GPT-5.2 
 
 ## [1.3.3] Final run resume fix
 

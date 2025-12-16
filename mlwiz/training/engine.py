@@ -14,7 +14,35 @@ import mlwiz
 from mlwiz.exceptions import TerminationRequested
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
-from mlwiz.static import *
+from mlwiz.static import (
+    BATCH,
+    BATCH_PROGRESS,
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    CUMULATIVE_UNSENT_DELTA,
+    EMB_TUPLE_SUBSTR,
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    LAST_RUN_ELAPSED_TIME,
+    LOSSES,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MODE,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    RUN_COMPLETED,
+    RUN_PROGRESS,
+    SCHEDULER_STATE,
+    SCORES,
+    START_CONFIG,
+    STOP_TRAINING,
+    TEST,
+    TIME_DELTA,
+    TOTAL_BATCHES,
+    TOTAL_EPOCHS,
+    TRAINING,
+    VALIDATION,
+)
 from mlwiz.training.callback.early_stopping import EarlyStopper
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.gradient_clipping import GradientClipper

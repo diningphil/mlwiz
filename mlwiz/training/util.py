@@ -2,7 +2,7 @@ import os
 
 import torch
 
-from mlwiz.static import *
+from mlwiz.static import ATOMIC_SAVE_EXTENSION
 
 
 def atomic_torch_save(data: dict, filepath: str):

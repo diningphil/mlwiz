@@ -1,7 +1,7 @@
 from torch.optim.optimizer import Optimizer
 
 from mlwiz.util import s2c
-from mlwiz.static import *
+from mlwiz.static import LOSSES, SCORES
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 

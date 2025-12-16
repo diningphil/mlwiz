@@ -27,7 +27,49 @@ from mlwiz.ui.progress_manager import (
 from mlwiz.experiment.experiment import Experiment
 from mlwiz.exceptions import ExperimentTerminated
 from mlwiz.log.logger import Logger
-from mlwiz.static import *
+from mlwiz.static import (
+    AVG,
+    BATCH,
+    BEST_CONFIG,
+    CI,
+    CONFIG,
+    CONFIG_ID,
+    END_CONFIG,
+    END_FINAL_RUN,
+    EPOCH,
+    EXPERIMENT_LOGFILE,
+    FOLDS,
+    INNER_FOLD,
+    IS_FINAL,
+    LOG_FINAL_RUNS,
+    LOG_MODEL_SELECTION,
+    LOSS,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MODEL_ASSESSMENT,
+    MODEL_SELECTION_TRAINING_RUNS,
+    OUTER_FOLD,
+    OUTER_TEST,
+    OUTER_TRAIN,
+    OUTER_VALIDATION,
+    RUN_FAILED,
+    RUN_ID,
+    RUN_PROGRESS,
+    SCORE,
+    STD,
+    TELEGRAM_BOT_CHAT_ID,
+    TELEGRAM_BOT_TOKEN,
+    TEST,
+    TOTAL_BATCHES,
+    TOTAL_EPOCHS,
+    TRAINING,
+    TR_LOSS,
+    TR_SCORE,
+    VALIDATION,
+    VL_LOSS,
+    VL_SCORE,
+)
 from mlwiz.util import dill_load, atomic_dill_save, s2c
 
 

@@ -2,7 +2,15 @@ import copy
 import os
 from pathlib import Path
 
-from mlwiz.static import *
+from mlwiz.static import (
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    LAST_RUN_ELAPSED_TIME,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    SCHEDULER_STATE,
+    STOP_TRAINING,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save

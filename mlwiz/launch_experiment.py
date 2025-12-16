@@ -5,7 +5,31 @@ from typing import Optional
 
 import yaml
 
-from mlwiz.static import *
+from mlwiz.static import (
+    CONFIG_FILE,
+    CONFIG_FILE_CLI_ARGUMENT,
+    CUDA,
+    DATA_SPLITS_FILE,
+    DEBUG,
+    DEBUG_CLI_ARGUMENT,
+    DEVICE,
+    EXECUTE_CONFIG_ID,
+    EXECUTE_CONFIG_ID_CLI_ARGUMENT,
+    GPUS_PER_TASK,
+    GPUS_SUBSET,
+    GRID_SEARCH,
+    MAX_CPUS,
+    MAX_GPUS,
+    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MODEL_SELECTION_TRAINING_RUNS,
+    RANDOM_SEARCH,
+    RESULT_FOLDER,
+    RISK_ASSESSMENT_TRAINING_RUNS,
+    SKIP_CONFIG_IDS,
+    SKIP_CONFIG_IDS_CLI_ARGUMENT,
+    TELEGRAM_CONFIG_FILE,
+    TRAINING_TIME_SECONDS,
+)
 
 
 def set_gpus(num_gpus: int, gpus_subset: Optional[str] = None):

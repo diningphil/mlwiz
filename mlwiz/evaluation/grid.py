@@ -2,7 +2,20 @@ from copy import deepcopy
 from typing import List
 
 from mlwiz.util import return_class_and_args, s2c
-from mlwiz.static import *
+from mlwiz.static import (
+    DATASET_CLASS,
+    DATASET_GETTER,
+    DATA_LOADER,
+    DATA_LOADER_ARGS,
+    DEVICE,
+    EXPERIMENT,
+    EXP_NAME,
+    GRID_SEARCH,
+    HIGHER_RESULTS_ARE_BETTER,
+    SEED,
+    STORAGE_FOLDER,
+    evaluate_every,
+)
 
 
 class Grid:

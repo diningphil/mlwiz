@@ -78,7 +78,7 @@ html_theme = "sphinx_rtd_theme"
 html_static_path = ["_static"]
 
 # Logo of the doc
-html_logo = html_static_path[0] + "/" + "mlwiz-logo.png"
+html_logo = html_static_path[0] + "/" + "mlwiz-logo2.png"
 html_theme_options = {
     "logo_only": False,
     "display_version": True,

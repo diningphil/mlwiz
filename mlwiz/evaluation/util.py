@@ -12,7 +12,20 @@ from scipy import stats
 from mlwiz.data.dataset import DatasetInterface
 from mlwiz.data.provider import DataProvider
 from mlwiz.model.interface import ModelInterface
-from mlwiz.static import *
+from mlwiz.static import (
+    CONFIG,
+    DATASET_CLASS,
+    DATASET_GETTER,
+    DATA_LOADER,
+    MODEL,
+    MODEL_ASSESSMENT,
+    MODEL_STATE,
+    SCORE,
+    STORAGE_FOLDER,
+    TEST,
+    TRAINING,
+    VALIDATION,
+)
 from mlwiz.util import dill_load, return_class_and_args, s2c
 
 

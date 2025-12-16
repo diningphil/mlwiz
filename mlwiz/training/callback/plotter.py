@@ -4,7 +4,7 @@ from pathlib import Path
 import torch
 from torch.utils.tensorboard import SummaryWriter
 
-from mlwiz.static import *
+from mlwiz.static import LOSSES, SCORES, TENSORBOARD, TEST, TRAINING, VALIDATION
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save

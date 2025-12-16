@@ -2,7 +2,19 @@ import operator
 from copy import deepcopy
 from pathlib import Path
 
-from mlwiz.static import *
+from mlwiz.static import (
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    BEST_EPOCH_RESULTS,
+    LOSSES,
+    MAX,
+    MIN,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    SCHEDULER_STATE,
+    SCORES,
+    TEST,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save

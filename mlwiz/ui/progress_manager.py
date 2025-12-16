@@ -16,7 +16,25 @@ from typing import Callable, Optional, Sequence, Tuple, Union
 import tqdm
 import ray
 
-from mlwiz.static import *
+from mlwiz.static import (
+    BATCH,
+    BATCH_PROGRESS,
+    CONFIG_ID,
+    ELAPSED,
+    END_CONFIG,
+    END_FINAL_RUN,
+    EPOCH,
+    INNER_FOLD,
+    IS_FINAL,
+    MODE,
+    OUTER_FOLD,
+    RUN_COMPLETED,
+    RUN_FAILED,
+    RUN_ID,
+    RUN_PROGRESS,
+    START_CONFIG,
+    TOTAL_BATCHES,
+)
 
 SelectionIdentifier = Tuple[str, int, int, int, int]
 FinalIdentifier = Tuple[str, int, int]
