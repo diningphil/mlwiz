@@ -32,7 +32,7 @@ pip install mlwiz
 
 Tip: for GPU / graph workloads, install PyTorch and PyG following their official instructions first, then `pip install mlwiz`.
 
-## Quickstart (MNIST)
+## Quickstart
 #### 1) Prepare dataset + splits:
 
 ```bash
@@ -203,9 +203,9 @@ Duplicate a base experiment config across multiple datasets:
 mlwiz-config-duplicator --base-exp-config base.yml --data-config-files data1.yml data2.yml
 ```
 
-## Documentation
+## Documentation / Tutorial
 - Docs: https://mlwiz.readthedocs.io/en/stable/
-- Tutorial: https://mlwiz.readthedocs.io/en/stable/tutorial.html
+- Tutorial **(recommended)**: https://mlwiz.readthedocs.io/en/stable/tutorial.html
 
 ## Contributing
 See `CONTRIBUTING.md`.

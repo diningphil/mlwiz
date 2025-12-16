@@ -12,9 +12,13 @@
 - Automatic improvement of workflow according to standard practices using Codex and GPT-5.2
 - When resuming cached model selection or final runs, recompute elapsed time from the experiment log (falling back to cached value if missing) so durations reflect restarts.
 
+## Fixed
+
+- Minor fix in evaluator for debug mode
+
 ## Added
 
-- Automatic addition of tests to cover untested functions using Codex and GPT-5.2 
+- Automatic addition of tests to cover untested functions using Codex and GPT-5.2
 
 ## [1.3.3] Final run resume fix
 
