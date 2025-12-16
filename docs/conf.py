@@ -64,6 +64,7 @@ autodoc_mock_imports = [
     "dill",
     "pandas",
     "numpy",
+    "scipy",
     "sklearn",
 ]
 
