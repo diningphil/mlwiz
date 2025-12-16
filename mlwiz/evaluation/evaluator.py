@@ -156,7 +156,10 @@ def _set_cuda_memory_limit_from_env():
     Best-effort limit of per-process GPU memory based on the configured Ray
     GPU fraction. No-op if CUDA is unavailable or the value is invalid.
     """
-    gpus_per_task = float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK))
+    gpus_per_task = _get_ray_num_gpus_per_task()
+
+    if not (0.0 < gpus_per_task <= 1.0):
+        return
 
     if torch.cuda.is_available():
         torch.cuda.init()
@@ -207,9 +210,24 @@ def _make_termination_checker(
     return _should_terminate
 
 
+def _get_ray_num_gpus_per_task(default: float = 0.0) -> float:
+    """
+    Return the Ray GPU request per task from the environment.
+
+    This exists primarily to keep module import side-effect free (e.g. during
+    Sphinx autodoc) when the variable is unset or malformed.
+    """
+    raw_value = os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0.0 else default
+
+
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
+    num_gpus=_get_ray_num_gpus_per_task(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -333,7 +351,7 @@ def run_valid(
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=float(os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)),
+    num_gpus=_get_ray_num_gpus_per_task(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
