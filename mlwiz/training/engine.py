@@ -1,5 +1,4 @@
 import os
-import warnings
 from pathlib import Path
 from typing import Callable, List, Union, Tuple, Optional
 
@@ -10,7 +9,6 @@ from torch.utils.data import SequentialSampler
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
-import mlwiz
 from mlwiz.exceptions import TerminationRequested
 from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
@@ -612,33 +610,25 @@ class TrainingEngine(EventDispatcher):
         score[MAIN_SCORE] = score[main_score_name]
 
         # If samples been shuffled by the data loader, i.e., in the
-        # last inference phase of the engine, use MLWiz RandomSampler to
-        # recover the permutation and store the embedding data list as in
-        # the original split. This way we recover the same order of the
-        # [train/val/test] idx list in the split file. This is useful for
-        # subsequent experiments that use the data list and must be
-        # consistent, and it is better in general to avoid confusion.
+        # last inference phase of the engine, require a sampler-provided
+        # permutation to restore the embedding/data list in the original
+        # (unshuffled) order.
         if data_list is not None and loader.sampler is not None:
             # if SequentialSampler then shuffle was false
             if not isinstance(loader.sampler, SequentialSampler):
-                if not isinstance(
-                    loader.sampler, mlwiz.data.sampler.RandomSampler
-                ):
-                    warnings.warn(
-                        "Training Engine requires a mlwiz.data.sampler."
-                        "RandomSampler as the sampler of the loader when "
-                        "shuffle=True. Please see the documentation of "
-                        "DataProvider and the _get_loader method. "
-                        "The reason is that, for providers like "
-                        "IterableDataProvider, there is no easy way to return "
-                        "the embeddings in the same order as the urls and the "
-                        "samples within each file where permuted randomly. The"
-                        " user needs to run a loop with a notebook to be sure "
-                        "the mappings input/output/embeddings are correct."
+                permutation = getattr(loader.sampler, "permutation", None)
+                if permutation is None:
+                    raise ValueError(
+                        "TrainingEngine requires the DataLoader sampler to expose a non-None "
+                        "`permutation` so embeddings can be returned in the original sample order."
                     )
-                    data_list = []
+
+                if isinstance(permutation, torch.Tensor):
+                    permutation = permutation.tolist()
                 else:
-                    data_list = reorder(data_list, loader.sampler.permutation)
+                    permutation = list(permutation)
+
+                data_list = reorder(data_list, permutation)
 
         return loss, score, data_list
 
