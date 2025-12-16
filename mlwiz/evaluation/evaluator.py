@@ -1084,6 +1084,11 @@ class RiskAssesser:
         if not osp.exists(model_selection_folder):
             os.makedirs(model_selection_folder)
 
+        # Inform progress manager about the configs even when model selection is skipped.
+        self.progress_manager.set_model_configs(
+            deepcopy(self.model_configs.hparams)
+        )
+
         # if the # of configs to try is 1, simply skip model selection
         if len(self.model_configs) > 1:
             _model_configs = [
@@ -1091,11 +1096,6 @@ class RiskAssesser:
                 for config_id, config in enumerate(self.model_configs)
                 if config_id not in skip_config_ids
             ]
-
-            # inform progress manager about the configs
-            self.progress_manager.set_model_configs(
-                deepcopy(self.model_configs.hparams)
-            )
 
             # Prioritizing executions in debug mode for debugging purposes
             if debug and execute_config_id is not None:
