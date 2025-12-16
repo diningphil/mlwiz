@@ -10,6 +10,7 @@
 - Automatic addition of docstrings for all functions using Codex and GPT-5.2
 - Replaced asserts with proper error raise
 - Imported static variables that are strictly necessary in each file
+- Automatic improvement of workflow according to standard practices using Codex and GPT-5.2
 
 ## Added
 
