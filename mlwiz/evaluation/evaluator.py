@@ -53,6 +53,25 @@ def send_telegram_update(bot_token: str, bot_chat_ID: str, bot_message: str):
 
 
 def extract_and_sum_elapsed_seconds(file_path):
+    """
+    Sum per-run elapsed time entries from an experiment log file.
+
+    The evaluator writes elapsed-time markers to the experiment log in the
+    form:
+
+        ``Total time of the experiment in seconds: <SECONDS>``
+
+    This helper scans the file for all such entries and returns their sum.
+
+    Args:
+        file_path (str | os.PathLike): Path to the experiment log file.
+
+    Returns:
+        float: Sum of all matched elapsed seconds.
+
+    Side effects:
+        Reads the file from disk.
+    """
     # Open the file and read its contents
     with open(file_path, "r") as f:
         content = f.read()
@@ -115,6 +134,17 @@ def _make_termination_checker(progress_actor, min_interval: float = 0.2) -> Call
     termination_state = {"stop": False, "last_check": 0.0}
 
     def _should_terminate() -> bool:
+        """
+        Check whether the run should terminate.
+
+        This is a lightweight wrapper around the progress actor termination
+        flag with a minimum polling interval. It errs on the safe side: if the
+        actor cannot be queried, it returns ``True``.
+
+        Returns:
+            bool: ``True`` if termination was requested or cannot be checked;
+            ``False`` otherwise.
+        """
         if termination_state["stop"]:
             return True
         if progress_actor is None:
@@ -193,6 +223,15 @@ def run_valid(
         # This is used to comunicate with the progress manager
         # to display the UI
         def _report_progress(payload: dict):
+            """
+            Forward per-epoch/batch progress updates to the shared progress UI.
+
+            Args:
+                payload (dict): Progress fields produced by the experiment.
+
+            Side effects:
+                Sends the update to the Ray actor backing the terminal UI.
+            """
             payload = deepcopy(payload)
             payload.update(
                 {
@@ -307,6 +346,15 @@ def run_test(
         # This is used to comunicate with the progress manager
         # to display the UI
         def _report_progress(payload: dict):
+            """
+            Forward per-epoch/batch progress updates to the shared progress UI.
+
+            Args:
+                payload (dict): Progress fields produced by the experiment.
+
+            Side effects:
+                Sends the update to the Ray actor backing the terminal UI.
+            """
             payload = deepcopy(payload)
             payload.update(
                 {
@@ -367,7 +415,7 @@ class RiskAssesser:
     Args:
         outer_folds (int): The number K of outer TEST folds.
             You should have generated the splits accordingly
-        outer_folds (int): The number K of inner VALIDATION folds.
+        inner_folds (int): The number K of inner VALIDATION folds.
             You should have generated the splits accordingly
         experiment_class
             (Callable[..., :class:`~mlwiz.experiment.experiment.Experiment`]):
@@ -382,7 +430,7 @@ class RiskAssesser:
             e.g., config.base.Grid
         risk_assessment_training_runs (int): no of final training runs to
             mitigate bad initializations
-        risk_assessment_training_runs (int): no of training runs to mitigate
+        model_selection_training_runs (int): no of training runs to mitigate
             bad initializations at model selection time
         higher_is_better (bool): whether the best model
             for each external fold should be selected by higher
@@ -410,6 +458,34 @@ class RiskAssesser:
         base_seed: int = 42,
         training_timeout_seconds: int = -1,
     ):
+        r"""
+        Initialize the risk assessment evaluator.
+
+        Args:
+            outer_folds (int): Number of outer folds (risk assessment).
+            inner_folds (int): Number of inner folds (model selection).
+            experiment_class (Callable[..., Experiment]): Experiment class used
+                to run training/evaluation.
+            exp_path (str): Root folder where all results will be written.
+            splits_filepath (str): Path to the serialized splits file.
+            model_configs (Grid | RandomSearch): Search object yielding model
+                configurations to evaluate.
+            risk_assessment_training_runs (int): Number of repeated "final"
+                runs per outer fold to reduce variance from random
+                initialization.
+            model_selection_training_runs (int): Number of repeated runs per
+                configuration during model selection.
+            higher_is_better (bool): Whether a larger score indicates a better
+                configuration.
+            gpus_per_task (float): GPUs assigned per Ray task (may be < 1.0).
+            base_seed (int): Base seed used to derive per-run seeds.
+            training_timeout_seconds (int): Optional per-run timeout in seconds.
+                Use ``-1`` to disable.
+
+        Side effects:
+            Seeds NumPy/PyTorch/Python RNGs for reproducibility and initializes
+            internal bookkeeping/state used by Ray jobs and the progress UI.
+        """
         # REPRODUCIBILITY:
         # https://pytorch.org/docs/stable/notes/randomness.html
         self.base_seed = base_seed
@@ -707,6 +783,17 @@ class RiskAssesser:
         # Cached (already completed) runs that must be replayed
 
         def handle_model_selection_result(result):
+            """
+            Process a completed model-selection run and update bookkeeping/UI.
+
+            Args:
+                result (tuple): Tuple returned by :func:`run_valid` containing
+                    ``(outer_k, inner_k, config_id, run_id, elapsed)``.
+
+            Side effects:
+                Updates internal completion counters, pushes UI events, and may
+                schedule final runs once an outer fold finishes model selection.
+            """
             outer_k, inner_k, config_id, run_id, elapsed = result
 
             ms_exp_path = osp.join(
@@ -777,6 +864,17 @@ class RiskAssesser:
                 waiting.extend(self.final_runs_job_list[prev_len:])
 
         def handle_final_run_result(result):
+            """
+            Process a completed final run and update bookkeeping/UI.
+
+            Args:
+                result (tuple): Tuple returned by :func:`run_test` containing
+                    ``(outer_k, run_id, elapsed)``.
+
+            Side effects:
+                Updates internal completion counters, pushes UI events, and may
+                compute outer-fold results once all final runs complete.
+            """
             outer_k, run_id, elapsed = result
             _push_progress_update(
                 self.progress_actor,
@@ -802,6 +900,13 @@ class RiskAssesser:
 
 
         def process_cached_results():
+            """
+            Replay previously completed runs to keep UI and counters consistent.
+
+            Side effects:
+                Invokes the local handlers for all cached model-selection and
+                final-run results, then clears the caches.
+            """
             for cached in self.completed_model_selection_runs:
                 handle_model_selection_result(cached)
             self.completed_model_selection_runs = []
@@ -1068,6 +1173,15 @@ class RiskAssesser:
                                 # This is used to comunicate with the progress manager
                                 # to display the UI
                                 def _report_progress(payload: dict):
+                                    """
+                                    Forward progress updates to the shared UI (debug mode).
+
+                                    Args:
+                                        payload (dict): Progress fields produced by the experiment.
+
+                                    Side effects:
+                                        Sends the update to the Ray actor backing the terminal UI.
+                                    """
                                     payload = deepcopy(payload)
                                     payload.update(
                                         {
@@ -1295,6 +1409,15 @@ class RiskAssesser:
                     # This is used to comunicate with the progress manager
                     # to display the UI
                     def _report_progress(payload: dict):
+                        """
+                        Forward progress updates to the shared UI (debug mode).
+
+                        Args:
+                            payload (dict): Progress fields produced by the experiment.
+
+                        Side effects:
+                            Sends the update to the Ray actor backing the terminal UI.
+                        """
                         payload = deepcopy(payload)
                         payload.update(
                             {

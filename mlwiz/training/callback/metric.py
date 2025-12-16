@@ -41,6 +41,30 @@ class Metric(Module, EventHandler):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        r"""
+        Initialize the metric callback.
+
+        Args:
+            use_as_loss (bool): If ``True``, this metric is treated as a loss and
+                will participate in backpropagation (see :meth:`on_backward`).
+            reduction (str): Reduction applied to per-sample values. Expected
+                values are ``'mean'`` or ``'sum'`` (passed to underlying torch
+                loss implementations where applicable).
+            accumulate_over_epoch (bool): If ``True``, accumulate predictions
+                and targets across the entire epoch and compute the metric on
+                the concatenated tensors. If ``False``, compute a per-batch
+                metric and average across batches.
+            force_cpu (bool): If ``True`` and ``accumulate_over_epoch`` is
+                enabled, detach and move accumulated tensors to CPU to reduce
+                GPU memory pressure.
+            device (str): Device identifier used by some metrics/losses.
+            **kwargs: Additional metric-specific parameters (unused by the base
+                class).
+
+        Side effects:
+            Initializes internal buffers used to accumulate per-batch and
+            per-epoch statistics.
+        """
         super().__init__()
         self.batch_metrics = None
         self.use_as_loss = use_as_loss
@@ -433,6 +457,31 @@ class MultiScore(Metric):
         main_scorer=None,
         **extra_scorers,
     ):
+        r"""
+        Initialize a multi-score metric wrapper.
+
+        Args:
+            use_as_loss (bool): Must be ``False`` for this class.
+            reduction (str): Reduction to pass to underlying metrics when
+                applicable.
+            accumulate_over_epoch (bool): Whether to accumulate predictions and
+                targets across the epoch for epoch-level metric computation.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            main_scorer (str | dict): Main scorer specification. Can be a
+                dotted class path string or a dict with ``CLASS_NAME`` and
+                ``ARGS``.
+            **extra_scorers: Additional scorer specifications (same format as
+                ``main_scorer``). Their results are tracked alongside the main
+                scorer.
+
+        Raises:
+            AssertionError: If ``use_as_loss`` is ``True`` or if no
+                ``main_scorer`` is provided.
+
+        Side effects:
+            Instantiates scorer objects and stores them in ``self.scores``.
+        """
         assert not use_as_loss, "MultiScore cannot be used as loss"
         assert main_scorer is not None, "You have to provide a main scorer"
         super().__init__(
@@ -444,7 +493,7 @@ class MultiScore(Metric):
 
     def _istantiate_scorer(self, scorer):
         """
-        Istantiate a scorer with its own arguments (if any are given)
+        Instantiate a scorer with its own arguments (if any are given).
         """
         if isinstance(scorer, dict):
             args = scorer[ARGS]
@@ -661,6 +710,31 @@ class AdditiveLoss(Metric):
         losses_weights: dict = None,
         **losses: dict,
     ):
+        r"""
+        Initialize an additive loss composed of multiple loss terms.
+
+        Args:
+            use_as_loss (bool): Must be ``True`` for this class.
+            reduction (str): Reduction to pass to underlying losses when
+                applicable.
+            accumulate_over_epoch (bool): Whether to compute epoch-level losses
+                from accumulated predictions/targets.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            losses_weights (dict, optional): Optional mapping from loss name to
+                scalar weight. If omitted, all weights default to ``1.0``.
+            **losses: Loss specifications. Each value can be a dotted class
+                path string or a dict with ``CLASS_NAME`` and ``ARGS``.
+
+        Raises:
+            AssertionError: If ``use_as_loss`` is ``False`` or weights are
+                missing for any instantiated loss when ``losses_weights`` is
+                provided.
+
+        Side effects:
+            Instantiates loss objects and stores them in ``self.losses`` and
+            stores/normalizes loss weights in ``self.losses_weights``.
+        """
         assert use_as_loss, "Additive loss can only be used as a loss"
         super().__init__(
             use_as_loss, reduction, accumulate_over_epoch, force_cpu, device
@@ -685,7 +759,7 @@ class AdditiveLoss(Metric):
 
     def _instantiate_loss(self, loss):
         """
-        Istantiate a loss with its own arguments (if any are given)
+        Instantiate a loss with its own arguments (if any are given).
         """
         if isinstance(loss, dict):
             args = loss[ARGS]
@@ -923,6 +997,23 @@ class Classification(Metric):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize the base classification metric wrapper.
+
+        Args:
+            use_as_loss (bool): Whether to treat this metric as a loss.
+            reduction (str): Reduction to use for underlying loss functions.
+            accumulate_over_epoch (bool): Whether to accumulate predictions and
+                targets to compute an epoch-level metric.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Extra metric-specific parameters forwarded to
+                :class:`Metric`.
+
+        Side effects:
+            Initializes the metric base class and sets ``self.metric`` to
+            ``None``. Subclasses must assign a callable metric/loss.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -988,6 +1079,23 @@ class Regression(Metric):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize the base regression metric wrapper.
+
+        Args:
+            use_as_loss (bool): Whether to treat this metric as a loss.
+            reduction (str): Reduction to use for underlying loss functions.
+            accumulate_over_epoch (bool): Whether to accumulate predictions and
+                targets to compute an epoch-level metric.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Extra metric-specific parameters forwarded to
+                :class:`Metric`.
+
+        Side effects:
+            Initializes the metric base class and sets ``self.metric`` to
+            ``None``. Subclasses must assign a callable metric/loss.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -1053,6 +1161,21 @@ class MulticlassClassification(Classification):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize multiclass classification using cross-entropy loss.
+
+        Args:
+            use_as_loss (bool): Whether to treat this metric as a loss.
+            reduction (str): Reduction passed to :class:`torch.nn.CrossEntropyLoss`.
+            accumulate_over_epoch (bool): Whether to compute epoch-level values.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Extra parameters forwarded to the base class.
+
+        Side effects:
+            Sets ``self.metric`` to a :class:`torch.nn.CrossEntropyLoss`
+            instance.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -1078,6 +1201,20 @@ class MeanSquareError(Regression):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize mean squared error regression (MSE).
+
+        Args:
+            use_as_loss (bool): Whether to treat this metric as a loss.
+            reduction (str): Reduction passed to :class:`torch.nn.MSELoss`.
+            accumulate_over_epoch (bool): Whether to compute epoch-level values.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Extra parameters forwarded to the base class.
+
+        Side effects:
+            Sets ``self.metric`` to a :class:`torch.nn.MSELoss` instance.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -1103,6 +1240,20 @@ class MeanAbsoluteError(Regression):
         device: str = "cpu",
         **kwargs: dict,
     ):
+        """
+        Initialize mean absolute error regression (L1).
+
+        Args:
+            use_as_loss (bool): Whether to treat this metric as a loss.
+            reduction (str): Reduction passed to :class:`torch.nn.L1Loss`.
+            accumulate_over_epoch (bool): Whether to compute epoch-level values.
+            force_cpu (bool): Whether to move accumulated tensors to CPU.
+            device (str): Device identifier.
+            **kwargs: Extra parameters forwarded to the base class.
+
+        Side effects:
+            Sets ``self.metric`` to a :class:`torch.nn.L1Loss` instance.
+        """
         super().__init__(
             use_as_loss=use_as_loss,
             reduction=reduction,
@@ -1175,6 +1326,23 @@ class AllocatedGPUMemory(Metric):
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Query the current allocated GPU memory.
+
+        Args:
+            targets (torch.Tensor): Unused.
+            *outputs (List[torch.Tensor]): Unused.
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: A pair of identical 1D tensors
+            containing the allocated GPU memory in megabytes (MB).
+
+        Raises:
+            RuntimeError: If CUDA is not available or not initialized.
+
+        Side effects:
+            Queries the CUDA runtime via :func:`torch.cuda.memory_allocated`.
+        """
         gpu_mem = torch.tensor([torch.cuda.memory_allocated()]).float() / (
             1024 * 1024
         )
@@ -1183,6 +1351,16 @@ class AllocatedGPUMemory(Metric):
     def compute_metric(
         self, targets: torch.Tensor, predictions: torch.Tensor
     ) -> torch.tensor:
+        """
+        Compute the metric from predicted values.
+
+        Args:
+            targets (torch.Tensor): Unused (kept for API compatibility).
+            predictions (torch.Tensor): Tensor containing memory values (MB).
+
+        Returns:
+            torch.Tensor: Mean of ``predictions``.
+        """
         return predictions.mean()
 
 
@@ -1239,6 +1417,19 @@ class SingleGraphMulticlassClassification(MulticlassClassification):
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Extract predictions/targets for single-graph node classification.
+
+        Args:
+            targets (torch.Tensor): Full target tensor for all nodes.
+            *outputs (List[torch.Tensor]): Model outputs expected to be a tuple
+                ``(o, embeddings, idxs)`` where ``idxs`` selects the nodes to
+                evaluate (train or eval indices).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: ``(o, t)`` where ``o`` are the
+            selected node logits and ``t`` are the corresponding targets.
+        """
         # o and h have alredy been filtered by the model according to
         # required data split indexes
         o, _, idxs = outputs
@@ -1254,6 +1445,19 @@ class SingleGraphMulticlassAccuracy(MulticlassAccuracy):
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Extract predicted classes/targets for single-graph node accuracy.
+
+        Args:
+            targets (torch.Tensor): Full target tensor for all nodes.
+            *outputs (List[torch.Tensor]): Model outputs expected to be a tuple
+                ``(o, embeddings, idxs)`` where ``idxs`` selects the nodes to
+                evaluate (train or eval indices).
+
+        Returns:
+            Tuple[torch.Tensor, torch.Tensor]: ``(pred, t)`` where ``pred`` are
+            the predicted classes and ``t`` are the corresponding targets.
+        """
         # o and h have alredy been filtered by the model according to
         # required data split indexes
         o, _, idxs = outputs

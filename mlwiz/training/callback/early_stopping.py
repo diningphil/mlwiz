@@ -10,7 +10,7 @@ from mlwiz.training.util import atomic_torch_save
 
 class EarlyStopper(EventHandler):
     """
-    EarlyStopper is the main event handler for optimizers. Just create a
+    EarlyStopper is the main event handler for early stopping. Just create a
     subclass that implements an early stopping method.
 
     Args:
@@ -24,6 +24,26 @@ class EarlyStopper(EventHandler):
     """
 
     def __init__(self, monitor: str, mode: str, checkpoint: bool = False):
+        """
+        Initialize the early stopper.
+
+        Args:
+            monitor (str): Metric key to monitor. The format is
+                ``[TRAINING|VALIDATION]_[METRIC NAME]`` as defined by MLWiz.
+            mode (str): Comparison direction. Use ``MIN`` to stop based on
+                non-increasing metrics (e.g., loss) or ``MAX`` to stop based on
+                non-decreasing metrics (e.g., accuracy).
+            checkpoint (bool): If ``True``, write a checkpoint for the best
+                epoch to disk (see :meth:`on_epoch_end`).
+
+        Raises:
+            NotImplementedError: If ``mode`` is not understood.
+            AssertionError: If attempting to monitor a test metric.
+
+        Side effects:
+            Stores the monitoring configuration and selects the comparison
+            operator used to detect improvements.
+        """
         super().__init__()
         self.monitor = monitor
         self.best_metric = None
@@ -150,6 +170,20 @@ class PatienceEarlyStopper(EarlyStopper):
     """
 
     def __init__(self, monitor, mode, patience=30, checkpoint=False):
+        """
+        Initialize a patience-based early stopper.
+
+        Args:
+            monitor (str): Metric key to monitor.
+            mode (str): Comparison direction (``MIN`` or ``MAX``).
+            patience (int): Number of epochs without improvement before
+                stopping.
+            checkpoint (bool): Whether to write the best-epoch checkpoint.
+
+        Side effects:
+            Stores the patience value and delegates monitoring setup to
+            :class:`EarlyStopper`.
+        """
         super().__init__(monitor, mode, checkpoint)
         self.patience = patience
 

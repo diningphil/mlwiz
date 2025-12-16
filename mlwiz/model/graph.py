@@ -23,6 +23,29 @@ class DGN(ModelInterface):
         dim_target: int,
         config: dict,
     ):
+        """
+        Initialize a simple graph network based on GraphSAGE convolutions.
+
+        Args:
+            dim_input_features (Union[int, Tuple[int]]): Node feature dimension.
+                If a tuple is provided, the first element is used as node
+                feature dimension.
+            dim_target (int): Output dimension (e.g., number of classes).
+            config (dict): Model configuration. Expected keys:
+                - ``is_graph_classification`` (bool): If ``True``, apply a
+                  graph-level readout (mean pooling) before the output layer.
+                - ``is_single_graph`` (bool): If ``True``, the dataset is a
+                  single graph with node-level train/eval indices stored in the
+                  batch (``training_indices`` / ``eval_indices``).
+                - ``num_layers`` (int): Number of GraphSAGE layers.
+                - ``dim_embedding`` (int): Hidden embedding size per layer.
+
+        Raises:
+            KeyError: If required keys are missing from ``config``.
+
+        Side effects:
+            Initializes internal Torch modules (convolution stack + linear head).
+        """
         super().__init__(
             dim_input_features,
             dim_target,
@@ -57,7 +80,13 @@ class DGN(ModelInterface):
             data (torch_geometric.data.Batch): a batch of graphs
 
         Returns:
-            the output depends on the readout passed to the model as argument.
+            Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
+                - Model outputs (node-level or graph-level depending on
+                  ``config['is_graph_classification']``).
+                - Node/graph embeddings produced by concatenating the hidden
+                  representations of all convolutional layers.
+                - For single-graph datasets, the indices used to slice the
+                  output/embeddings; otherwise ``None``.
         """
         x, edge_index, batch = data.x, data.edge_index, data.batch
 

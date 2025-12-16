@@ -28,6 +28,21 @@ class Optimizer(EventHandler):
         accumulate_gradients: bool = False,
         **kwargs: dict,
     ):
+        """
+        Instantiate the underlying PyTorch optimizer.
+
+        Args:
+            model (ModelInterface): Model whose parameters will be optimized.
+            optimizer_class_name (str): Dotted path to the optimizer class.
+            accumulate_gradients (bool): If ``True``, gradients are accumulated
+                across batches and an optimizer step is performed at the end of
+                the epoch. If ``False``, step/zero_grad happen per batch.
+            **kwargs: Additional keyword arguments forwarded to the optimizer
+                constructor.
+
+        Side effects:
+            Stores the instantiated optimizer on ``self.optimizer``.
+        """
         super().__init__()
         self.optimizer = s2c(optimizer_class_name)(
             model.parameters(), **kwargs

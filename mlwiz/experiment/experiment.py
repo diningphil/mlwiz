@@ -30,6 +30,21 @@ class Experiment:
     def __init__(
         self, model_configuration: dict, exp_path: str, exp_seed: int
     ):
+        r"""
+        Initialize an experiment and set deterministic seeds/flags.
+
+        Args:
+            model_configuration (dict): Experiment configuration dictionary
+                (model, training engine, optimizer, metrics, etc.).
+            exp_path (str): Folder where this experiment run will write its
+                artifacts (logs, checkpoints, results).
+            exp_seed (int): Seed used to initialize RNGs for reproducibility.
+
+        Side effects:
+            - Wraps the configuration with :class:`~mlwiz.evaluation.config.Config`.
+            - Sets NumPy, Python, and PyTorch RNG seeds.
+            - Enables deterministic CuDNN behavior and disables benchmarking.
+        """
         self.model_config = Config(model_configuration)
         self.exp_path = exp_path
         self.exp_seed = exp_seed

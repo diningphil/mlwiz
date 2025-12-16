@@ -184,4 +184,18 @@ def load_dataset(
 
 
 def single_graph_collate(batch):
+    """
+    Collate function for single-graph datasets.
+
+    PyTorch/PyG data loaders build a list of samples for each batch. For
+    single-graph workflows, the loader is typically configured with
+    ``batch_size=1`` and each sample already contains all needed information.
+    This collate function returns the single element in the batch list.
+
+    Args:
+        batch (list): Batch list produced by a DataLoader.
+
+    Returns:
+        object: The first (and expected only) element of ``batch``.
+    """
     return batch[0]

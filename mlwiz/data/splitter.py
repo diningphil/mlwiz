@@ -25,6 +25,17 @@ class Fold:
     """
 
     def __init__(self, train_idxs, val_idxs=None, test_idxs=None):
+        r"""
+        Create a fold container.
+
+        Args:
+            train_idxs (list | tuple): Training indices.
+            val_idxs (list | tuple | None): Validation indices (optional).
+            test_idxs (list | tuple | None): Test indices (optional).
+
+        Side effects:
+            Stores the provided index collections as attributes.
+        """
         self.train_idxs = train_idxs
         self.val_idxs = val_idxs
         self.test_idxs = test_idxs
@@ -78,6 +89,16 @@ class _NoShuffleTrainTestSplit:
     """
 
     def __init__(self, test_ratio):
+        """
+        Initialize the deterministic split helper.
+
+        Args:
+            test_ratio (float): Fraction of samples assigned to the test split.
+                Values are interpreted in the ``[0, 1]`` range.
+
+        Side effects:
+            Stores ``test_ratio``; splitting is performed by :meth:`split`.
+        """
         self.test_ratio = test_ratio
 
     # Leave the arguments as they are. The parameter `y` is needed to
@@ -134,6 +155,32 @@ class Splitter:
         outer_val_ratio: float = 0.1,
         test_ratio: float = 0.1,
     ):
+        r"""
+        Initialize a dataset split manager.
+
+        The splitter stores the split configuration and later generates the
+        outer and inner folds via :meth:`split`. Generated folds can be saved
+        and reloaded for reproducibility.
+
+        Args:
+            n_outer_folds (int): Number of outer folds for risk assessment.
+            n_inner_folds (int): Number of inner folds for model selection.
+            seed (int): Random seed used when shuffling (may be set to ``None``
+                when ``shuffle`` is ``False``).
+            stratify (bool): Whether to stratify splits using target labels.
+            shuffle (bool): Whether to shuffle before splitting.
+            inner_val_ratio (float): Validation fraction for hold-out inner
+                splits (used when ``n_inner_folds == 1``).
+            outer_val_ratio (float): Validation fraction for hold-out outer
+                splits (used for final training runs).
+            test_ratio (float): Test fraction for hold-out outer splits
+                (used when ``n_outer_folds == 1``).
+
+        Side effects:
+            Initializes ``outer_folds`` and ``inner_folds`` as empty lists. If
+            ``shuffle`` is disabled and a seed is provided, the seed is cleared
+            and a message is printed to stdout.
+        """
         self.outer_folds = []
         self.inner_folds = []
         self._stratify = stratify

@@ -23,6 +23,21 @@ class Scheduler(EventHandler):
     def __init__(
         self, scheduler_class_name: str, optimizer: Optimizer, **kwargs: dict
     ):
+        """
+        Instantiate the underlying PyTorch scheduler.
+
+        Args:
+            scheduler_class_name (str): Dotted path to the scheduler class.
+            optimizer (torch.optim.Optimizer): Optimizer instance to pass to
+                the scheduler constructor.
+            **kwargs: Additional keyword arguments forwarded to the scheduler.
+
+        Raises:
+            Exception: If the scheduler class cannot be resolved/constructed.
+
+        Side effects:
+            Stores the instantiated scheduler in ``self.scheduler``.
+        """
         self.scheduler = s2c(scheduler_class_name)(optimizer, **kwargs)
 
     def on_fit_start(self, state: State):
@@ -89,6 +104,24 @@ class MetricScheduler(Scheduler):
         optimizer: Optimizer,
         **kwargs: dict,
     ):
+        """
+        Instantiate a metric-driven scheduler.
+
+        Args:
+            scheduler_class_name (str): Dotted path to the scheduler class.
+            use_loss (bool): If ``True``, monitor losses; otherwise monitor
+                scores.
+            monitor (str): Metric key to monitor in ``state.epoch_results``.
+                The key is expected to be under ``LOSSES`` or ``SCORES``
+                depending on ``use_loss``.
+            optimizer (torch.optim.Optimizer): Optimizer instance to pass to
+                the scheduler constructor.
+            **kwargs: Additional keyword arguments forwarded to the scheduler.
+
+        Side effects:
+            Stores the scheduler instance as well as the monitoring
+            configuration on the object.
+        """
         self.scheduler = s2c(scheduler_class_name)(optimizer, **kwargs)
         self.use_loss = use_loss
         self.monitor = monitor

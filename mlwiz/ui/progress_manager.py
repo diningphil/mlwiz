@@ -44,13 +44,35 @@ class _RenderState:
     global_header: str = ""
 
     def reset_area(self):
+        """
+        Reset the tracked render area to the default origin.
+
+        Side effects:
+            Mutates ``rendered_lines`` and ``origin_row`` so the next render
+            pass re-anchors from the top of the screen.
+        """
         self.rendered_lines = 0
         self.origin_row = 1
 
     def append_moves(self, text: str):
+        """
+        Append terminal cursor/erase escape sequences to apply after rendering.
+
+        Args:
+            text (str): Raw escape sequence string.
+
+        Side effects:
+            Mutates ``moves`` by appending ``text``.
+        """
         self.moves += text
 
     def clear_moves(self):
+        """
+        Clear buffered terminal escape sequences.
+
+        Side effects:
+            Resets ``moves`` to an empty string.
+        """
         self.moves = ""
 
 
@@ -62,12 +84,29 @@ class ProgressManagerActor:
     """
 
     def __init__(self):
+        """
+        Initialize the progress actor.
+
+        Side effects:
+            Initializes the internal message buffer and lifecycle flags used by
+            workers and the driver process.
+        """
         # Buffer messages coming from workers while the driver polls via drain().
         self._pending_messages = []
         self._closed = False
         self._terminated = False
 
     def push(self, payload: dict):
+        """
+        Enqueue a progress update from a worker.
+
+        Args:
+            payload (dict): Progress update payload (will be deep-copied).
+
+        Side effects:
+            Appends the payload to the internal buffer unless the actor has
+            been closed.
+        """
         # Enqueue updates from workers; ignored when actor is marked closed.
         if self._closed:
             return
@@ -82,6 +121,12 @@ class ProgressManagerActor:
         self._closed = True
 
     def is_terminated(self) -> bool:
+        """
+        Return whether termination has been requested.
+
+        Returns:
+            bool: ``True`` if :meth:`terminate` was called.
+        """
         # Queried by workers to decide whether to exit early.
         return self._terminated
 
@@ -95,6 +140,12 @@ class ProgressManagerActor:
         return pending, self._closed
 
     def close(self):
+        """
+        Stop accepting further progress messages.
+
+        Side effects:
+            Marks the actor as closed; future :meth:`push` calls are ignored.
+        """
         # Signals no further messages should be accepted.
         self._closed = True
 
@@ -134,6 +185,26 @@ class ProgressManager:
         progress_actor=None,
         poll_interval: float = 0.2,
     ):
+        """
+        Initialize the progress manager UI.
+
+        Args:
+            outer_folds (int): Number of outer folds.
+            inner_folds (int): Number of inner folds.
+            no_configs (int): Number of hyper-parameter configurations.
+            config_runs (int): Number of runs per configuration/inner fold.
+            final_runs (int): Number of final runs per outer fold.
+            debug (bool): If ``True``, disable interactive rendering and rely on
+                simple prints.
+            progress_actor (ray.actor.ActorHandle | None): Actor handle used to
+                pull aggregated progress updates from worker processes.
+            poll_interval (float): Minimum poll interval (seconds) used when
+                draining the actor.
+
+        Side effects:
+            Clears the screen, initializes progress bars when not in debug mode,
+            starts the input listener thread, and registers a resize handler.
+        """
         # Wire progress data structures and start UI scaffolding used by render/refresh.
         self.ncols = 100
         self.outer_folds = outer_folds
@@ -744,10 +815,26 @@ class ProgressManager:
 
         class _ClassSpec:
             def __init__(self, class_name, args):
+                """
+                Store a class spec for pretty-printing.
+
+                Args:
+                    class_name (str): Dotted class path or short class name.
+                    args (dict | object | None): Constructor arguments.
+
+                Side effects:
+                    Normalizes ``args`` to an empty dict when ``None``.
+                """
                 self.class_name = class_name
                 self.args = args if args is not None else {}
 
             def __repr__(self):
+                """
+                Return a readable ``ClassName(arg=value, ...)`` representation.
+
+                Returns:
+                    str: Human-friendly representation for terminal display.
+                """
                 if not self.args:
                     return f"{self.class_name}()"
                 if not isinstance(self.args, dict):

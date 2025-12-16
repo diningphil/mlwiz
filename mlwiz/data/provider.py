@@ -48,6 +48,22 @@ class SubsetTrainEval(Subset):
     def __init__(
         self, dataset: DatasetInterface, indices: Sequence[int], is_eval: bool
     ):
+        r"""
+        Create a train/eval subset view over a dataset.
+
+        The subset keeps track of whether it belongs to the evaluation split
+        and, if the underlying dataset defines transforms, applies
+        ``dataset.transform_train`` or ``dataset.transform_eval`` accordingly.
+
+        Args:
+            dataset (DatasetInterface): Full dataset instance.
+            indices (Sequence[int]): Indices of samples included in the subset.
+            is_eval (bool): If ``True``, use ``dataset.transform_eval``;
+                otherwise use ``dataset.transform_train``.
+
+        Side effects:
+            Stores ``is_eval`` and caches the selected transform in ``self._t``.
+        """
         super().__init__(dataset, indices)
         self.is_eval = is_eval
         self._t = (
@@ -57,14 +73,38 @@ class SubsetTrainEval(Subset):
         )
 
     def __getitem__(self, idx):
+        """
+        Fetch one (or multiple) samples from the subset and apply the transform.
+
+        Args:
+            idx (int | list[int]): Sample index/indices in the subset.
+
+        Returns:
+            object | list[object]: Sample(s) retrieved from the underlying
+            dataset, optionally transformed.
+        """
         if self._t is None:
-            super().__getitem__(idx)
+            if isinstance(idx, list):
+                return [self.dataset[self.indices[i]] for i in idx]
+            return super().__getitem__(idx)
         else:
             if isinstance(idx, list):
                 return [self._t(self.dataset[self.indices[i]]) for i in idx]
             return self._t(self.dataset[self.indices[idx]])
 
     def __getitems__(self, indices: List[int]) -> List[T_co]:
+        """
+        Fetch a batch of samples from the subset.
+
+        This method is used by newer PyTorch data-loading code paths to speed
+        up batched sampling when the parent dataset supports ``__getitems__``.
+
+        Args:
+            indices (list[int]): Indices (in subset coordinates) to fetch.
+
+        Returns:
+            list: Retrieved samples, optionally transformed.
+        """
         if self._t is None:
             return super().__getitems__(indices)
         else:
@@ -123,6 +163,29 @@ class DataProvider:
         outer_folds: int,
         inner_folds: int,
     ) -> object:
+        r"""
+        Initialize the data provider.
+
+        The provider is responsible for loading a dataset from disk and
+        exposing train/validation/test loaders according to the split file and
+        the current outer/inner fold identifiers (set via ``set_outer_k`` and
+        ``set_inner_k``).
+
+        Args:
+            storage_folder (str): Root folder where datasets are stored.
+            splits_filepath (str): Path to a ``.splits`` file produced by a
+                :class:`~mlwiz.data.splitter.Splitter`.
+            dataset_class (Callable[..., DatasetInterface]): Dataset class to
+                instantiate.
+            data_loader_class (Callable): Data loader class (PyTorch or PyG).
+            data_loader_args (dict): Keyword arguments passed to the loader.
+            outer_folds (int): Number of outer folds used for risk assessment.
+            inner_folds (int): Number of inner folds used for model selection.
+
+        Side effects:
+            Initializes internal bookkeeping attributes. The dataset and
+            splitter are loaded lazily when needed.
+        """
         self.exp_seed = None
 
         self.storage_folder = storage_folder

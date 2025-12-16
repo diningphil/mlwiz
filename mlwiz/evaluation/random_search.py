@@ -20,6 +20,22 @@ class RandomSearch(Grid):
     __search_type__ = RANDOM_SEARCH
 
     def __init__(self, configs_dict: dict):
+        r"""
+        Initialize a random-search configuration generator.
+
+        Args:
+            configs_dict (dict): Configuration dictionary specifying the search
+                space and shared experiment settings. It must include
+                ``NUM_SAMPLES`` (see :mod:`mlwiz.static`) to control how many
+                configurations are sampled.
+
+        Raises:
+            KeyError: If ``NUM_SAMPLES`` or other required keys are missing.
+
+        Side effects:
+            Stores ``num_samples`` and initializes the base :class:`~Grid`
+            fields.
+        """
         self.num_samples = configs_dict[NUM_SAMPLES]
         super().__init__(configs_dict)
 

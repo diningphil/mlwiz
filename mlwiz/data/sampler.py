@@ -16,6 +16,16 @@ class RandomSampler(sampler.RandomSampler):
     """
 
     def __init__(self, data_source: DatasetInterface):
+        """
+        Initialize the sampler and reset the stored permutation.
+
+        Args:
+            data_source (DatasetInterface): Dataset to sample from.
+
+        Side effects:
+            Sets ``self.permutation`` to ``None``; it will be populated on the
+            next call to ``__iter__``.
+        """
         super().__init__(data_source)
         self.permutation = None
 

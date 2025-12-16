@@ -17,6 +17,23 @@ class GRU(ModelInterface):
         dim_target: int,
         config: dict,
     ):
+        """
+        Initialize a GRU-based model for sequence/time-series inputs.
+
+        Args:
+            dim_input_features (Union[int, Tuple[int]]): Per-timestep input
+                feature dimension. Must be an ``int`` for this model.
+            dim_target (int): Output dimension (e.g., number of classes).
+            config (dict): Model configuration. Expected keys:
+                - ``dim_embedding`` (int): Hidden state size of the GRU.
+
+        Raises:
+            AssertionError: If ``dim_input_features`` is not an ``int``.
+            KeyError: If ``config`` does not contain ``dim_embedding``.
+
+        Side effects:
+            Initializes internal Torch modules (GRU + output projection).
+        """
         super().__init__(
             dim_input_features,
             dim_target,
@@ -36,15 +53,24 @@ class GRU(ModelInterface):
 
     def forward(
         self, data: torch.Tensor
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], Optional[List[object]]]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        Implements an MLP forward pass
+        Perform a forward pass of the GRU model.
 
         Args:
-            data (torch.Tensor): a batched tensor
+            data (torch.Tensor): Batched sequence tensor of shape
+                ``(batch, timesteps, dim_input_features)``.
 
         Returns:
-            a tuple (output, node_embedddings)
+            Tuple[torch.Tensor, torch.Tensor]:
+                - Model outputs of shape ``(batch, dim_target)`` produced from
+                  the last GRU timestep.
+                - Sequence embeddings of shape ``(batch, timesteps, dim_embedding)``
+                  (the per-timestep GRU outputs).
+
+            Note:
+                Some MLWiz models return an additional third element with
+                auxiliary outputs. This model returns only ``(output, embeddings)``.
         """
         h, hidden_state = self.rnn(data)
         # get last time step

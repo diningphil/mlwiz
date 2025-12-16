@@ -5,6 +5,22 @@ from copy import deepcopy
 
 
 def main():
+    """
+    Generate per-dataset experiment config files from a base YAML config.
+
+    This script is a small CLI utility that takes a base experiment config and
+    one or more dataset config files. For each dataset config, it creates a new
+    YAML file named ``<exp_name>_<dataset_name>.yml`` that merges the base
+    config with dataset-specific values (storage folder, dataset class, and the
+    derived splits file path).
+
+    Expected CLI usage (parsed via ``sys.argv``):
+        ``mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files...>``
+
+    Side effects:
+        Reads YAML files from disk, writes new YAML files to the current working
+        directory, prints progress/errors to stdout, and may call ``sys.exit``.
+    """
     if len(sys.argv) < 5:
         print(
             "Usage: mlwiz-config-duplicator.py --base-exp-config <base_exp_config> --data-config-files <data_config_files>"

@@ -24,6 +24,22 @@ class Plotter(EventHandler):
     def __init__(
         self, exp_path: str, store_on_disk: bool = False, **kwargs: dict
     ):
+        r"""
+        Initialize the plotter and tensorboard writer.
+
+        Args:
+            exp_path (str): Experiment folder where tensorboard logs are stored.
+            store_on_disk (bool): If ``True``, persist raw metric histories to
+                ``metrics_data.torch`` in ``exp_path`` in addition to
+                tensorboard summaries.
+            **kwargs: Unused extra arguments (kept for configuration
+                compatibility).
+
+        Side effects:
+            Creates the tensorboard folder if missing, instantiates a
+            :class:`torch.utils.tensorboard.SummaryWriter`, and loads previously
+            stored metrics if present.
+        """
         super().__init__()
         self.exp_path = exp_path
         self.store_on_disk = store_on_disk

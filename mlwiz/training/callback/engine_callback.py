@@ -14,11 +14,21 @@ class EngineCallback(EventHandler):
      at training time.
 
     Args:
-        store_last_checkpoint (bool): if ``True``, keep the model's
-            checkpoint for the last training epoch
+        store_last_checkpoint (bool): If ``True``, write a checkpoint file
+                at the end of each epoch (see :meth:`on_epoch_end`).
     """
 
     def __init__(self, store_last_checkpoint: bool):
+        r"""
+        Initialize the engine callback.
+
+        Args:
+            store_last_checkpoint (bool): If ``True``, write a checkpoint file
+                at the end of each epoch (see :meth:`on_epoch_end`).
+
+        Side effects:
+            Stores the flag for later use during checkpointing.
+        """
         super().__init__()
         self.store_last_checkpoint = store_last_checkpoint
 

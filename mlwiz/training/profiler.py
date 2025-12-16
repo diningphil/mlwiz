@@ -30,6 +30,17 @@ class Profiler:
     """
 
     def __init__(self, threshold: float):
+        r"""
+        Initialize the profiler.
+
+        Args:
+            threshold (float): Minimum average callback time (in seconds) to
+                include in :meth:`report`.
+
+        Side effects:
+            Initializes internal dictionaries used to accumulate callback
+            timings and call counts.
+        """
         # we filter out computation that takes a negligible amount of time from
         # the report (< threshold)
         self.threshold = threshold
@@ -173,10 +184,10 @@ class Profiler:
     @property
     def total_elapsed_time(self) -> datetime.timedelta:
         r"""
-        Returns the total elapsed time for the experiment in seconds.
+        Return the accumulated elapsed time across all profiled callbacks.
 
         Returns:
-            a string containing the report
+            datetime.timedelta: Total elapsed time (sum of callback runtimes).
         """
         total_time_experiment = 0.0
 

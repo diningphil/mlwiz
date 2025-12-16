@@ -146,6 +146,38 @@ class TrainingEngine(EventDispatcher):
         eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
     ):
+        """
+        Initialize the training engine and register event callbacks.
+
+        Args:
+            engine_callback (Callable[..., EngineCallback]): Callback class used
+                for data fetching, forward pass, and checkpointing.
+            model (ModelInterface): Model to train.
+            loss (Metric): Metric used as loss (``use_as_loss=True``).
+            optimizer (Optimizer): Optimizer callback.
+            scorer (Metric): Metric used as score (``use_as_loss=False``).
+            scheduler (Scheduler, optional): Learning-rate scheduler callback.
+            early_stopper (EarlyStopper, optional): Early stopping callback.
+            gradient_clipper (GradientClipper, optional): Gradient clipping
+                callback.
+            device (str): Device identifier (e.g., ``'cpu'`` or ``'cuda:0'``).
+            plotter (Plotter, optional): Plotting callback.
+            exp_path (str, optional): Experiment output folder used by some
+                callbacks for logging and checkpoints.
+            evaluate_every (int): Frequency (in epochs) at which epoch-level
+                results are reported/logged.
+            eval_training (bool): Whether to re-evaluate loss/score on the
+                training set after each epoch.
+            eval_test_every_epoch (bool): Whether to evaluate on the test set
+                after each epoch (if available).
+            store_last_checkpoint (bool): Whether to store a checkpoint at the
+                end of each epoch.
+
+        Side effects:
+            Registers all non-``None`` callbacks (loss, scorer, optimizer, etc.)
+            plus an engine callback, and initializes the shared
+            :class:`~mlwiz.training.event.state.State`.
+        """
         super().__init__()
 
         self.engine_callback = engine_callback
