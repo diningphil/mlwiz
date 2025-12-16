@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload badges
         if: ${{ github.event_name == 'workflow_call' && matrix.python-version == '3.11' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: badges
           path: .badges/*.svg
