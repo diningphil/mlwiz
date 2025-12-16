@@ -126,7 +126,7 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
 
     # Ensure tasks can schedule even if the evaluator module was imported with
     # a non-zero GPU request (tests may set MLWIZ_RAY_NUM_GPUS_PER_TASK).
-    ray.init(ignore_reinit_error=True, num_cpus=2, num_gpus=0)
+    ray.init(ignore_reinit_error=True, num_cpus=2, num_gpus=1)
     try:
         evaluator = RiskAssesser(
             outer_folds=1,
