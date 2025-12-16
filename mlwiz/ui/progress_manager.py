@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 import datetime
 import os
 import select
