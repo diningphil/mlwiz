@@ -8,6 +8,7 @@ import signal
 import termios
 import threading
 import time
+import traceback
 import tty
 from copy import deepcopy
 from pprint import pformat
