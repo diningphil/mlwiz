@@ -246,7 +246,8 @@ def filter_experiments(
 
         return None
 
-    assert logic in ["AND", "OR"], "logic can only be AND/OR case sensitive"
+    if logic not in ["AND", "OR"]:
+        raise ValueError("logic can only be AND/OR case sensitive")
 
     filtered_config_list = []
 
@@ -255,15 +256,17 @@ def filter_experiments(
 
         for k, v in parameters.items():
             cf_v = _finditem(config, k)
-            assert (
-                cf_v is not None
-            ), f"Key {k} not found in the configuration, check your input"
-
-            if type(v) == list:
-                assert len(v) > 0, (
-                    f'the list of values for key "{k}" cannot be'
-                    f" empty, consider removing this key"
+            if cf_v is None:
+                raise ValueError(
+                    f"Key {k} not found in the configuration, check your input"
                 )
+
+            if isinstance(v, list):
+                if len(v) <= 0:
+                    raise ValueError(
+                        f'the list of values for key "{k}" cannot be'
+                        f" empty, consider removing this key"
+                    )
 
                 # the user specified a list of acceptable values
                 # it is sufficient that one of them is present to return True

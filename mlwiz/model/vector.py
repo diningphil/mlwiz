@@ -33,7 +33,7 @@ class MLP(ModelInterface):
                   for MNIST-like tensors.
 
         Raises:
-            AssertionError: If ``dim_input_features`` is not an ``int``.
+            TypeError: If ``dim_input_features`` is not an ``int``.
             KeyError: If ``config`` does not contain ``dim_embedding``.
 
         Side effects:
@@ -45,7 +45,11 @@ class MLP(ModelInterface):
             dim_target,
             config,
         )
-        assert isinstance(dim_input_features, int)
+        if not isinstance(dim_input_features, int):
+            raise TypeError(
+                "dim_input_features must be an int for vector models, "
+                f"got {dim_input_features!r} ({type(dim_input_features).__name__})."
+            )
 
         dim_embedding = config["dim_embedding"]
         self.mlp = torchvision.ops.MLP(
@@ -82,7 +86,7 @@ class MLP(ModelInterface):
                 auxiliary outputs. This model returns only ``(output, embeddings)``.
 
         Raises:
-            AssertionError: If test-mode MNIST reshaping encounters an
+            ValueError: If test-mode MNIST reshaping encounters an
                 unexpected input shape.
         """
         # time.sleep(0.2)  # simulate some delay
@@ -90,7 +94,11 @@ class MLP(ModelInterface):
         if self._testing:
             if data.shape[1] == 1:
                 # MNIST dataset, let's remove channel dim and flatten
-                assert len(data.shape) > 2
+                if data.dim() <= 2:
+                    raise ValueError(
+                        "In test mode, expected an MNIST-like tensor with at least 3 dimensions "
+                        f"when data.shape[1] == 1, got shape {tuple(data.shape)}."
+                    )
                 data = data.squeeze(1)
                 data = torch.reshape(data, (-1, self.dim_input_features))
             elif data.shape == (1, 28, 28):
@@ -124,7 +132,7 @@ class CNN(ModelInterface):
             config (dict): Model configuration dictionary (currently unused).
 
         Raises:
-            AssertionError: If ``dim_input_features`` is not an ``int``.
+            TypeError: If ``dim_input_features`` is not an ``int``.
 
         Side effects:
             Initializes internal convolution/pooling/linear Torch modules.
@@ -134,7 +142,11 @@ class CNN(ModelInterface):
             dim_target,
             config,
         )
-        assert type(dim_input_features) == int
+        if not isinstance(dim_input_features, int):
+            raise TypeError(
+                "dim_input_features must be an int for vector models, "
+                f"got {dim_input_features!r} ({type(dim_input_features).__name__})."
+            )
 
         # taken from https://medium.com/@bpoyeka1/building-simple-neural-networks-nn-cnn-using-pytorch-for-mnist-dataset-31e459d17788
         self.conv1 = Conv2d(

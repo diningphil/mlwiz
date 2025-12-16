@@ -138,9 +138,8 @@ class MetricScheduler(Scheduler):
         """
 
         monitor_main_key = LOSSES if self.use_loss else SCORES
-        assert (
-            self.monitor in state.epoch_results[monitor_main_key]
-        ), f"{self.monitor} not found in epoch_results"
+        if self.monitor not in state.epoch_results[monitor_main_key]:
+            raise ValueError(f"{self.monitor} not found in epoch_results")
         metric = state.epoch_results[monitor_main_key][self.monitor]
         self.scheduler.step(metric)
 

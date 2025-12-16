@@ -476,14 +476,16 @@ class MultiScore(Metric):
                 scorer.
 
         Raises:
-            AssertionError: If ``use_as_loss`` is ``True`` or if no
+            ValueError: If ``use_as_loss`` is ``True`` or if no
                 ``main_scorer`` is provided.
 
         Side effects:
             Instantiates scorer objects and stores them in ``self.scores``.
         """
-        assert not use_as_loss, "MultiScore cannot be used as loss"
-        assert main_scorer is not None, "You have to provide a main scorer"
+        if use_as_loss:
+            raise ValueError("MultiScore cannot be used as loss")
+        if main_scorer is None:
+            raise ValueError("You have to provide a main scorer")
         super().__init__(
             use_as_loss, reduction, accumulate_over_epoch, force_cpu, device
         )
@@ -727,7 +729,7 @@ class AdditiveLoss(Metric):
                 path string or a dict with ``CLASS_NAME`` and ``ARGS``.
 
         Raises:
-            AssertionError: If ``use_as_loss`` is ``False`` or weights are
+            ValueError: If ``use_as_loss`` is ``False`` or weights are
                 missing for any instantiated loss when ``losses_weights`` is
                 provided.
 
@@ -735,7 +737,8 @@ class AdditiveLoss(Metric):
             Instantiates loss objects and stores them in ``self.losses`` and
             stores/normalizes loss weights in ``self.losses_weights``.
         """
-        assert use_as_loss, "Additive loss can only be used as a loss"
+        if not use_as_loss:
+            raise ValueError("Additive loss can only be used as a loss")
         super().__init__(
             use_as_loss, reduction, accumulate_over_epoch, force_cpu, device
         )
@@ -748,11 +751,12 @@ class AdditiveLoss(Metric):
         if self.losses_weights is not None:
             for loss in self.losses:
                 # check that a weight exists for each loss
-                assert loss.name in self.losses_weights, (
-                    "You have to specify a weight for each loss! "
-                    f"We could not find the weight for {loss.name} "
-                    f"in the dict."
-                )
+                if loss.name not in self.losses_weights:
+                    raise ValueError(
+                        "You have to specify a weight for each loss! "
+                        f"We could not find the weight for {loss.name} "
+                        f"in the dict."
+                    )
         else:
             # all losses are simply added together
             self.losses_weights = {loss.name: 1.0 for loss in self.losses}

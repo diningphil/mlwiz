@@ -62,11 +62,12 @@ class RandomSearch(Grid):
                 # LIST CASE: you should call _list_helper recursively on each
                 # element
                 elif isinstance(values, list):
-                    assert len(values) == 1, (
-                        f"Only one {key} value per "
-                        "configuration if you do not "
-                        "specify a sampling method"
-                    )
+                    if len(values) != 1:
+                        raise ValueError(
+                            f"Only one {key} value per "
+                            "configuration if you do not "
+                            "specify a sampling method"
+                        )
                     result[key] = self._dict_helper(deepcopy(values[0]))
 
             yield deepcopy(result)
@@ -91,11 +92,12 @@ class RandomSearch(Grid):
             elif isinstance(values, dict):
                 configs[key] = self._dict_helper(configs[key])
             elif isinstance(values, list):
-                assert len(values) == 1, (
-                    f"Only one {key} value per "
-                    "configuration if you do not "
-                    "specify a sampling method"
-                )
+                if len(values) != 1:
+                    raise ValueError(
+                        f"Only one {key} value per "
+                        "configuration if you do not "
+                        "specify a sampling method"
+                    )
                 configs[key] = self._dict_helper(deepcopy(values[0]))
 
         return configs

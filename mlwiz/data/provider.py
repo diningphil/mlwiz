@@ -241,6 +241,28 @@ class DataProvider:
         """
         self.inner_k = k
 
+    def _require_exp_seed(self) -> None:
+        """Raises a RuntimeError if the seed has not been specified"""
+        if self.exp_seed is None:
+            raise RuntimeError(
+                "DataLoader's seed has not been specified! Is this a bug?"
+            )
+
+    def _require_outer_k(self) -> None:
+        """Raises a RuntimeError if the outer fold has not been specified"""
+        if self.outer_k is None:
+            raise RuntimeError(
+                "Outer fold id (`outer_k`) has not been set; call `set_outer_k(k)` first."
+            )
+
+    def _require_outer_and_inner_k(self) -> None:
+        """Raises a RuntimeError if the outer and inner fodls have not been specified"""
+        if self.outer_k is None or self.inner_k is None:
+            raise RuntimeError(
+                "Outer/inner fold ids (`outer_k`/`inner_k`) have not been set; "
+                "call `set_outer_k(k)` and `set_inner_k(k)` first."
+            )
+
     def _get_splitter(self) -> Splitter:
         """
         Instantiates the splitter with the parameters stored
@@ -265,14 +287,16 @@ class DataProvider:
         Returns:
             a :class:`~mlwiz.data.dataset.DatasetInterface` object
         """
-        assert "shuffle" not in kwargs, (
-            "Your implementation of _get_loader should remove `shuffle` "
-            "from kwargs before calling _get_dataset"
-        )
-        assert "batch_size" not in kwargs, (
-            "Your implementation of _get_loader should remove `batch_size` "
-            "from kwargs before calling _get_dataset"
-        )
+        if "shuffle" in kwargs:
+            raise ValueError(
+                "Your implementation of _get_loader should remove `shuffle` "
+                "from kwargs before calling _get_dataset"
+            )
+        if "batch_size" in kwargs:
+            raise ValueError(
+                "Your implementation of _get_loader should remove `batch_size` "
+                "from kwargs before calling _get_dataset"
+            )
 
         if kwargs is not None and len(kwargs) != 0:
             # we probably need to pass run-time specific parameters,
@@ -315,9 +339,7 @@ class DataProvider:
         dataset: DatasetInterface = self._get_dataset(**kwargs)
         dataset = SubsetTrainEval(dataset, indices, is_eval)
 
-        assert (
-            self.exp_seed is not None
-        ), "DataLoader's seed has not been specified! Is this a bug?"
+        self._require_exp_seed()
 
         # no need to set worker seed in map-stye dataset, see pytorch doc about reproducibility
         # this would also cause transforms based on random sampling to behave in the same way every time
@@ -356,7 +378,7 @@ class DataProvider:
 
         """
         is_eval = False
-        assert self.outer_k is not None and self.inner_k is not None
+        self._require_outer_and_inner_k()
         splitter = self._get_splitter()
         indices = splitter.inner_folds[self.outer_k][self.inner_k].train_idxs
         return self._get_loader(indices, is_eval, **kwargs)
@@ -378,7 +400,7 @@ class DataProvider:
 
         """
         is_eval = True
-        assert self.outer_k is not None and self.inner_k is not None
+        self._require_outer_and_inner_k()
         splitter = self._get_splitter()
         indices = splitter.inner_folds[self.outer_k][self.inner_k].val_idxs
         return self._get_loader(indices, is_eval, **kwargs)
@@ -400,7 +422,7 @@ class DataProvider:
 
         """
         is_eval = False
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
         return self._get_loader(train_indices, is_eval, **kwargs)
@@ -422,7 +444,7 @@ class DataProvider:
 
         """
         is_eval = True
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
         val_indices = splitter.outer_folds[self.outer_k].val_idxs
         return self._get_loader(val_indices, is_eval, **kwargs)
@@ -444,7 +466,7 @@ class DataProvider:
 
         """
         is_eval = True
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
         indices = splitter.outer_folds[self.outer_k].test_idxs
         return self._get_loader(indices, is_eval, **kwargs)
@@ -487,7 +509,10 @@ def _iterable_worker_init_fn(worker_id: int, exp_seed: int):
     """
     worker_info = torch.utils.data.get_worker_info()
     num_workers = worker_info.num_workers
-    assert num_workers > 0
+    if num_workers <= 0:
+        raise RuntimeError(
+            f"Expected num_workers > 0 when using worker_init_fn, got {num_workers}."
+        )
 
     # Set the random seed
     seed_worker(worker_id, exp_seed)
@@ -547,9 +572,7 @@ class IterableDataProvider(DataProvider):
             dataset.shuffle_urls(True)
             dataset.shuffle_urls_elements(True)
 
-        assert (
-            self.exp_seed is not None
-        ), "DataLoader's seed has not been specified! Is this a bug?"
+        self._require_exp_seed()
 
         kwargs.update(self.data_loader_args)
 
@@ -600,9 +623,10 @@ class SingleGraphDataProvider(DataProvider):
             a :class:`~mlwiz.data.splitter.Splitter` object
         """
         super()._get_splitter()  # loads splitter into self.splitter
-        assert isinstance(
-            self.splitter, SingleGraphSplitter
-        ), "This class only works with a SingleGraphNodeSplitter splitter."
+        if not isinstance(self.splitter, SingleGraphSplitter):
+            raise TypeError(
+                "This class only works with a SingleGraphNodeSplitter splitter."
+            )
         return self.splitter
 
     def _get_dataset(self, **kwargs: dict) -> DatasetInterface:
@@ -617,14 +641,16 @@ class SingleGraphDataProvider(DataProvider):
         Returns:
             a :class:`~mlwiz.data.dataset.DatasetInterface` object
         """
-        assert "shuffle" not in kwargs, (
-            "Your implementation of _get_loader should remove `shuffle` "
-            "from kwargs before calling _get_dataset"
-        )
-        assert "batch_size" not in kwargs, (
-            "Your implementation of _get_loader should remove `batch_size` "
-            "from kwargs before calling _get_dataset"
-        )
+        if "shuffle" in kwargs:
+            raise ValueError(
+                "Your implementation of _get_loader should remove `shuffle` "
+                "from kwargs before calling _get_dataset"
+            )
+        if "batch_size" in kwargs:
+            raise ValueError(
+                "Your implementation of _get_loader should remove `batch_size` "
+                "from kwargs before calling _get_dataset"
+            )
 
         # we probably need to pass run-time specific parameters, so load the
         # dataset in memory again
@@ -669,9 +695,7 @@ class SingleGraphDataProvider(DataProvider):
         dataset[0][0].training_indices = torch.tensor(training_indices)
         dataset[0][0].eval_indices = torch.tensor(eval_indices)
 
-        assert (
-            self.exp_seed is not None
-        ), "DataLoader's seed has not been specified! Is this a bug?"
+        self._require_exp_seed()
 
         # no need to set worker seed in map-stye dataset, see pytorch doc about reproducibility
         # this would also cause transforms based on random sampling to behave in the same way every time
@@ -717,7 +741,7 @@ class SingleGraphDataProvider(DataProvider):
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
-        assert self.outer_k is not None and self.inner_k is not None
+        self._require_outer_and_inner_k()
         splitter = self._get_splitter()
         train_indices = splitter.inner_folds[self.outer_k][
             self.inner_k
@@ -742,7 +766,7 @@ class SingleGraphDataProvider(DataProvider):
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
-        assert self.outer_k is not None and self.inner_k is not None
+        self._require_outer_and_inner_k()
         splitter = self._get_splitter()
         train_indices = splitter.inner_folds[self.outer_k][
             self.inner_k
@@ -768,7 +792,7 @@ class SingleGraphDataProvider(DataProvider):
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
 
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
@@ -792,7 +816,7 @@ class SingleGraphDataProvider(DataProvider):
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
         val_indices = splitter.outer_folds[self.outer_k].val_idxs
@@ -816,7 +840,7 @@ class SingleGraphDataProvider(DataProvider):
             :class:`torch_geometric.loader.DataLoader`] object
 
         """
-        assert self.outer_k is not None
+        self._require_outer_k()
         splitter = self._get_splitter()
         train_indices = splitter.outer_folds[self.outer_k].train_idxs
         test_indices = splitter.outer_folds[self.outer_k].test_idxs

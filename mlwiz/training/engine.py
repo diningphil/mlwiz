@@ -60,7 +60,11 @@ def reorder(obj: List[object], perm: List[int]):
     Returns:
         The reordered list of objects
     """
-    assert len(obj) == len(perm) and len(obj) > 0
+    if len(obj) != len(perm) or len(obj) == 0:
+        raise ValueError(
+            "Expected `obj` and `perm` to have the same non-zero length, "
+            f"got len(obj)={len(obj)} and len(perm)={len(perm)}."
+        )
     return [y for (x, y) in sorted(zip(perm, obj))]
 
 
@@ -519,7 +523,11 @@ class TrainingEngine(EventDispatcher):
 
         self._dispatch(EventHandler.ON_TRAINING_EPOCH_END, self.state)
 
-        assert self.state.epoch_loss is not None
+        if self.state.epoch_loss is None:
+            raise RuntimeError(
+                "TrainingEngine epoch_loss was not computed. "
+                "Ensure the loss Metric callback is registered and the loader yields at least one batch."
+            )
         loss, score = self.state.epoch_loss, self.state.epoch_score
         return loss, score, None
 
@@ -555,7 +563,11 @@ class TrainingEngine(EventDispatcher):
 
         self._dispatch(EventHandler.ON_EVAL_EPOCH_END, self.state)
 
-        assert self.state.epoch_loss is not None
+        if self.state.epoch_loss is None:
+            raise RuntimeError(
+                "TrainingEngine epoch_loss was not computed during inference. "
+                "Ensure the loss Metric callback is registered and the loader yields at least one batch."
+            )
         loss, score, data_list = (
             self.state.epoch_loss,
             self.state.epoch_score,
@@ -1031,7 +1043,10 @@ class TrainingEngine(EventDispatcher):
 
         if self.scheduler is not None and not zero_epoch:
             scheduler_state = ckpt_dict[SCHEDULER_STATE]
-            assert scheduler_state is not None
+            if scheduler_state is None:
+                raise RuntimeError(
+                    "Checkpoint is missing scheduler state, but a scheduler is configured."
+                )
             self.state.update(scheduler_state=scheduler_state)
 
 

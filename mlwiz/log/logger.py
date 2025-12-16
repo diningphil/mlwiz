@@ -26,7 +26,7 @@ class Logger:
             debug (bool): Debug flag stored on the instance.
 
         Raises:
-            AssertionError: If ``mode`` is not ``'w'`` or ``'a'``.
+            ValueError: If ``mode`` is not ``'w'`` or ``'a'``.
 
         Side effects:
             Creates the parent directory of ``filepath`` if it does not exist.
@@ -37,7 +37,7 @@ class Logger:
             os.makedirs(self.filepath.parent)
 
         if mode not in ["w", "a"]:
-            assert False, "Mode must be one of w or a"
+            raise ValueError("Mode must be one of w or a")
         else:
             self.mode = mode
 

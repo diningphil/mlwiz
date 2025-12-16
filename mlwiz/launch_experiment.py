@@ -167,7 +167,10 @@ def evaluation(options: argparse.Namespace):
     from mlwiz.evaluation.grid import Grid
     from mlwiz.evaluation.random_search import RandomSearch
 
-    assert GRID_SEARCH in configs_dict or RANDOM_SEARCH in configs_dict
+    if GRID_SEARCH not in configs_dict and RANDOM_SEARCH not in configs_dict:
+        raise ValueError(
+            f"Configuration must define either {GRID_SEARCH} or {RANDOM_SEARCH}."
+        )
     search_class = Grid if GRID_SEARCH in configs_dict else RandomSearch
     search = search_class(configs_dict)
 
@@ -187,7 +190,10 @@ def evaluation(options: argparse.Namespace):
 
     # You can make MLWiz work on a cluster of machines!
     if os.environ.get("ip_head") is not None:
-        assert os.environ.get("redis_password") is not None
+        if os.environ.get("redis_password") is None:
+            raise RuntimeError(
+                "Environment variable `redis_password` must be set when `ip_head` is set."
+            )
         try:
             ray.init(
                 address=os.environ.get("ip_head"),

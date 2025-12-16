@@ -28,7 +28,7 @@ class GRU(ModelInterface):
                 - ``dim_embedding`` (int): Hidden state size of the GRU.
 
         Raises:
-            AssertionError: If ``dim_input_features`` is not an ``int``.
+            TypeError: If ``dim_input_features`` is not an ``int``.
             KeyError: If ``config`` does not contain ``dim_embedding``.
 
         Side effects:
@@ -39,7 +39,11 @@ class GRU(ModelInterface):
             dim_target,
             config,
         )
-        assert type(dim_input_features) == int
+        if not isinstance(dim_input_features, int):
+            raise TypeError(
+                "dim_input_features must be an int for time-series models, "
+                f"got {dim_input_features!r} ({type(dim_input_features).__name__})."
+            )
 
         dim_embedding = config["dim_embedding"]
 

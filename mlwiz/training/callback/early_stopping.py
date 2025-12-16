@@ -38,7 +38,7 @@ class EarlyStopper(EventHandler):
 
         Raises:
             NotImplementedError: If ``mode`` is not understood.
-            AssertionError: If attempting to monitor a test metric.
+            ValueError: If attempting to monitor a test metric.
 
         Side effects:
             Stores the monitoring configuration and selects the comparison
@@ -56,9 +56,8 @@ class EarlyStopper(EventHandler):
         else:
             raise NotImplementedError("Mode not understood by early stopper.")
 
-        assert (
-            TEST not in monitor
-        ), "Do not apply early stopping to the test set!"
+        if TEST in monitor:
+            raise ValueError("Do not apply early stopping to the test set!")
 
     def on_epoch_end(self, state: State):
         """

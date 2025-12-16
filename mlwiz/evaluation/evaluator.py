@@ -1001,11 +1001,12 @@ class RiskAssesser:
             skip_config_ids: if provided, the provided list of configurations
                 will not be considered for model selection. Use it,
                 for instance, when a run is taking too long to execute and you
-                decide it is not worth to wait for it.
+        decide it is not worth to wait for it.
         """
-        assert not (
-            len(skip_config_ids) > 0 and execute_config_id is not None
-        ), "Cannot specify both skip_config_id and execute_config_id"
+        if len(skip_config_ids) > 0 and execute_config_id is not None:
+            raise ValueError(
+                "Cannot specify both skip_config_id and execute_config_id"
+            )
 
         model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
 
@@ -1496,7 +1497,11 @@ class RiskAssesser:
         run_dict = [{} for _ in range(self.model_selection_training_runs)]
         results_dict = {}
 
-        assert not self.model_selection_training_runs <= 0
+        if self.model_selection_training_runs <= 0:
+            raise ValueError(
+                "model_selection_training_runs must be > 0, "
+                f"got {self.model_selection_training_runs}."
+            )
         for run_id in range(self.model_selection_training_runs):
             fold_run_exp_folder = osp.join(
                 inner_fold_config_folder, f"run_{run_id + 1}"
@@ -1600,7 +1605,8 @@ class RiskAssesser:
             FOLDS: [{} for _ in range(self.inner_folds)],
         }
 
-        assert not self.inner_folds <= 0
+        if self.inner_folds <= 0:
+            raise ValueError(f"inner_folds must be > 0, got {self.inner_folds}.")
         for k in range(self.inner_folds):
             # Set up a log file for this experiment (run in a separate process)
             config_inner_fold_folder = osp.join(

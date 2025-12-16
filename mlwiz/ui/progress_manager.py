@@ -290,7 +290,8 @@ class ProgressManager:
 
         """
         # Switch between global view and focused run view; drives rendering pipeline.
-        assert not self.debug, "Cannot change view mode in debug mode"
+        if self.debug:
+            raise RuntimeError("Cannot change view mode in debug mode")
         identifier = (identifier or "g").strip()
 
         if identifier == "" or identifier in {"g", "global"}:
