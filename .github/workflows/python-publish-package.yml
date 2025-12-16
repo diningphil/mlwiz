@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write  # needed only for committing badge updates back to the repo
+  actions: read  # needed for downloading artifacts from CI jobs
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -23,11 +24,14 @@ concurrency:
 jobs:
   tests:  # gate releases on CI
     uses: ./.github/workflows/python-test-and-coverage.yml
+    with:
+      generate_badges: true
 
   deploy:  # build and publish artifacts once CI is green
     needs: tests
     permissions:
       contents: write
+      actions: read
 
     runs-on: ubuntu-latest
 
