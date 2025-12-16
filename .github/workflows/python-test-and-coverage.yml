@@ -82,7 +82,7 @@ jobs:
         if: ${{ inputs.generate_badges && matrix.python-version == '3.11' }}
         run: |
           mkdir -p .badges
-          coverage run --source=mlwiz -m pytest -q
+          coverage run -m pytest -q
           coverage report -m
           coverage-badge -o .badges/coverage_badge.svg -f
 
