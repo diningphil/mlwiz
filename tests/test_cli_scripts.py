@@ -53,6 +53,7 @@ def test_build_dataset_main_calls_preprocess(monkeypatch, tmp_path):
     captured = {}
 
     def _fake_preprocess(options):
+        """Capture forwarded config options from ``preprocess_data``."""
         captured.update(options)
 
     monkeypatch.setattr("mlwiz.build_dataset.preprocess_data", _fake_preprocess)
@@ -130,4 +131,3 @@ def test_config_duplicator_exits_with_usage_on_missing_args(monkeypatch, capsys)
         config_duplicator_main()
     assert exc_info.value.code == 1
     assert "Usage:" in capsys.readouterr().out
-

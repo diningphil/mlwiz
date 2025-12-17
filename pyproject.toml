@@ -59,7 +59,7 @@ mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
 [tool.interrogate]
 fail-under = 80
 exclude = ["setup.py", "docs", "build"]
-ignore-init-method = true
+ignore-init-method = false
 
 [tool.coverage.run]
 source = ["mlwiz"]

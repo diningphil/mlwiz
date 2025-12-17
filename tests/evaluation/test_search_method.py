@@ -1,3 +1,8 @@
+"""Tests for grid and random-search configuration generation.
+
+Ensures the YAML-defined search space expands to the expected number of configurations.
+"""
+
 import pytest
 import yaml
 

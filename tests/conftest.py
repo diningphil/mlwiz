@@ -1,3 +1,8 @@
+"""Shared pytest fixtures for MLWiz tests.
+
+Provides common fake datasets and loader configurations used across modules.
+"""
+
 import pytest
 import torch
 import torch_geometric

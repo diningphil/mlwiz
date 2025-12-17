@@ -1,3 +1,8 @@
+"""Unit tests for early stopping callbacks.
+
+Validates patience-based stopping behavior over synthetic epoch results.
+"""
+
 from torch.nn import Linear
 
 from mlwiz.model.interface import ModelInterface

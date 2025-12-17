@@ -89,7 +89,7 @@ jobs:
       - name: Interrogate badge
         if: ${{ inputs.generate_badges && matrix.python-version == '3.11' }}
         run: |
-          interrogate -i -M --generate-badge .badges mlwiz
+          interrogate --generate-badge .badges mlwiz
 
       - name: Upload badges
         if: ${{ inputs.generate_badges && github.event_name == 'workflow_call' && matrix.python-version == '3.11' }}

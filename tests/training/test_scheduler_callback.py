@@ -19,16 +19,35 @@ class DummyTorchScheduler:
     """A tiny scheduler stand-in used to exercise the callback wrappers."""
 
     def __init__(self, _optimizer, **kwargs):
+        """
+        Initialize the scheduler stub.
+
+        Args:
+            _optimizer: Optimizer instance passed by wrapper (unused).
+            **kwargs: Arbitrary scheduler kwargs to record for assertions.
+        """
         self.kwargs = kwargs
         self.loaded_state = None
         self.step_calls = 0
         self.last_metric = None
 
     def step(self, metric=None):
+        """
+        Simulate a scheduler step.
+
+        Args:
+            metric: Optional monitored metric value for metric-based schedulers.
+        """
         self.step_calls += 1
         self.last_metric = metric
 
     def state_dict(self):
+        """
+        Return a minimal state dict for persistence tests.
+
+        Returns:
+            dict: Serializable scheduler state snapshot.
+        """
         return {
             "loaded_state": self.loaded_state,
             "step_calls": self.step_calls,
@@ -37,10 +56,22 @@ class DummyTorchScheduler:
         }
 
     def load_state_dict(self, state_dict):
+        """
+        Restore the stub state from a provided dictionary.
+
+        Args:
+            state_dict: Previously saved scheduler state.
+        """
         self.loaded_state = state_dict
 
 
 def _make_optimizer():
+    """
+    Create a minimal optimizer instance used by scheduler wrapper tests.
+
+    Returns:
+        torch.optim.Optimizer: SGD optimizer over a single learnable parameter.
+    """
     param = torch.nn.Parameter(torch.tensor([1.0]))
     return torch.optim.SGD([param], lr=0.1)
 
@@ -94,4 +125,3 @@ def test_metric_scheduler_validates_monitor_and_steps():
     state.epoch_results = {LOSSES: {}, SCORES: {}}
     with pytest.raises(ValueError, match="not found in epoch_results"):
         sched.on_epoch_end(state)
-

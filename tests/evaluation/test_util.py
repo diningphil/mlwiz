@@ -50,6 +50,12 @@ class DummyDataset:
     """Minimal dataset used for config instantiation tests."""
 
     def __init__(self, storage_folder: str):
+        """
+        Initialize the dataset stub.
+
+        Args:
+            storage_folder: Path passed through by config instantiation helpers.
+        """
         self.storage_folder = storage_folder
         self.dim_input_features = 3
         self.dim_target = 2
@@ -65,16 +71,40 @@ class DummyModel:
     """Minimal model class used for config instantiation / checkpoint tests."""
 
     def __init__(self, dim_input_features: int, dim_target: int, config: dict):
+        """
+        Initialize the model stub.
+
+        Args:
+            dim_input_features: Input feature dimension.
+            dim_target: Target dimension.
+            config: Model configuration dictionary.
+        """
         self.dim_input_features = dim_input_features
         self.dim_target = dim_target
         self.config = config
         self.loaded_state = None
 
     def load_state_dict(self, state_dict: dict):
+        """
+        Store a provided state dict for later assertions.
+
+        Args:
+            state_dict: Serialized model weights/state.
+        """
         self.loaded_state = state_dict
 
 
 def _write_outer_results(path, metric_key: str, train: float, val: float, test: float):
+    """
+    Write an ``outer_results.json`` file with a minimal metric payload.
+
+    Args:
+        path: Destination file path.
+        metric_key: Metric name key to write.
+        train: Training score.
+        val: Validation score.
+        test: Test score.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "outer_train": {metric_key: train, f"{metric_key}_std": 0.0},
@@ -85,6 +115,16 @@ def _write_outer_results(path, metric_key: str, train: float, val: float, test: 
 
 
 def _write_assessment_results(path, metric_key: str, train: float, val: float, test: float):
+    """
+    Write an ``assessment_results.json`` file with a minimal metric payload.
+
+    Args:
+        path: Destination file path.
+        metric_key: Metric name key to write.
+        train: Training score.
+        val: Validation score.
+        test: Test score.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         f"avg_training_{metric_key}": train,
@@ -98,6 +138,14 @@ def _write_assessment_results(path, metric_key: str, train: float, val: float, t
 
 
 def _write_final_run_results(path, metric_key: str, test_value: float):
+    """
+    Write a serialized final-run results tuple to a dill file.
+
+    Args:
+        path: Destination file path.
+        metric_key: Score key to include.
+        test_value: Test score value to store.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     training_res = {SCORE: {metric_key: 0.0}}
     validation_res = {SCORE: {metric_key: 0.0}}

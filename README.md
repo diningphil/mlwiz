@@ -203,11 +203,97 @@ Runs are written under `RESULTS/`:
 Each training run also writes TensorBoard logs under `<run_dir>/tensorboard/`.
 
 ## 🛠️ Utilities
+### 🗂️ Config Management (CLI)
 Duplicate a base experiment config across multiple datasets:
 
 ```bash
 mlwiz-config-duplicator --base-exp-config base.yml --data-config-files data1.yml data2.yml
 ```
+
+### 📊 Post-process Results (Python)
+Filter configurations from a `MODEL_SELECTION/` folder and convert them to a DataFrame:
+
+```python
+from mlwiz.evaluation.util import retrieve_experiments, filter_experiments, create_dataframe
+
+configs = retrieve_experiments(
+    "RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/"
+)
+filtered = filter_experiments(configs, logic="OR", parameters={"lr": 0.001})
+df = create_dataframe(
+    config_list=filtered,
+    key_mappings=[("lr", float), ("avg_validation_score", float)],
+)
+```
+
+Export aggregated assessment results to LaTeX:
+
+```python
+from mlwiz.evaluation.util import create_latex_table_from_assessment_results
+
+experiments = [
+    ("RESULTS/mlp_MNIST", "MLP", "MNIST"),
+    ("RESULTS/dgn_PROTEINS", "DGN", "PROTEINS"),
+]
+
+latex_table = create_latex_table_from_assessment_results(
+    experiments,
+    metric_key="main_score",
+    no_decimals=3,
+    model_as_row=True,
+    use_single_outer_fold=False,
+)
+print(latex_table)
+```
+
+Compare statistical significance between models (Welch t-test):
+
+```python
+from mlwiz.evaluation.util import statistical_significance
+
+reference = ("RESULTS/mlp_MNIST", "MLP", "MNIST")
+competitors = [
+    ("RESULTS/baseline1_MNIST", "B1", "MNIST"),
+    ("RESULTS/baseline2_MNIST", "B2", "MNIST"),
+]
+
+df = statistical_significance(
+    highlighted_exp_metadata=reference,
+    other_exp_metadata=competitors,
+    metric_key="main_score",
+    set_key="test",
+    confidence_level=0.95,
+)
+print(df)
+```
+
+### 🔍 Load a Trained Model (Notebook-friendly)
+Load the best configuration for a fold, instantiate dataset/model, and restore a checkpoint:
+
+```python
+from mlwiz.evaluation.util import (
+    retrieve_best_configuration,
+    instantiate_dataset_from_config,
+    instantiate_model_from_config,
+    load_checkpoint,
+)
+
+config = retrieve_best_configuration(
+    "RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/"
+)
+dataset = instantiate_dataset_from_config(config)
+model = instantiate_model_from_config(config, dataset)
+load_checkpoint(
+    "RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/best_checkpoint.pth",
+    model,
+    device="cpu",
+)
+```
+
+For more post-processing helpers, see the tutorial: https://mlwiz.readthedocs.io/en/stable/tutorial.html
+
+## 🤝 Contributing
+See `CONTRIBUTING.md`.
 
 ## 📄 License
 BSD-3-Clause. See `LICENSE`.

@@ -48,6 +48,14 @@ class FastExperiment:
     """
 
     def __init__(self, model_configuration: dict, exp_path: str, exp_seed: int):
+        """
+        Initialize the fast experiment stub.
+
+        Args:
+            model_configuration: Configuration dict for the current run.
+            exp_path: Experiment output folder.
+            exp_seed: Experiment seed (stored for completeness).
+        """
         self.model_configuration = model_configuration
         self.exp_path = exp_path
         self.exp_seed = exp_seed
@@ -60,6 +68,12 @@ class FastExperiment:
         progress_callback=None,
         should_terminate=None,
     ):
+        """
+        Return deterministic train/validation metrics for model selection runs.
+
+        The value depends only on the ``hp_id`` hyperparameter, so the expected
+        winning configuration is known a priori.
+        """
         hp_id = int(self.model_configuration.get("hp_id", 0))
         base = float(hp_id)
         train_res = {LOSS: {MAIN_LOSS: base}, SCORE: {MAIN_SCORE: base}}
@@ -77,6 +91,12 @@ class FastExperiment:
         progress_callback=None,
         should_terminate=None,
     ):
+        """
+        Return deterministic train/validation/test metrics for final runs.
+
+        The test metric is offset from the train/val metric to validate result
+        aggregation and file creation.
+        """
         hp_id = int(self.model_configuration.get("hp_id", 0))
         base = float(hp_id)
         train_res = {LOSS: {MAIN_LOSS: base}, SCORE: {MAIN_SCORE: base}}
@@ -98,7 +118,10 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
     """
     # Avoid starting the interactive input listener (cbreak mode) in TTYs.
     class _NoTtyStdin:
+        """stdin stand-in that always reports non-interactive mode."""
+
         def isatty(self) -> bool:  # pragma: no cover
+            """Return ``False`` to disable interactive input handling."""
             return False
 
     monkeypatch.setattr(sys, "stdin", _NoTtyStdin())
