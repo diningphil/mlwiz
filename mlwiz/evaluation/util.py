@@ -1,3 +1,8 @@
+"""Utilities for sampling, instantiation, and results analysis.
+
+Includes random-search samplers and helpers to load runs, instantiate datasets/models, and inspect artifacts.
+"""
+
 import json
 import math
 import os

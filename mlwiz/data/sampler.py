@@ -1,3 +1,8 @@
+"""Custom samplers used by MLWiz data loaders.
+
+Includes :class:`~mlwiz.data.sampler.RandomSampler`, which records the applied permutation.
+"""
+
 import torch
 from torch.utils.data import sampler
 

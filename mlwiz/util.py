@@ -1,3 +1,8 @@
+"""General-purpose helper functions for MLWiz.
+
+Includes dotted-path resolution, config parsing helpers, and atomic dill serialization utilities.
+"""
+
 from pydoc import locate
 from typing import Tuple, Callable
 

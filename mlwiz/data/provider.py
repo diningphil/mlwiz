@@ -1,3 +1,8 @@
+"""Fold-aware data loader construction for MLWiz.
+
+Provides :class:`~mlwiz.data.provider.DataProvider` variants that expose train/validation/test loaders for nested CV.
+"""
+
 import math
 import random
 from copy import deepcopy

@@ -1,3 +1,8 @@
+"""Random-search configuration sampling.
+
+The :class:`~mlwiz.evaluation.random_search.RandomSearch` class samples configurations from a YAML-defined search space.
+"""
+
 from copy import deepcopy
 
 from mlwiz.evaluation.grid import Grid

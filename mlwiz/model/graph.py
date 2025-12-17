@@ -1,3 +1,8 @@
+"""Graph neural network models for MLWiz.
+
+Contains :class:`~mlwiz.model.graph.DGN`, a GraphSAGE-based reference implementation.
+"""
+
 from typing import List, Optional, Tuple, Union
 
 import torch

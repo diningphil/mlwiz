@@ -1,3 +1,8 @@
+"""Terminal progress UI and Ray actor for experiment monitoring.
+
+Defines :class:`~mlwiz.ui.progress_manager.ProgressManagerActor` for buffering updates and :class:`~mlwiz.ui.progress_manager.ProgressManager` for rendering.
+"""
+
 import datetime
 import os
 import select
@@ -53,6 +58,8 @@ def clear_screen():
 
 @dataclass
 class _RenderState:
+    """Mutable render bookkeeping for the terminal UI."""
+
     header: str = ""
     last_progress: str = ""
     failure: str = ""
@@ -833,11 +840,15 @@ class ProgressManager:
         # Used by _format_run_message to pretty-print configs.
 
         class _ClassSpec:
+            """Small helper used to pretty-print class specs in configs."""
+
             def __init__(self, class_name, args):
+                """Store class name and arguments for display."""
                 self.class_name = class_name
                 self.args = args if args is not None else {}
 
             def __repr__(self):
+                """Return a readable ``ClassName(k=v, ...)`` string."""
                 if not self.args:
                     return f"{self.class_name}()"
                 if not isinstance(self.args, dict):

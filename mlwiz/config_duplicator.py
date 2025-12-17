@@ -1,3 +1,8 @@
+"""CLI utility to generate per-dataset experiment configs from a base YAML file.
+
+Writes derived experiment configuration files by merging dataset-specific settings.
+"""
+
 import os
 import sys
 import yaml

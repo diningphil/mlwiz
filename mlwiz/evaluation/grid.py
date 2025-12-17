@@ -1,3 +1,8 @@
+"""Grid-search configuration expansion.
+
+The :class:`~mlwiz.evaluation.grid.Grid` class enumerates all combinations from a YAML-defined hyperparameter space.
+"""
+
 from copy import deepcopy
 from typing import List
 

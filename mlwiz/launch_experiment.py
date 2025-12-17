@@ -1,3 +1,8 @@
+"""CLI entrypoint for launching MLWiz experiments.
+
+Handles resource setup (CPU/GPU, Ray) and runs model selection and risk assessment.
+"""
+
 import argparse
 import os
 import sys

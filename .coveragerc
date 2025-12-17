@@ -1,6 +1,0 @@
-[run]
-source = mlwiz
-omit =
-    mlwiz/ui/progress_manager.py
-    mlwiz/launch_experiment.py
-

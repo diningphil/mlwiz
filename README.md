@@ -3,7 +3,7 @@
 </p>
 
 # MLWiz
-Machine Learning Research Wizard — reproducible experiments from YAML (model selection + risk assessment) for vectors, images, time-series, and graphs.
+_Machine Learning Research Wizard — reproducible experiments from YAML (model selection + risk assessment) for vectors, images, time-series, and graphs._
 
 [![PyPI](https://img.shields.io/pypi/v/mlwiz.svg)](https://pypi.org/project/mlwiz/)
 [![Python](https://img.shields.io/pypi/pyversions/mlwiz.svg)](https://pypi.org/project/mlwiz/)
@@ -12,18 +12,38 @@ Machine Learning Research Wizard — reproducible experiments from YAML (model s
 [![Coverage](https://raw.githubusercontent.com/diningphil/mlwiz/main/.badges/coverage_badge.svg)](https://github.com/diningphil/mlwiz/actions/workflows/python-test-and-coverage.yml)
 [![Docstrings](https://raw.githubusercontent.com/diningphil/mlwiz/main/.badges/interrogate_badge.svg)](https://interrogate.readthedocs.io/en/latest/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-gray.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![Stars](https://img.shields.io/github/stars/diningphil/mlwiz?style=flat&logo=github)](https://github.com/diningphil/mlwiz/stargazers)
 
-## What it does
+## 🔗 Quick Links
+- 📘 Docs: https://mlwiz.readthedocs.io/en/stable/
+- 🧪 Tutorial (recommended): https://mlwiz.readthedocs.io/en/stable/tutorial.html
+- 📦 PyPI: https://pypi.org/project/mlwiz/
+- 📝 Changelog: `CHANGELOG.md`
+- 🤝 Contributing: `CONTRIBUTING.md`
+
+## ✨ What It Does
 MLWiz helps you run end-to-end research experiments with minimal boilerplate:
 
-- Build/prepare datasets and generate splits (hold-out or nested CV)
-- Expand a hyperparameter search space (grid or random search)
-- Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
-- Log metrics, checkpoints, and TensorBoard traces in a consistent folder structure
+- 🧱 Build/prepare datasets and generate splits (hold-out or nested CV)
+- 🎛️ Expand a hyperparameter search space (grid or random search)
+- ⚡ Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
+- 📈 Log metrics, checkpoints, and TensorBoard traces in a consistent folder structure
 
 Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil/PyDGN).
 
-## Install
+## ✅ Key Features
+| Area | What you get |
+| --- | --- |
+| Research Oriented Framework | Anything is customizable, easy prototyping of models and setups |
+| Reproducibility | Ensure your results are reproducible across multiple runs |
+| Automatic Split Generation | Dataset preparation + `.splits` generation for hold-out / (nested) CV |
+| Automatic and Robust Evaluation | Nested model selection (inner folds) + risk assessment (outer folds) |
+| Parallelism | Ray-based execution across CPU/GPU (or a Ray cluster) |
+
+
+## 🚀 Getting Started
+
+### 📦 Installation
 MLWiz supports Python 3.10+.
 
 ```bash
@@ -32,66 +52,50 @@ pip install mlwiz
 
 Tip: for GPU / graph workloads, install PyTorch and PyG following their official instructions first, then `pip install mlwiz`.
 
-## Quickstart
-#### 1) Prepare dataset + splits:
+### ⚡ Quickstart
+| Step | Command | Notes |
+| --- | --- | --- |
+| 1) Prepare dataset + splits | `mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml` | Creates processed data + a `.splits` file |
+| 2) Run an experiment (grid search) | `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` | Add `--debug` to run sequentially and print logs |
+| 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
+| 4) Visualize in TensorBoard | `tensorboard --logdir RESULTS/mlp_MNIST` | Per-run logs are written automatically |
+| 5) Stop a running experiment | Press `Ctrl-C` | |
 
-```bash
-mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml
-```
+### 🧭 Navigating the CLI (non-debug mode)
+Example of the global view CLI:
 
-#### 2) Run an experiment (grid search):
-
-```bash
-mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
-# add --debug to run sequentially and print logs
-```
-
-#### 3) Inspect results:
-
-```bash
-cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json
-tensorboard --logdir RESULTS/mlp_MNIST
-```
-
-#### 4) Stop a running experiment:
-
-```bash
-# Ctrl-C
-```
-
-#### 5) Navigating the CLI (non-debug mode)
-
-Example of the global view CLI.
 <p align="center">
   <img src="https://raw.githubusercontent.com/diningphil/mlwiz/main/docs/_static/exp_gui.png" width="760" alt="MLWiz terminal progress UI"/>
 </p>
 
-Specific views can be accessed. For insance, you can visualize a specific model run by typing
+Specific views can be accessed, e.g. to visualize a specific model run:
 
 ```bash
 :<outer_fold> <inner_fold> <config_id> <run_id>
 ```
 
-or, analogously, a risk assessment run by typing
+…or, analogously, a risk assessment run:
 
 ```bash
 :<outer_fold> <run_id>
 ```
 
-To get back to the global view, just type
+Here is how it will look like
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/diningphil/mlwiz/main/docs/_static/run_view.png" width="760" alt="MLWiz terminal specific view"/>
+</p>
+
+Handy commands:
 
 ```bash
-:  # or :g or :global
-```
-
-To refresh the screen:
-```bash
-:r  # or :refresh
+:  # or :g or :global (back to global view)
+:r # or :refresh (refresh the screen)
 ```
 
 You can use **left-right arrows** to move across configurations, and **up-down arrows** to switch between model selection and risk assessment runs.
 
-## Architecture (high-level)
+## 🧩 Architecture (High-Level)
 MLWiz is built around two YAML files and a small set of composable components:
 
 ```text
@@ -101,16 +105,16 @@ exp.yml  ──► mlwiz-exp  ──► Ray workers
                       └─ outer folds: risk assessment (final scores)
 ```
 
-- **Data pipeline**: `mlwiz-data` instantiates your dataset class and writes a `.splits` file for hold-out / (nested) CV.
-- **Search space**: `grid:` and `random:` sections expand into concrete hyperparameter configurations.
-- **Orchestration**: the evaluator schedules training runs with Ray across CPU/GPU (or a Ray cluster).
-- **Execution**: each run builds a model + training engine from dotted paths, then logs artifacts and returns structured results.
+- 🧰 **Data pipeline**: `mlwiz-data` instantiates your dataset class and writes a `.splits` file for hold-out / (nested) CV.
+- 🧪 **Search space**: `grid:` and `random:` sections expand into concrete hyperparameter configurations.
+- 🛰️ **Orchestration**: the evaluator schedules training runs with Ray across CPU/GPU (or a Ray cluster).
+- 🏗️ **Execution**: each run builds a model + training engine from dotted paths, then logs artifacts and returns structured results.
 
-## Configuration at a glance
+## ⚙️ Configuration At A Glance
 MLWiz expects:
 
-- one YAML for **data + splits**
-- one YAML for **experiment + search space**
+- 🗂️ one YAML for **data + splits**
+- 🧾 one YAML for **experiment + search space**
 
 Minimal data config:
 
@@ -175,7 +179,7 @@ grid:
 
 See `examples/` for complete configs (including random search, schedulers, early stopping, and more).
 
-### Custom code via dotted paths
+### 🧩 Custom Code Via Dotted Paths
 Point YAML entries to your own classes (in your project). `mlwiz-data` and `mlwiz-exp` add the current working directory to `sys.path`, so this works out of the box:
 
 ```yaml
@@ -186,29 +190,24 @@ dataset:
   class_name: my_project.data.MyDataset
 ```
 
-## Outputs
-Runs are written under:
+## 📦 Outputs
+Runs are written under `RESULTS/`:
 
-- `RESULTS/<exp_name>_<dataset>/MODEL_ASSESSMENT/assessment_results.json` (aggregated outer-fold results)
-- `RESULTS/<exp_name>_<dataset>/MODEL_ASSESSMENT/OUTER_FOLD_k/outer_results.json` (per-fold summary)
-- `.../MODEL_SELECTION/...` (inner-fold runs + winner config)
-- `.../final_run*/` (re-trains with the selected hyperparameters)
+| Output | Location |
+| --- | --- |
+| Aggregated outer-fold results | `RESULTS/<exp_name>_<dataset>/MODEL_ASSESSMENT/assessment_results.json` |
+| Per-fold summaries | `RESULTS/<exp_name>_<dataset>/MODEL_ASSESSMENT/OUTER_FOLD_k/outer_results.json` |
+| Model selection (inner folds + winner config) | `.../MODEL_SELECTION/...` |
+| Final retrains with selected hyperparams | `.../final_run*/` |
 
 Each training run also writes TensorBoard logs under `<run_dir>/tensorboard/`.
 
-## Utilities
+## 🛠️ Utilities
 Duplicate a base experiment config across multiple datasets:
 
 ```bash
 mlwiz-config-duplicator --base-exp-config base.yml --data-config-files data1.yml data2.yml
 ```
 
-## Documentation / Tutorial
-- Docs: https://mlwiz.readthedocs.io/en/stable/
-- Tutorial **(recommended)**: https://mlwiz.readthedocs.io/en/stable/tutorial.html
-
-## Contributing
-See `CONTRIBUTING.md`.
-
-## License
+## 📄 License
 BSD-3-Clause. See `LICENSE`.

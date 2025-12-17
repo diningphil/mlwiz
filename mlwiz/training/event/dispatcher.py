@@ -1,3 +1,8 @@
+"""Event dispatcher implementing the publisher/subscribe pattern.
+
+Used by the training engine to trigger callbacks in a fixed order.
+"""
+
 from mlwiz.training.event.state import State
 
 

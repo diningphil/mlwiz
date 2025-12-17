@@ -1,3 +1,8 @@
+"""Learning-rate scheduler callbacks for the training engine.
+
+Provides epoch-based and metric-based scheduler wrappers.
+"""
+
 from torch.optim.optimizer import Optimizer
 
 from mlwiz.util import s2c

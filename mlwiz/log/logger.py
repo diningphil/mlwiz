@@ -1,3 +1,8 @@
+"""Minimal file-based logging helper.
+
+Defines :class:`~mlwiz.log.logger.Logger`, which writes line-oriented logs to disk.
+"""
+
 import os
 from pathlib import Path
 

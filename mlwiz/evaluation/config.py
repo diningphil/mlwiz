@@ -1,3 +1,8 @@
+"""Configuration wrapper with attribute-style access.
+
+The :class:`~mlwiz.evaluation.config.Config` class exposes dictionary keys as attributes and supports pretty printing.
+"""
+
 import json
 
 

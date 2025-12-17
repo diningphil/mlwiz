@@ -1,3 +1,8 @@
+"""Early stopping callbacks for the training engine.
+
+Provides :class:`~mlwiz.training.callback.early_stopping.EarlyStopper` and :class:`~mlwiz.training.callback.early_stopping.PatienceEarlyStopper`.
+"""
+
 import operator
 from copy import deepcopy
 from pathlib import Path

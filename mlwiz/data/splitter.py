@@ -1,3 +1,8 @@
+"""Dataset split generation and persistence utilities.
+
+Defines splitters and fold containers used for hold-out and (nested) cross-validation.
+"""
+
 import random
 from typing import Tuple
 

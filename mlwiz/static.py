@@ -1,3 +1,8 @@
+"""Shared string constants used across MLWiz.
+
+Centralizes configuration keys, event names, and filenames to keep components consistent.
+"""
+
 # EVALUATOR - PROGRESS MANAGER
 START_CONFIG = "START_CONFIG"
 BATCH = "batch"

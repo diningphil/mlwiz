@@ -1,3 +1,8 @@
+"""Optimizer callback wrapper for the training engine.
+
+Instantiates a PyTorch optimizer from a dotted path and exposes lifecycle hooks.
+"""
+
 import copy
 
 from mlwiz.util import s2c

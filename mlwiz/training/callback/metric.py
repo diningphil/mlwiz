@@ -1,3 +1,8 @@
+"""Metric and loss callbacks for the training engine.
+
+Defines :class:`~mlwiz.training.callback.metric.Metric` and composite helpers such as ``AdditiveLoss`` and ``MultiScore``.
+"""
+
 from typing import List, Union, Tuple
 
 import torch
@@ -1327,6 +1332,8 @@ class MulticlassAccuracy(Metric):
 
 
 class AllocatedGPUMemory(Metric):
+    """Metric that reports current allocated CUDA memory (in MB)."""
+
     def get_predictions_and_targets(
         self, targets: torch.Tensor, *outputs: List[torch.Tensor]
     ) -> Tuple[torch.Tensor, torch.Tensor]:

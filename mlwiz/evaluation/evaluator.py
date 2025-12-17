@@ -1,3 +1,8 @@
+"""Ray-based experiment evaluation and result aggregation.
+
+Implements the :class:`~mlwiz.evaluation.evaluator.RiskAssesser` workflow and helpers for progress updates and notifications.
+"""
+
 import traceback
 import json
 import operator

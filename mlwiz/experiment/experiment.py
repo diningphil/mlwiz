@@ -1,3 +1,8 @@
+"""Experiment wrapper for building and running training jobs.
+
+Defines :class:`~mlwiz.experiment.experiment.Experiment`, which instantiates models/engines from configs and runs validation/test loops.
+"""
+
 import random
 from typing import Callable, Optional, Tuple, Union
 

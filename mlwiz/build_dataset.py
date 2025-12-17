@@ -1,3 +1,8 @@
+"""CLI entrypoint for dataset preprocessing and split generation.
+
+Parses a data YAML config and runs :func:`mlwiz.data.util.preprocess_data`.
+"""
+
 import argparse
 import os
 import sys
