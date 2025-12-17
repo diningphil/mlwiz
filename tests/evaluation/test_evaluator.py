@@ -1,3 +1,8 @@
+"""End-to-end tests for evaluator result aggregation.
+
+Uses a deterministic experiment to validate :class:`~mlwiz.evaluation.evaluator.RiskAssesser` outputs.
+"""
+
 import json
 from shutil import rmtree
 
@@ -24,6 +29,13 @@ from mlwiz.experiment import Experiment
 
 
 class FakeTask(Experiment):
+    """
+    Deterministic experiment used to validate evaluator aggregation.
+
+    Implements ``run_valid`` and ``run_test`` returning fold-dependent metrics
+    so that aggregated evaluator statistics can be asserted exactly.
+    """
+
     def run_valid(
         self,
         dataset_getter,

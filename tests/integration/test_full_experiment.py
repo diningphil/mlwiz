@@ -1,3 +1,8 @@
+"""Integration tests for dataset preprocessing and full experiment runs.
+
+Exercises dataset creation, experiment execution, and artifact loading in debug mode.
+"""
+
 from shutil import rmtree
 
 import pytest
@@ -57,6 +62,8 @@ def test_experiments():
     """
 
     class MockConfig:
+        """Wrap a dictionary to provide attribute-style access in the CLI entrypoint."""
+
         def __init__(self, d):
             """
             Wrap a dictionary as an object with attribute-style access.

@@ -1,3 +1,8 @@
+"""Callback execution-time profiler.
+
+Provides :class:`~mlwiz.training.profiler.Profiler`, a decorator that records per-callback timings and generates a report.
+"""
+
 import bisect
 import datetime
 import time

@@ -54,3 +54,13 @@ dependencies = [
 mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
 mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
+
+
+[tool.interrogate]
+fail-under = 80
+exclude = ["setup.py", "docs", "build"]
+ignore-init-method = false
+
+[tool.coverage.run]
+source = ["mlwiz"]
+omit = ["mlwiz/ui/progress_manager.py"]

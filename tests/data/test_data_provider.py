@@ -1,3 +1,8 @@
+"""Tests for fold-aware data providers.
+
+Validates :mod:`mlwiz.data.provider` loader selection for standard, single-graph, and iterable datasets.
+"""
+
 from copy import deepcopy
 from shutil import rmtree
 from unittest.mock import patch

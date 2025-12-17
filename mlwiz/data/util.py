@@ -1,3 +1,8 @@
+"""Dataset preprocessing and loading helpers.
+
+Implements config-driven dataset/splitter instantiation and utilities like :func:`preprocess_data` and :func:`load_dataset`.
+"""
+
 import inspect
 import os
 import os.path as osp

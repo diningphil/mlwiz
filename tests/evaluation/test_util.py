@@ -50,6 +50,12 @@ class DummyDataset:
     """Minimal dataset used for config instantiation tests."""
 
     def __init__(self, storage_folder: str):
+        """
+        Initialize the dataset stub.
+
+        Args:
+            storage_folder: Path passed through by config instantiation helpers.
+        """
         self.storage_folder = storage_folder
         self.dim_input_features = 3
         self.dim_target = 2
@@ -65,16 +71,42 @@ class DummyModel:
     """Minimal model class used for config instantiation / checkpoint tests."""
 
     def __init__(self, dim_input_features: int, dim_target: int, config: dict):
+        """
+        Initialize the model stub.
+
+        Args:
+            dim_input_features: Input feature dimension.
+            dim_target: Target dimension.
+            config: Model configuration dictionary.
+        """
         self.dim_input_features = dim_input_features
         self.dim_target = dim_target
         self.config = config
         self.loaded_state = None
 
     def load_state_dict(self, state_dict: dict):
+        """
+        Store a provided state dict for later assertions.
+
+        Args:
+            state_dict: Serialized model weights/state.
+        """
         self.loaded_state = state_dict
 
 
-def _write_outer_results(path, metric_key: str, train: float, val: float, test: float):
+def _write_outer_results(
+    path, metric_key: str, train: float, val: float, test: float
+):
+    """
+    Write an ``outer_results.json`` file with a minimal metric payload.
+
+    Args:
+        path: Destination file path.
+        metric_key: Metric name key to write.
+        train: Training score.
+        val: Validation score.
+        test: Test score.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "outer_train": {metric_key: train, f"{metric_key}_std": 0.0},
@@ -84,7 +116,19 @@ def _write_outer_results(path, metric_key: str, train: float, val: float, test: 
     path.write_text(json.dumps(payload))
 
 
-def _write_assessment_results(path, metric_key: str, train: float, val: float, test: float):
+def _write_assessment_results(
+    path, metric_key: str, train: float, val: float, test: float
+):
+    """
+    Write an ``assessment_results.json`` file with a minimal metric payload.
+
+    Args:
+        path: Destination file path.
+        metric_key: Metric name key to write.
+        train: Training score.
+        val: Validation score.
+        test: Test score.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         f"avg_training_{metric_key}": train,
@@ -98,6 +142,14 @@ def _write_assessment_results(path, metric_key: str, train: float, val: float, t
 
 
 def _write_final_run_results(path, metric_key: str, test_value: float):
+    """
+    Write a serialized final-run results tuple to a dill file.
+
+    Args:
+        path: Destination file path.
+        metric_key: Score key to include.
+        test_value: Test score value to store.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
     training_res = {SCORE: {metric_key: 0.0}}
     validation_res = {SCORE: {metric_key: 0.0}}
@@ -135,7 +187,9 @@ def test_retrieve_experiments_and_best_config(tmp_path):
     assert results[0]["exp_folder"] == str(config_1)
 
     winner = {"winner": True, "config_id": 1}
-    (model_selection_folder / "winner_config.json").write_text(json.dumps(winner))
+    (model_selection_folder / "winner_config.json").write_text(
+        json.dumps(winner)
+    )
     assert retrieve_best_configuration(str(model_selection_folder)) == winner
 
 
@@ -171,7 +225,13 @@ def test_create_dataframe_and_filter_experiments_nested_keys():
             ("missing_hp", str),
         ],
     )
-    assert list(df.columns) == ["device", "hidden", "lr", "missing_hp", "exp_folder"]
+    assert list(df.columns) == [
+        "device",
+        "hidden",
+        "lr",
+        "missing_hp",
+        "exp_folder",
+    ]
     assert df.loc[0, "hidden"] == 32
     assert df.loc[1, "lr"] == pytest.approx(0.01)
     assert pd.isna(df.loc[0, "missing_hp"])
@@ -184,7 +244,10 @@ def test_create_dataframe_and_filter_experiments_nested_keys():
     filtered_or = filter_experiments(
         configs, logic="OR", parameters={"device": "cuda", "hidden": 32}
     )
-    assert {c["exp_folder"] for c in filtered_or} == {"/tmp/exp_a", "/tmp/exp_b"}
+    assert {c["exp_folder"] for c in filtered_or} == {
+        "/tmp/exp_a",
+        "/tmp/exp_b",
+    }
 
     with pytest.raises(ValueError, match="AND/OR"):
         filter_experiments(configs, logic="XOR", parameters={"device": "cpu"})
@@ -211,10 +274,7 @@ def test_scores_and_latex_table_generation(tmp_path):
         test=0.3,
     )
     _write_outer_results(
-        exp_folder
-        / MODEL_ASSESSMENT
-        / "OUTER_FOLD_1"
-        / "outer_results.json",
+        exp_folder / MODEL_ASSESSMENT / "OUTER_FOLD_1" / "outer_results.json",
         metric_key,
         train=0.11,
         val=0.21,
@@ -225,7 +285,9 @@ def test_scores_and_latex_table_generation(tmp_path):
     assert scores["test"] == pytest.approx(0.3)
     assert scores["test_std"] == pytest.approx(0.0)
 
-    outer_scores = get_scores_from_outer_results(str(exp_folder), 1, metric_key)
+    outer_scores = get_scores_from_outer_results(
+        str(exp_folder), 1, metric_key
+    )
     assert outer_scores["validation"] == pytest.approx(0.21)
     assert outer_scores["validation_std"] == pytest.approx(0.0)
 
@@ -273,7 +335,9 @@ def test_metric_samples_collection_and_statistical_significance(tmp_path):
     assert np.allclose(samples, np.array([0.2, 0.4], dtype=float))
 
     with pytest.raises(ValueError, match="set_key must be one of"):
-        _collect_metric_samples(str(exp_final_runs), metric_key, set_key="oops")
+        _collect_metric_samples(
+            str(exp_final_runs), metric_key, set_key="oops"
+        )
 
     with pytest.raises(ValueError, match="No final run results found"):
         _load_final_run_metric_samples(

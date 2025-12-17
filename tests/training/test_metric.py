@@ -1,3 +1,8 @@
+"""Unit tests for metric callbacks.
+
+Covers :class:`~mlwiz.training.callback.metric.Metric` and composite metrics such as ``AdditiveLoss`` and ``MultiScore``.
+"""
+
 from typing import Tuple, List
 
 import pytest

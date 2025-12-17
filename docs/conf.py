@@ -1,3 +1,8 @@
+"""Sphinx configuration for building the MLWiz documentation.
+
+Defines extensions, mocked imports for autodoc, and HTML theme options.
+"""
+
 # Configuration file for the Sphinx documentation builder.
 #
 # This file only contains a selection of the most common options. For a full
@@ -20,7 +25,7 @@ sys.path.insert(0, os.path.abspath("../"))
 # -- Project information -----------------------------------------------------
 
 project = "MLWiz"
-copyright = "2024-ongoing, Federico Errica"
+copyright = "2024-present, Federico Errica"
 author = "Federico Errica"
 
 # The full version, including alpha/beta/rc tags

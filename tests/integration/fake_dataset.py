@@ -1,3 +1,8 @@
+"""Fake dataset implementations used by the test suite.
+
+Provides small in-memory datasets for vector, temporal, graph, and iterable workflows.
+"""
+
 from pathlib import Path
 from typing import Union, Tuple, List, Callable, Optional
 
@@ -9,6 +14,8 @@ from mlwiz.util import atomic_dill_save
 
 
 class FakeMNIST(DatasetInterface):
+    """Small in-memory MNIST-like dataset for integration tests."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the (flattened) MNIST input dimension (28 * 28)."""
@@ -36,6 +43,8 @@ class FakeMNIST(DatasetInterface):
 
 
 class FakeMNISTTemporal(DatasetInterface):
+    """Small in-memory temporal dataset for integration tests."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the per-timestep feature dimension (4)."""
@@ -64,6 +73,8 @@ class FakeMNISTTemporal(DatasetInterface):
 
 
 class FakeNCI1(DatasetInterface):
+    """Small in-memory graph classification dataset for integration tests."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the node feature dimension (4)."""
@@ -101,6 +112,8 @@ class FakeNCI1(DatasetInterface):
 
 
 class FakeCora(DatasetInterface):
+    """Small in-memory single-graph node classification dataset for integration tests."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the node feature dimension (4)."""
@@ -137,6 +150,8 @@ class FakeCora(DatasetInterface):
 
 
 class ToyIterableDataset(IterableDatasetInterface):
+    """File-backed iterable dataset stub used by IterableDataProvider tests."""
+
     @property
     def url_indices(self) -> List[Path]:
         r"""

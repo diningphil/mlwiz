@@ -1,3 +1,8 @@
+"""Gradient clipping callback for the training engine.
+
+Defines :class:`~mlwiz.training.callback.gradient_clipping.GradientClipper`.
+"""
+
 from torch.nn.utils import clip_grad_value_
 
 from mlwiz.training.event.handler import EventHandler

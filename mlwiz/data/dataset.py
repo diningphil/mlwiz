@@ -1,3 +1,8 @@
+"""Dataset interfaces and reference dataset implementations.
+
+Defines :class:`~mlwiz.data.dataset.DatasetInterface` and iterable variants plus small built-in datasets.
+"""
+
 import os
 from pathlib import Path
 from random import shuffle
@@ -250,6 +255,8 @@ class DatasetInterface:
 
 
 class MNIST(DatasetInterface):
+    """Torchvision MNIST dataset wrapper stored as a single processed file."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the flattened MNIST input dimension (28 * 28)."""
@@ -418,6 +425,8 @@ class Cora(DatasetInterface):
 
 
 class _ReshapeMNISTTemporal(torch.nn.Module):
+    """Transform that reshapes MNIST images into a length-28 sequence."""
+
     def __call__(self, img: torch.Tensor):
         """
         Reshape an MNIST tensor into a sequence of vectors.
@@ -435,6 +444,8 @@ class _ReshapeMNISTTemporal(torch.nn.Module):
 
 
 class MNISTTemporal(DatasetInterface):
+    """MNIST variant where each sample is a sequence of 28 timesteps."""
+
     @property
     def dim_input_features(self) -> Union[int, Tuple[int]]:
         """Return the per-timestep input dimension (28)."""
@@ -793,6 +804,8 @@ class IterableDatasetInterface(torch.utils.data.IterableDataset):
 
 
 class ToyIterableDataset(IterableDatasetInterface):
+    """Small synthetic iterable dataset used for tests/examples."""
+
     def __init__(
         self,
         storage_folder: str,

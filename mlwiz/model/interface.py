@@ -1,3 +1,8 @@
+"""Abstract model interface expected by the training engine.
+
+Defines :class:`~mlwiz.model.interface.ModelInterface`, a :class:`torch.nn.Module` with a standardized forward signature.
+"""
+
 from typing import Tuple, Optional, List, Union
 
 import torch

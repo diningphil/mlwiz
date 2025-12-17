@@ -1,3 +1,8 @@
+"""Tests for dataset splitting utilities.
+
+Checks overlap and size consistency for standard and single-graph splitters.
+"""
+
 import shutil
 
 import pytest

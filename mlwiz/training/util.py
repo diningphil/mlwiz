@@ -1,3 +1,8 @@
+"""Training utility helpers.
+
+Includes :func:`~mlwiz.training.util.atomic_torch_save` for safely writing checkpoint dictionaries.
+"""
+
 import os
 
 import torch

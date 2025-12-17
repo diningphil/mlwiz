@@ -1,3 +1,8 @@
+"""Base callback interface for the training event system.
+
+Defines the set of hook methods that callbacks may implement.
+"""
+
 from mlwiz.training.event.state import State
 
 

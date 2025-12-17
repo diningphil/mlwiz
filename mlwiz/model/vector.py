@@ -1,3 +1,8 @@
+"""Vector and image model implementations.
+
+Contains simple :class:`~mlwiz.model.vector.MLP` and :class:`~mlwiz.model.vector.CNN` reference models.
+"""
+
 from typing import List, Optional, Tuple, Union
 
 import torch

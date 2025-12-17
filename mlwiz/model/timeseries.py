@@ -1,3 +1,8 @@
+"""Sequence and time-series model implementations.
+
+Contains :class:`~mlwiz.model.timeseries.GRU`, a small reference model used by examples and tests.
+"""
+
 from typing import List, Optional, Tuple, Union
 
 import torch

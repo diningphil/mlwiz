@@ -1,3 +1,8 @@
+"""Engine callback implementations for data fetching and checkpointing.
+
+Provides :class:`~mlwiz.training.callback.engine_callback.EngineCallback` and iterable-dataset variants.
+"""
+
 import copy
 import os
 from pathlib import Path

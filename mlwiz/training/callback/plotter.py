@@ -1,3 +1,8 @@
+"""TensorBoard logging callback for training runs.
+
+The :class:`~mlwiz.training.callback.plotter.Plotter` writes per-epoch metrics and optional on-disk histories.
+"""
+
 import os
 from pathlib import Path
 

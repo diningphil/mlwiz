@@ -348,13 +348,28 @@ Navigating the live progress UI
 The progress screen is interactive. Press ``:`` to open the small prompt in the bottom-right corner, type a command, and
 hit ``Enter`` to switch what is rendered without stopping the run. Useful commands:
 
-- ``g`` or ``global`` (or simply ``Enter`` on an empty prompt): go back to the default overview with all progress bars.
-- ``r`` or ``refresh``: redraw the currently selected view (handy if the terminal layout gets messy).
-- ``<outer> <run>`` (e.g., ``1 2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
-- ``<outer> <inner> <config> <run>`` (e.g., ``2 1 3 1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
+- ``:`` (or ``:g`` / ``:global``): go back to the default overview with all progress bars.
+- ``:r`` (or ``:refresh``): redraw the currently selected view (handy if the terminal layout gets messy).
+- ``:<outer> <run>`` (e.g., ``:1 2``): focus the *risk assessment* run number ``run`` of outer fold ``outer`` (numbers start at 1).
+- ``:<outer> <inner> <config> <run>`` (e.g., ``:2 1 3 1``): focus a *model selection* run for a specific config inside an outer/inner fold pair.
+
+Global overview (default view):
+
+.. image:: _static/exp_gui.png
+   :width: 600
 
 If an identifier is invalid or the run has not produced updates yet, MLWiz will print a short hint and keep listening so
 you can try again.
+
+You can also use the arrow keys:
+
+- **left/right**: move across runs/configurations within the currently selected view.
+- **up/down**: toggle between the most recently visited model selection view and risk assessment view.
+
+Focused run view (same as what you see when running with ``--debug``):
+
+.. image:: _static/run_view.png
+   :width: 600
 
 To stop the computation, use ``CTRL-C`` to send a ``SIGINT`` signal, and consider using the command ``ray stop`` to stop
 all Ray processes. **Warning:** ``ray stop`` stops **all** ray processes you have launched, including those of other

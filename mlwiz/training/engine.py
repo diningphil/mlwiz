@@ -1,3 +1,8 @@
+"""Training and evaluation loop implementation.
+
+Defines :class:`~mlwiz.training.engine.TrainingEngine` and helpers for checkpointing, metric reporting, and batching.
+"""
+
 import os
 from pathlib import Path
 from typing import Callable, List, Union, Tuple, Optional
