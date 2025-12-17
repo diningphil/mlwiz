@@ -11,7 +11,11 @@ import pytest
 import torch
 
 from mlwiz.static import LOSSES, SCORES
-from mlwiz.training.callback.scheduler import EpochScheduler, MetricScheduler, Scheduler
+from mlwiz.training.callback.scheduler import (
+    EpochScheduler,
+    MetricScheduler,
+    Scheduler,
+)
 from mlwiz.training.event.state import State
 
 
@@ -80,7 +84,9 @@ def test_scheduler_loads_state_on_fit_start():
     """
     ``Scheduler.on_fit_start`` should restore state when a checkpoint state exists.
     """
-    sched = Scheduler(f"{__name__}.DummyTorchScheduler", _make_optimizer(), foo=1)
+    sched = Scheduler(
+        f"{__name__}.DummyTorchScheduler", _make_optimizer(), foo=1
+    )
     state = State(model=None, optimizer=None, device="cpu")
     state.scheduler_state = {"restored": True}
 
@@ -92,7 +98,9 @@ def test_epoch_scheduler_steps_and_persists_state():
     """
     ``EpochScheduler`` should call ``step()`` and store the scheduler state on epoch end.
     """
-    sched = EpochScheduler(f"{__name__}.DummyTorchScheduler", _make_optimizer())
+    sched = EpochScheduler(
+        f"{__name__}.DummyTorchScheduler", _make_optimizer()
+    )
     state = State(model=None, optimizer=None, device="cpu")
 
     sched.on_training_epoch_end(state)

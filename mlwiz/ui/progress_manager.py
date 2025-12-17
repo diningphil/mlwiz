@@ -383,9 +383,7 @@ class ProgressManager:
         )
         return msg, progress_msg
 
-    def _selection_view_state(
-        self, values: Sequence[int]
-    ) -> Tuple[dict, str]:
+    def _selection_view_state(self, values: Sequence[int]) -> Tuple[dict, str]:
         """Prepare header/message pair for a specific model selection run view."""
         outer, inner, config, run = values
         self._last_seen_model_selection_identifier = (
@@ -421,7 +419,12 @@ class ProgressManager:
         print(msg)
 
     def _get_progress_text(
-        self, container: dict, outer: int, run: int, inner: int = None, config: int = None
+        self,
+        container: dict,
+        outer: int,
+        run: int,
+        inner: int = None,
+        config: int = None,
     ) -> str:
         """Fetch the last stored progress text for the given run coordinates."""
         current = container.get(outer, {})
@@ -932,9 +935,7 @@ class ProgressManager:
         if msg_type == START_CONFIG:
             # Avoid changing the header while a specific configuration view is active.
             if inner_fold is None and self._is_active_view(msg):
-                render_state.header = (
-                    f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
-                )
+                render_state.header = f"Risk assessment run {run_id + 1} for outer fold {outer_fold + 1}..."
             elif self._is_active_view(msg):
                 render_state.header = (
                     f"Model selection run {run_id + 1} for config {config_id + 1} "
@@ -1199,7 +1200,9 @@ class ProgressManager:
         """Render the global header using the stored render state."""
         if self.debug:
             return
-        header = self._render_state.global_header or self._build_global_header()
+        header = (
+            self._render_state.global_header or self._build_global_header()
+        )
         self._render_state.global_header = header
         self._append_to_buffer(header)
         self._flush_buffer(render_overlay=False)
@@ -1228,12 +1231,12 @@ class ProgressManager:
             mean_time = str(datetime.timedelta(seconds=mean_seconds)).split(
                 "."
             )[0]
-            min_time = str(datetime.timedelta(seconds=min_seconds)).split(
-                "."
-            )[0]
-            max_time = str(datetime.timedelta(seconds=max_seconds)).split(
-                "."
-            )[0]
+            min_time = str(datetime.timedelta(seconds=min_seconds)).split(".")[
+                0
+            ]
+            max_time = str(datetime.timedelta(seconds=max_seconds)).split(".")[
+                0
+            ]
 
             pbar.set_postfix_str(
                 f"min:{min_time}|avg:{mean_time}|max:{max_time}"

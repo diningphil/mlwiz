@@ -80,9 +80,9 @@ def test_extract_and_sum_elapsed_seconds_sums_all_matches(tmp_path):
         )
     )
 
-    assert evaluator.extract_and_sum_elapsed_seconds(str(log_path)) == pytest.approx(
-        3.5
-    )
+    assert evaluator.extract_and_sum_elapsed_seconds(
+        str(log_path)
+    ) == pytest.approx(3.5)
 
 
 def test_mean_std_ci_matches_numpy():
@@ -97,6 +97,7 @@ def test_mean_std_ci_matches_numpy():
 
 def test_push_progress_update_deepcopies_payload():
     """Progress updates should deepcopy payloads before forwarding."""
+
     class _Recorder:
         """Actor method stub that records received payloads."""
 
@@ -120,16 +121,24 @@ def test_push_progress_update_deepcopies_payload():
 def test_get_ray_num_gpus_per_task_parses_env(monkeypatch):
     """GPU env parsing should handle unset/invalid/negative values."""
     monkeypatch.delenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, raising=False)
-    assert evaluator._get_ray_num_gpus_per_task(default=0.3) == pytest.approx(0.3)
+    assert evaluator._get_ray_num_gpus_per_task(default=0.3) == pytest.approx(
+        0.3
+    )
 
     monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "0.5")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.0) == pytest.approx(0.5)
+    assert evaluator._get_ray_num_gpus_per_task(default=0.0) == pytest.approx(
+        0.5
+    )
 
     monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "-1")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.7) == pytest.approx(0.7)
+    assert evaluator._get_ray_num_gpus_per_task(default=0.7) == pytest.approx(
+        0.7
+    )
 
     monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "not-a-float")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.9) == pytest.approx(0.9)
+    assert evaluator._get_ray_num_gpus_per_task(default=0.9) == pytest.approx(
+        0.9
+    )
 
 
 def test_set_cuda_memory_limit_from_env_calls_torch_cuda(monkeypatch):
@@ -177,6 +186,7 @@ def test_set_cuda_memory_limit_from_env_calls_torch_cuda(monkeypatch):
 
 def test_make_termination_checker_errs_on_safe_side(monkeypatch):
     """If the actor cannot be queried, the checker should return True."""
+
     class _Terminated:
         """Actor method stub returning an opaque reference."""
 
@@ -187,9 +197,15 @@ def test_make_termination_checker_errs_on_safe_side(monkeypatch):
     actor = types.SimpleNamespace(is_terminated=_Terminated())
 
     monkeypatch.setattr(evaluator.time, "time", lambda: 1.0)
-    monkeypatch.setattr(evaluator.ray, "get", lambda _obj: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        evaluator.ray,
+        "get",
+        lambda _obj: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
 
-    should_terminate = evaluator._make_termination_checker(actor, min_interval=0.0)
+    should_terminate = evaluator._make_termination_checker(
+        actor, min_interval=0.0
+    )
     assert should_terminate() is True
 
 
@@ -214,7 +230,9 @@ def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
             """Return a fixed termination status."""
             return False
 
-    progress_actor = types.SimpleNamespace(push=_Push(), is_terminated=_Terminated())
+    progress_actor = types.SimpleNamespace(
+        push=_Push(), is_terminated=_Terminated()
+    )
 
     class _DatasetGetter:
         """Minimal dataset getter stub exposing ``outer_k`` and ``inner_k`` fields."""
@@ -254,11 +272,15 @@ def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
         ):
             """Write an experiment log and return deterministic train/val results."""
             os.makedirs(self.exp_path, exist_ok=True)
-            with open(os.path.join(self.exp_path, EXPERIMENT_LOGFILE), "w") as f:
+            with open(
+                os.path.join(self.exp_path, EXPERIMENT_LOGFILE), "w"
+            ) as f:
                 f.write("Total time of the experiment in seconds: 1.5 \n")
                 f.write("Total time of the experiment in seconds: 2 \n")
             if progress_callback is not None:
-                progress_callback({"type": "progress", "outer": dataset_getter.outer_k})
+                progress_callback(
+                    {"type": "progress", "outer": dataset_getter.outer_k}
+                )
             return (
                 {LOSS: {MAIN_LOSS: 1.0}, SCORE: {MAIN_SCORE: 2.0}},
                 {LOSS: {MAIN_LOSS: 3.0}, SCORE: {MAIN_SCORE: 4.0}},
@@ -274,10 +296,14 @@ def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
         ):
             """Write an experiment log and return deterministic train/val/test results."""
             os.makedirs(self.exp_path, exist_ok=True)
-            with open(os.path.join(self.exp_path, EXPERIMENT_LOGFILE), "w") as f:
+            with open(
+                os.path.join(self.exp_path, EXPERIMENT_LOGFILE), "w"
+            ) as f:
                 f.write("Total time of the experiment in seconds: 1 \n")
             if progress_callback is not None:
-                progress_callback({"type": "progress", "outer": dataset_getter.outer_k})
+                progress_callback(
+                    {"type": "progress", "outer": dataset_getter.outer_k}
+                )
             return (
                 {LOSS: {MAIN_LOSS: 1.0}, SCORE: {MAIN_SCORE: 2.0}},
                 {LOSS: {MAIN_LOSS: 3.0}, SCORE: {MAIN_SCORE: 4.0}},

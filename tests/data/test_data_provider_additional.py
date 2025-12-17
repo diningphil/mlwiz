@@ -112,7 +112,9 @@ def test_data_provider_get_dataset_caches_default_instance(monkeypatch):
     assert provider.get_dim_target() == 3
 
 
-def test_data_provider_get_dataset_reloads_when_runtime_kwargs_present(monkeypatch):
+def test_data_provider_get_dataset_reloads_when_runtime_kwargs_present(
+    monkeypatch,
+):
     """Ensure runtime kwargs bypass provider-level dataset caching."""
     created = []
 
@@ -232,6 +234,7 @@ def test_data_provider_dim_access_requires_loader_initialization():
 
 def test_iterable_worker_init_fn_raises_when_num_workers_zero(monkeypatch):
     """``_iterable_worker_init_fn`` should error if invoked without worker context."""
+
     @dataclass
     class _WorkerInfo:
         """Minimal worker-info stand-in for unit tests."""
@@ -279,7 +282,9 @@ def test_iterable_worker_init_fn_partitions_and_splices_dataset(monkeypatch):
     monkeypatch.setattr(
         provider_mod,
         "seed_worker",
-        lambda exp_seed, worker_id: calls["seed"].append((exp_seed, worker_id)),
+        lambda exp_seed, worker_id: calls["seed"].append(
+            (exp_seed, worker_id)
+        ),
     )
 
     _iterable_worker_init_fn(worker_id=1, exp_seed=42)

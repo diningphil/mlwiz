@@ -124,7 +124,9 @@ def test_check_termination_behaviors(tmp_path):
         engine._check_termination()
 
 
-def test_infer_sequential_sampler_requires_no_permutation_and_sets_main_keys(tmp_path):
+def test_infer_sequential_sampler_requires_no_permutation_and_sets_main_keys(
+    tmp_path,
+):
     """infer() with SequentialSampler should not require a permutation and should set MAIN_* keys."""
     x = torch.arange(5, dtype=torch.float32).unsqueeze(1)
     y = torch.arange(5, dtype=torch.float32).unsqueeze(1)

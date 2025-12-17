@@ -2,4 +2,3 @@
 
 Defines core types for dispatching events and sharing training state.
 """
-

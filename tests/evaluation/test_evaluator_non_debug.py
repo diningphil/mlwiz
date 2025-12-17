@@ -47,7 +47,9 @@ class FastExperiment:
     :mod:`mlwiz.evaluation.evaluator`.
     """
 
-    def __init__(self, model_configuration: dict, exp_path: str, exp_seed: int):
+    def __init__(
+        self, model_configuration: dict, exp_path: str, exp_seed: int
+    ):
         """
         Initialize the fast experiment stub.
 
@@ -116,6 +118,7 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
     - model selection chooses the higher-scoring config (hp_id=1),
     - final-run aggregation produces assessment results.
     """
+
     # Avoid starting the interactive input listener (cbreak mode) in TTYs.
     class _NoTtyStdin:
         """stdin stand-in that always reports non-interactive mode."""
@@ -125,7 +128,9 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
             return False
 
     monkeypatch.setattr(sys, "stdin", _NoTtyStdin())
-    monkeypatch.setattr(ProgressManager, "_register_resize_handler", lambda _self: None)
+    monkeypatch.setattr(
+        ProgressManager, "_register_resize_handler", lambda _self: None
+    )
 
     configs_dict = {
         EXP_NAME: "fast_non_debug",

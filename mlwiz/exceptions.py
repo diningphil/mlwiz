@@ -3,6 +3,7 @@
 Defines termination-related exceptions raised by the evaluator and experiment wrapper.
 """
 
+
 class TerminationRequested(Exception):
     """Raised when a graceful termination has been requested."""
 

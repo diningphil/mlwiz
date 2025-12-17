@@ -56,7 +56,9 @@ def test_build_dataset_main_calls_preprocess(monkeypatch, tmp_path):
         """Capture forwarded config options from ``preprocess_data``."""
         captured.update(options)
 
-    monkeypatch.setattr("mlwiz.build_dataset.preprocess_data", _fake_preprocess)
+    monkeypatch.setattr(
+        "mlwiz.build_dataset.preprocess_data", _fake_preprocess
+    )
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -72,7 +74,9 @@ def test_build_dataset_main_calls_preprocess(monkeypatch, tmp_path):
     assert captured[SKIP_SPLITS_CHECK] is True
 
 
-def test_config_duplicator_creates_dataset_specific_files(monkeypatch, tmp_path):
+def test_config_duplicator_creates_dataset_specific_files(
+    monkeypatch, tmp_path
+):
     """
     ``mlwiz-config-duplicator`` should merge base and dataset configs into new YAMLs.
     """
@@ -122,7 +126,9 @@ def test_config_duplicator_creates_dataset_specific_files(monkeypatch, tmp_path)
     )
 
 
-def test_config_duplicator_exits_with_usage_on_missing_args(monkeypatch, capsys):
+def test_config_duplicator_exits_with_usage_on_missing_args(
+    monkeypatch, capsys
+):
     """
     ``config_duplicator.main`` should exit with usage when invoked incorrectly.
     """

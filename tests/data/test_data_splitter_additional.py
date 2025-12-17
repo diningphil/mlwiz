@@ -68,7 +68,7 @@ class _LenOnlyDataset:
 def test_no_shuffle_train_test_split_is_deterministic():
     """_NoShuffleTrainTestSplit should split deterministically without shuffling."""
     splitter = _NoShuffleTrainTestSplit(test_ratio=0.2)
-    (train_idxs, test_idxs), = splitter.split(list(range(10)))
+    ((train_idxs, test_idxs),) = splitter.split(list(range(10)))
 
     assert train_idxs.tolist() == list(range(8))
     assert test_idxs.tolist() == [8, 9]
@@ -193,7 +193,9 @@ def test_check_splits_overlap_raises_when_inner_fold_has_test_indices():
         [InnerFold(train_idxs=[0], val_idxs=[1], test_idxs=[2])]
     ]
 
-    with pytest.raises(RuntimeError, match="Test indices should not be present"):
+    with pytest.raises(
+        RuntimeError, match="Test indices should not be present"
+    ):
         splitter.check_splits_overlap()
 
 
@@ -223,27 +225,28 @@ def test_save_and_load_roundtrip(tmp_path):
     assert len(loaded.inner_folds) == len(splitter.inner_folds)
 
     for outer_k in range(splitter.n_outer_folds):
-        assert loaded.outer_folds[outer_k].train_idxs == splitter.outer_folds[
-            outer_k
-        ].train_idxs
-        assert loaded.outer_folds[outer_k].val_idxs == splitter.outer_folds[
-            outer_k
-        ].val_idxs
-        assert loaded.outer_folds[outer_k].test_idxs == splitter.outer_folds[
-            outer_k
-        ].test_idxs
+        assert (
+            loaded.outer_folds[outer_k].train_idxs
+            == splitter.outer_folds[outer_k].train_idxs
+        )
+        assert (
+            loaded.outer_folds[outer_k].val_idxs
+            == splitter.outer_folds[outer_k].val_idxs
+        )
+        assert (
+            loaded.outer_folds[outer_k].test_idxs
+            == splitter.outer_folds[outer_k].test_idxs
+        )
 
         for inner_k in range(splitter.n_inner_folds):
-            assert loaded.inner_folds[outer_k][inner_k].train_idxs == splitter.inner_folds[
-                outer_k
-            ][
-                inner_k
-            ].train_idxs
-            assert loaded.inner_folds[outer_k][inner_k].val_idxs == splitter.inner_folds[
-                outer_k
-            ][
-                inner_k
-            ].val_idxs
+            assert (
+                loaded.inner_folds[outer_k][inner_k].train_idxs
+                == splitter.inner_folds[outer_k][inner_k].train_idxs
+            )
+            assert (
+                loaded.inner_folds[outer_k][inner_k].val_idxs
+                == splitter.inner_folds[outer_k][inner_k].val_idxs
+            )
 
 
 def test_load_validates_fold_counts(tmp_path):
@@ -261,7 +264,9 @@ def test_load_validates_fold_counts(tmp_path):
     invalid_outer = {
         "splitter_class": "mlwiz.data.splitter.Splitter",
         "splitter_args": dict(base_args),
-        "outer_folds": [{"train": [0], "val": [1], "test": [2]}],  # should be 2
+        "outer_folds": [
+            {"train": [0], "val": [1], "test": [2]}
+        ],  # should be 2
         "inner_folds": [[{"train": [0], "val": [1]}]],
     }
     invalid_outer_path = tmp_path / "invalid_outer.splits"
@@ -272,9 +277,14 @@ def test_load_validates_fold_counts(tmp_path):
 
     invalid_inner = {
         "splitter_class": "mlwiz.data.splitter.Splitter",
-        "splitter_args": {"n_outer_folds": 1, **dict(base_args, n_outer_folds=1)},
+        "splitter_args": {
+            "n_outer_folds": 1,
+            **dict(base_args, n_outer_folds=1),
+        },
         "outer_folds": [{"train": [0], "val": [1], "test": [2]}],
-        "inner_folds": [[{"train": [0], "val": [1]}]],  # should be 1 inner fold? set to 1
+        "inner_folds": [
+            [{"train": [0], "val": [1]}]
+        ],  # should be 1 inner fold? set to 1
     }
     # Force mismatch: expect 2 inner folds but provide 1.
     invalid_inner["splitter_args"]["n_inner_folds"] = 2
