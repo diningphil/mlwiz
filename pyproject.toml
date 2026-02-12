@@ -13,6 +13,7 @@ packages = [
     "mlwiz.training",
     "mlwiz.training.callback",
     "mlwiz.training.event",
+    "mlwiz.ui",
 ]
 
 [project]
