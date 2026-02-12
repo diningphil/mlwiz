@@ -64,7 +64,7 @@ class _FixedPermutationSampler(Sampler[int]):
             data_source: Dataset being sampled.
             permutation (Sequence[int]): Fixed index order for iteration.
         """
-        super().__init__(data_source)
+        super().__init__()
         self.data_source = data_source
         self.permutation = permutation
 
