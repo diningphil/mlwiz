@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.4.1] Minor fix in toml
+
+## Fixed
+
+- added mlwiz.ui to TOML file
+
 ## [1.4.0] Refactoring, adding Docstrings, more Tests, improvements
 
 ## Changed
