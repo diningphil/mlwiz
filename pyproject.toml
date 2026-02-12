@@ -18,7 +18,7 @@ packages = [
 
 [project]
 name = "mlwiz"
-version = "1.4.0"
+version = "1.4.1"
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"
