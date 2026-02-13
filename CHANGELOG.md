@@ -5,6 +5,7 @@
 ## Fixed
 
 - added mlwiz.ui to TOML file
+- fixed test due to Torch >= 1.9
 
 ## [1.4.0] Refactoring, adding Docstrings, more Tests, improvements
 
