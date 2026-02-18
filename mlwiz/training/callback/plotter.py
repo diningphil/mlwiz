@@ -3,7 +3,6 @@
 The :class:`~mlwiz.training.callback.plotter.Plotter` writes per-epoch metrics and optional on-disk histories.
 """
 
-import os
 from pathlib import Path
 
 import torch
@@ -22,6 +21,16 @@ from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save
 
 
+class _NullSummaryWriter:
+    """Drop-in writer used when TensorBoard logging is disabled."""
+
+    def add_scalars(self, *args, **kwargs):
+        """Ignore scalar logging calls."""
+
+    def close(self):
+        """No-op close for API compatibility."""
+
+
 class Plotter(EventHandler):
     r"""
     Plotter is the main event handler for plotting at training time.
@@ -34,7 +43,11 @@ class Plotter(EventHandler):
     """
 
     def __init__(
-        self, exp_path: str, store_on_disk: bool = False, **kwargs: dict
+        self,
+        exp_path: str,
+        store_on_disk: bool = False,
+        enable_tensorboard: bool = True,
+        **kwargs: dict,
     ):
         r"""
         Initialize the plotter and tensorboard writer.
@@ -44,25 +57,34 @@ class Plotter(EventHandler):
             store_on_disk (bool): If ``True``, persist raw metric histories to
                 ``metrics_data.torch`` in ``exp_path`` in addition to
                 tensorboard summaries.
+            enable_tensorboard (bool): If ``False``, skip TensorBoard event
+                file creation and only keep optional ``metrics_data.torch``
+                persistence.
             **kwargs: Unused extra arguments (kept for configuration
                 compatibility).
 
         Side effects:
-            Creates the tensorboard folder if missing, instantiates a
-            :class:`torch.utils.tensorboard.SummaryWriter`, and loads previously
-            stored metrics if present.
+            When ``enable_tensorboard`` is ``True``, creates the tensorboard
+            folder if missing and instantiates a
+            :class:`torch.utils.tensorboard.SummaryWriter`. Always loads
+            previously stored metrics if present.
         """
         super().__init__()
         self.exp_path = exp_path
         self.store_on_disk = store_on_disk
+        self.enable_tensorboard = enable_tensorboard
 
-        if not os.path.exists(Path(self.exp_path, TENSORBOARD)):
-            os.makedirs(Path(self.exp_path, TENSORBOARD))
-        self.writer = SummaryWriter(log_dir=Path(self.exp_path, "tensorboard"))
+        if self.enable_tensorboard:
+            tensorboard_dir = Path(self.exp_path, TENSORBOARD)
+            tensorboard_dir.mkdir(parents=True, exist_ok=True)
+            self.writer = SummaryWriter(log_dir=tensorboard_dir)
+        else:
+            # Keep the same writer API while preventing any TensorBoard files.
+            self.writer = _NullSummaryWriter()
 
         self.stored_metrics = {"losses": {}, "scores": {}}
         self.stored_metrics_path = Path(self.exp_path, "metrics_data.torch")
-        if os.path.exists(self.stored_metrics_path):
+        if self.stored_metrics_path.exists():
             self.stored_metrics = torch.load(
                 self.stored_metrics_path, weights_only=True
             )
