@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.2] Version bump
+
+## Changed
+
+- bumped package version to 1.4.2 in `pyproject.toml`
+- bumped docs release version to 1.4.2 in `docs/conf.py`
+- improved plotter to allow disabling tensorboard logging and only store metrics on disk
+
 ## [1.4.1] Minor fix in toml
 
 ## Fixed
