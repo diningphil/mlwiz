@@ -8,7 +8,8 @@ data_splits_file:  # path to data splits file
 device:  # cpu | cuda
 max_cpus:  # > 1 for parallelism
 max_gpus: # > 0 for gpu usage (device must be cuda though)
-gpus_per_task:  # percentage of gpus to allocate for each task
+gpus_per_experiment:  # number of GPUs to allocate to each experiment (DDP if > 1)
+gpu_memory:  # per-process fraction of each visible GPU memory to reserve (0,1]
 
 
 # Data Loading

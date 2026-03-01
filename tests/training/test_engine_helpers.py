@@ -183,3 +183,27 @@ def test_to_data_list_splits_graph_and_node_targets(tmp_path):
     none_list = engine._to_data_list(embeddings, batch, None)
     assert isinstance(none_list[0], Data)
     assert none_list[1][1] is None
+
+
+def test_reorder_ddp_embeddings_from_shards_removes_padding_and_restores_order(
+    tmp_path,
+):
+    """DDP shard merge should deduplicate padded samples and restore dataset order."""
+    engine = _make_engine(tmp_path)
+
+    gathered_data_lists = [
+        [("emb-2", "y2"), ("emb-4", "y4"), ("emb-0-dup", "y0")],
+        [("emb-0", "y0"), ("emb-3", "y3"), ("emb-1", "y1")],
+    ]
+    gathered_local_permutations = [
+        [2, 4, 0],
+        [0, 3, 1],
+    ]
+
+    merged = engine._reorder_ddp_embeddings_from_shards(
+        gathered_data_lists=gathered_data_lists,
+        gathered_local_permutations=gathered_local_permutations,
+        dataset_size=5,
+    )
+
+    assert [emb for emb, _ in merged] == ["emb-0", "emb-1", "emb-2", "emb-3", "emb-4"]

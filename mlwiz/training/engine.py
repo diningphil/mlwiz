@@ -10,8 +10,11 @@ from typing import Callable, List, Union, Tuple, Optional
 
 import time
 import torch
+import torch.distributed as dist
 import torch_geometric
 from torch.utils.data import SequentialSampler
+from torch.utils.data.distributed import DistributedSampler
+from torch.nn.parallel import DistributedDataParallel
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
@@ -188,6 +191,7 @@ class TrainingEngine(EventDispatcher):
         store_last_checkpoint: bool = False,
         mixed_precision: bool = False,
         mixed_precision_dtype: str = "torch.float16",
+        ddp: Optional[dict] = None,
     ):
         """
         Initialize the training engine and register event callbacks.
@@ -244,6 +248,16 @@ class TrainingEngine(EventDispatcher):
         self.store_last_checkpoint = store_last_checkpoint
         self.mixed_precision = mixed_precision
         self.mixed_precision_dtype = mixed_precision_dtype
+        self.ddp = ddp if isinstance(ddp, dict) else {}
+        self.ddp_enabled = bool(self.ddp.get("enabled", False))
+        self.ddp_rank = int(self.ddp.get("rank", 0))
+        self.ddp_world_size = int(self.ddp.get("world_size", 1))
+        self.ddp_local_rank = int(
+            self.ddp.get("local_rank", self.ddp_rank)
+        )
+        self.is_main_process = (
+            (not self.ddp_enabled) or self.ddp_world_size <= 1 or self.ddp_rank == 0
+        )
         self.amp_dtype = s2c(self.mixed_precision_dtype)
         if not isinstance(self.amp_dtype, torch.dtype):
             raise TypeError(
@@ -263,6 +277,7 @@ class TrainingEngine(EventDispatcher):
         )
         self.training = False
         self.logger = None
+        self.forward_model = self.model
 
         self._total_batches = None
         self._should_terminate = None
@@ -298,6 +313,8 @@ class TrainingEngine(EventDispatcher):
         for c in self.callbacks:
             self.register(c)
 
+        self._setup_ddp_model()
+
         self.state = State(
             self.model, self.optimizer, self.device
         )  # Initialize the state
@@ -305,6 +322,8 @@ class TrainingEngine(EventDispatcher):
             exp_path=self.exp_path,
             grad_scaler=self.grad_scaler,
             scaler_state=None,
+            forward_model=self.forward_model,
+            is_main_process=self.is_main_process,
         )
 
     def _check_termination(self):
@@ -321,6 +340,170 @@ class TrainingEngine(EventDispatcher):
             return
         if should_stop:
             raise TerminationRequested("Termination requested.")
+
+    def _setup_ddp_model(self):
+        """
+        Wrap the forward model in DDP when distributed training is enabled.
+        """
+        if not self.ddp_enabled or self.ddp_world_size <= 1:
+            self.forward_model = self.model
+            return
+        if not dist.is_available() or not dist.is_initialized():
+            raise RuntimeError(
+                "DDP is enabled but torch.distributed is not initialized."
+            )
+        if self.device.startswith("cuda"):
+            self.forward_model = DistributedDataParallel(
+                self.model,
+                device_ids=[self.ddp_local_rank],
+                output_device=self.ddp_local_rank,
+            )
+        else:
+            self.forward_model = DistributedDataParallel(self.model)
+
+    def _reduce_mean_tensor(self, tensor: torch.Tensor) -> torch.Tensor:
+        """
+        Average a scalar tensor across DDP ranks when enabled.
+        """
+        if not (self.ddp_enabled and self.ddp_world_size > 1):
+            return tensor
+        if not (dist.is_available() and dist.is_initialized()):
+            return tensor
+
+        original_device = tensor.device
+        reduce_device = (
+            torch.device(self.device)
+            if self.device.startswith("cuda")
+            else torch.device("cpu")
+        )
+        reduced = tensor.detach().to(reduce_device)
+        dist.all_reduce(reduced, op=dist.ReduceOp.SUM)
+        reduced = reduced / float(self.ddp_world_size)
+        return reduced.to(original_device)
+
+    def _reduce_metric_dict(self, metrics: dict) -> dict:
+        """
+        Average all metric values across DDP ranks.
+        """
+        reduced = {}
+        for key, value in metrics.items():
+            if isinstance(value, torch.Tensor):
+                reduced[key] = self._reduce_mean_tensor(value)
+            else:
+                tensor = torch.tensor(float(value), device=self.device)
+                reduced[key] = self._reduce_mean_tensor(tensor).cpu()
+        return reduced
+
+    def _set_distributed_sampler_epoch(
+        self, loader: DataLoader, epoch: int
+    ) -> None:
+        """
+        Set epoch on a DistributedSampler to reshuffle each epoch deterministically.
+        """
+        sampler = getattr(loader, "sampler", None)
+        if isinstance(sampler, DistributedSampler):
+            sampler.set_epoch(epoch)
+
+    @staticmethod
+    def _reorder_ddp_embeddings_from_shards(
+        gathered_data_lists: List[list],
+        gathered_local_permutations: List[List[int]],
+        dataset_size: int,
+    ) -> list:
+        """
+        Reconstruct full-split embeddings from DDP rank shards.
+
+        Rank-local sampled lists are interleaved back in global sampling order,
+        then deduplicated (padding may introduce repeated indices), and finally
+        sorted by dataset index to match non-DDP output ordering.
+        """
+        if dataset_size <= 0:
+            return []
+        if len(gathered_data_lists) != len(gathered_local_permutations):
+            raise ValueError(
+                "DDP gathered data/permutation lists have mismatched rank counts: "
+                f"{len(gathered_data_lists)} vs {len(gathered_local_permutations)}."
+            )
+
+        world_size = len(gathered_data_lists)
+        max_local_len = max(len(rank_data) for rank_data in gathered_data_lists)
+        sampled_pairs = []
+
+        # Rebuild the global sampled stream by rank interleaving:
+        # global[k * world_size + rank] = local_rank[rank][k]
+        for local_idx in range(max_local_len):
+            for rank in range(world_size):
+                rank_data = gathered_data_lists[rank]
+                rank_perm = gathered_local_permutations[rank]
+                if len(rank_data) != len(rank_perm):
+                    raise ValueError(
+                        "DDP gathered local data/permutation lengths differ for rank "
+                        f"{rank}: len(data)={len(rank_data)} len(perm)={len(rank_perm)}."
+                    )
+                if local_idx < len(rank_data):
+                    sampled_pairs.append(
+                        (int(rank_perm[local_idx]), rank_data[local_idx])
+                    )
+
+        if len(sampled_pairs) == 0:
+            return []
+
+        first_seen_by_index = {}
+        for sample_idx, sample in sampled_pairs:
+            if sample_idx not in first_seen_by_index:
+                first_seen_by_index[sample_idx] = sample
+            if len(first_seen_by_index) >= dataset_size:
+                break
+
+        if len(first_seen_by_index) != dataset_size:
+            raise ValueError(
+                "DDP could not reconstruct a full embedding list without gaps: "
+                f"expected {dataset_size} unique indices, got {len(first_seen_by_index)}."
+            )
+
+        return [
+            sample
+            for _, sample in sorted(first_seen_by_index.items(), key=lambda kv: kv[0])
+        ]
+
+    def _gather_and_reorder_ddp_embeddings(
+        self, sampler: DistributedSampler, data_list: list, dataset_size: int
+    ) -> list:
+        """
+        Gather rank-local embedding lists and restore non-DDP ordering.
+        """
+        if not (self.ddp_enabled and self.ddp_world_size > 1):
+            return data_list
+        if not (dist.is_available() and dist.is_initialized()):
+            return data_list
+
+        local_permutation = getattr(sampler, "local_permutation", None)
+        if local_permutation is None:
+            raise ValueError(
+                "DDP inference requires the DataLoader sampler to expose a non-None "
+                "`local_permutation` so embeddings can be merged across ranks."
+            )
+        if isinstance(local_permutation, torch.Tensor):
+            local_permutation = local_permutation.tolist()
+        else:
+            local_permutation = list(local_permutation)
+
+        if len(local_permutation) != len(data_list):
+            raise ValueError(
+                "DDP inference got inconsistent local embedding/permutation lengths: "
+                f"len(data_list)={len(data_list)} len(local_permutation)={len(local_permutation)}."
+            )
+
+        gathered_data_lists = [None for _ in range(self.ddp_world_size)]
+        gathered_local_permutations = [None for _ in range(self.ddp_world_size)]
+        dist.all_gather_object(gathered_data_lists, data_list)
+        dist.all_gather_object(gathered_local_permutations, local_permutation)
+
+        return self._reorder_ddp_embeddings_from_shards(
+            gathered_data_lists=gathered_data_lists,
+            gathered_local_permutations=gathered_local_permutations,
+            dataset_size=dataset_size,
+        )
 
     def _to_data_list(
         self, x: torch.Tensor, batch: torch.Tensor, y: Optional[torch.Tensor]
@@ -427,19 +610,20 @@ class TrainingEngine(EventDispatcher):
         """
         self.model.to(self.device)
         self.loss_fun.to(self.device)
+        self.state.update(forward_model=self.forward_model)
 
     def set_training_mode(self):
         """
         Sets the model and the internal state in ``TRAINING`` mode
         """
-        self.model.train()
+        self.forward_model.train()
         self.training = True
 
     def set_eval_mode(self):
         """
         Sets the model and the internal state in ``EVALUATION`` mode
         """
-        self.model.eval()
+        self.forward_model.eval()
         self.training = False
 
     def _loop_helper(self):
@@ -602,6 +786,9 @@ class TrainingEngine(EventDispatcher):
                 "Ensure the loss Metric callback is registered and the loader yields at least one batch."
             )
         loss, score = self.state.epoch_loss, self.state.epoch_score
+        loss = self._reduce_metric_dict(loss)
+        score = self._reduce_metric_dict(score)
+        self.state.update(epoch_loss=loss, epoch_score=score)
         return loss, score, None
 
     def infer(
@@ -652,6 +839,8 @@ class TrainingEngine(EventDispatcher):
             self.state.epoch_score,
             self.state.epoch_data_list,  # per-sample (embedding, target) tuples when return_embeddings=True
         )
+        loss = self._reduce_metric_dict(loss)
+        score = self._reduce_metric_dict(score)
 
         # Add the main loss we want to return as a special key
         main_loss_name = self.loss_fun.get_main_metric_name()
@@ -687,13 +876,26 @@ class TrainingEngine(EventDispatcher):
                 else:
                     permutation = list(permutation)
 
-                data_list = reorder(
-                    data_list, permutation
-                )  # back to original dataset-index order
+                if isinstance(loader.sampler, DistributedSampler):
+                    if self.ddp_enabled and self.ddp_world_size > 1:
+                        data_list = self._gather_and_reorder_ddp_embeddings(
+                            sampler=loader.sampler,
+                            data_list=data_list,
+                            dataset_size=len(loader.dataset),
+                        )
+                    else:
+                        raise NotImplementedError(
+                            "Inference with a DistributedSampler is only supported "
+                            "when DDP is enabled with world_size > 1."
+                        )
+                else:
+                    data_list = reorder(
+                        data_list, permutation
+                    )  # back to original dataset-index order
 
         return loss, score, data_list
 
-    def train(
+    def _train_single_process(
         self,
         train_loader: DataLoader,
         validation_loader: DataLoader = None,
@@ -748,7 +950,7 @@ class TrainingEngine(EventDispatcher):
             """
             Sends progress updates to an external callback, if provided.
             """
-            if progress_callback is None:
+            if progress_callback is None or not self.is_main_process:
                 return
 
             data = {"type": event_type}
@@ -834,6 +1036,7 @@ class TrainingEngine(EventDispatcher):
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
                 self.state.update(set=TRAINING)
+                self._set_distributed_sampler_epoch(train_loader, epoch)
                 train_loss, train_score, _ = self._train(
                     train_loader, _notify_progress
                 )
@@ -1077,6 +1280,104 @@ class TrainingEngine(EventDispatcher):
             test_loss,
             test_score,
             test_embeddings_tuple,
+        )
+
+    def _train_ddp(
+        self,
+        train_loader: DataLoader,
+        validation_loader: DataLoader = None,
+        test_loader: DataLoader = None,
+        max_epochs: int = 100,
+        zero_epoch: bool = False,
+        logger: Logger = None,
+        training_timeout_seconds: int = -1,
+        progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
+    ) -> Tuple[
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+    ]:
+        """
+        DDP-specific entrypoint; delegates loop logic to the shared implementation.
+        """
+        if not self.ddp_enabled or self.ddp_world_size <= 1:
+            return self._train_single_process(
+                train_loader=train_loader,
+                validation_loader=validation_loader,
+                test_loader=test_loader,
+                max_epochs=max_epochs,
+                zero_epoch=zero_epoch,
+                logger=logger,
+                training_timeout_seconds=training_timeout_seconds,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        return self._train_single_process(
+            train_loader=train_loader,
+            validation_loader=validation_loader,
+            test_loader=test_loader,
+            max_epochs=max_epochs,
+            zero_epoch=zero_epoch,
+            logger=logger,
+            training_timeout_seconds=training_timeout_seconds,
+            progress_callback=progress_callback,
+            should_terminate=should_terminate,
+        )
+
+    def train(
+        self,
+        train_loader: DataLoader,
+        validation_loader: DataLoader = None,
+        test_loader: DataLoader = None,
+        max_epochs: int = 100,
+        zero_epoch: bool = False,
+        logger: Logger = None,
+        training_timeout_seconds: int = -1,
+        progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
+    ) -> Tuple[
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+        dict,
+        dict,
+        List[Union[torch.Tensor, Data]],
+    ]:
+        """
+        Train entrypoint that clearly dispatches between DDP and non-DDP flows.
+        """
+        if self.ddp_enabled and self.ddp_world_size > 1:
+            return self._train_ddp(
+                train_loader=train_loader,
+                validation_loader=validation_loader,
+                test_loader=test_loader,
+                max_epochs=max_epochs,
+                zero_epoch=zero_epoch,
+                logger=logger,
+                training_timeout_seconds=training_timeout_seconds,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        return self._train_single_process(
+            train_loader=train_loader,
+            validation_loader=validation_loader,
+            test_loader=test_loader,
+            max_epochs=max_epochs,
+            zero_epoch=zero_epoch,
+            logger=logger,
+            training_timeout_seconds=training_timeout_seconds,
+            progress_callback=progress_callback,
+            should_terminate=should_terminate,
         )
 
     def _restore_checkpoint_and_best_results(

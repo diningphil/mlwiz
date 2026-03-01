@@ -22,7 +22,8 @@ from mlwiz.static import (
     LOSS,
     MAIN_LOSS,
     MAIN_SCORE,
-    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MLWIZ_RAY_GPU_MEMORY,
+    MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT,
     SCORE,
 )
 from mlwiz.util import dill_load
@@ -119,32 +120,55 @@ def test_push_progress_update_deepcopies_payload():
     assert actor.push.payloads == [{"nested": [1, 2]}]
 
 
-def test_get_ray_num_gpus_per_task_parses_env(monkeypatch):
+def test_get_ray_gpu_memory_parses_env(monkeypatch):
     """GPU env parsing should handle unset/invalid/negative values."""
-    monkeypatch.delenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, raising=False)
-    assert evaluator._get_ray_num_gpus_per_task(default=0.3) == pytest.approx(
+    monkeypatch.delenv(MLWIZ_RAY_GPU_MEMORY, raising=False)
+    assert evaluator._get_ray_gpu_memory(default=0.3) == pytest.approx(
         0.3
     )
 
-    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "0.5")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.0) == pytest.approx(
+    monkeypatch.setenv(MLWIZ_RAY_GPU_MEMORY, "0.5")
+    assert evaluator._get_ray_gpu_memory(default=0.0) == pytest.approx(
         0.5
     )
 
-    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "-1")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.7) == pytest.approx(
+    monkeypatch.setenv(MLWIZ_RAY_GPU_MEMORY, "-1")
+    assert evaluator._get_ray_gpu_memory(default=0.7) == pytest.approx(
         0.7
     )
 
-    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "not-a-float")
-    assert evaluator._get_ray_num_gpus_per_task(default=0.9) == pytest.approx(
+    monkeypatch.setenv(MLWIZ_RAY_GPU_MEMORY, "not-a-float")
+    assert evaluator._get_ray_gpu_memory(default=0.9) == pytest.approx(
         0.9
     )
 
 
+def test_get_ray_num_gpus_per_experiment_parses_env(monkeypatch):
+    """GPU-per-experiment env parsing should handle unset/invalid values."""
+    monkeypatch.delenv(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT, raising=False)
+    assert evaluator._get_ray_num_gpus_per_experiment(
+        default=1.0
+    ) == pytest.approx(1.0)
+
+    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT, "2")
+    assert evaluator._get_ray_num_gpus_per_experiment(
+        default=0.0
+    ) == pytest.approx(2.0)
+
+    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT, "-1")
+    assert evaluator._get_ray_num_gpus_per_experiment(
+        default=0.0
+    ) == pytest.approx(0.0)
+
+    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT, "not-a-float")
+    assert evaluator._get_ray_num_gpus_per_experiment(
+        default=3.0
+    ) == pytest.approx(3.0)
+
+
 def test_set_cuda_memory_limit_from_env_calls_torch_cuda(monkeypatch):
     """When CUDA is available, the memory fraction should be set per visible GPU."""
-    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "0.25")
+    monkeypatch.setenv(MLWIZ_RAY_GPU_MEMORY, "0.25")
 
     calls = []
 
@@ -212,7 +236,8 @@ def test_make_termination_checker_errs_on_safe_side(monkeypatch):
 
 def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
     """Execute Ray remote wrappers in-process and assert saved artifacts."""
-    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_TASK, "0.0")
+    monkeypatch.setenv(MLWIZ_RAY_GPU_MEMORY, "0.0")
+    monkeypatch.setenv(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT, "0.0")
     monkeypatch.setattr(evaluator.ray, "get", lambda obj: obj)
 
     pushed = []
@@ -379,7 +404,7 @@ def test_compute_best_hyperparameters_uses_ordered_criteria(tmp_path):
         "device": "cpu",
         "max_cpus": 1,
         "max_gpus": 0,
-        "gpus_per_task": 0,
+        "gpu_memory": 0,
         "dataset_getter": "mlwiz.data.provider.DataProvider",
         "data_loader": {
             "class_name": "torch.utils.data.DataLoader",
@@ -408,7 +433,8 @@ def test_compute_best_hyperparameters_uses_ordered_criteria(tmp_path):
         risk_assessment_training_runs=1,
         model_selection_training_runs=1,
         higher_is_better=None,
-        gpus_per_task=0,
+        gpu_memory=0,
+        gpus_per_experiment=0,
         base_seed=42,
     )
 
@@ -459,7 +485,7 @@ def test_compute_best_hyperparameters_requires_source_for_non_main_metric(
         "device": "cpu",
         "max_cpus": 1,
         "max_gpus": 0,
-        "gpus_per_task": 0,
+        "gpu_memory": 0,
         "dataset_getter": "mlwiz.data.provider.DataProvider",
         "data_loader": {
             "class_name": "torch.utils.data.DataLoader",
@@ -488,7 +514,8 @@ def test_compute_best_hyperparameters_requires_source_for_non_main_metric(
         risk_assessment_training_runs=1,
         model_selection_training_runs=1,
         higher_is_better=None,
-        gpus_per_task=0,
+        gpu_memory=0,
+        gpus_per_experiment=0,
         base_seed=42,
     )
 

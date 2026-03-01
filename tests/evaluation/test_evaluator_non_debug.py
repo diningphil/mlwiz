@@ -131,6 +131,8 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
     monkeypatch.setattr(
         ProgressManager, "_register_resize_handler", lambda _self: None
     )
+    monkeypatch.setenv("MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT", "0.0")
+    monkeypatch.setenv("MLWIZ_RAY_GPU_MEMORY", "0.0")
 
     configs_dict = {
         EXP_NAME: "fast_non_debug",
@@ -153,7 +155,7 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
     exp_path = tmp_path / "RESULTS"
 
     # Ensure tasks can schedule even if the evaluator module was imported with
-    # a non-zero GPU request (tests may set MLWIZ_RAY_NUM_GPUS_PER_TASK).
+    # a non-zero GPU request (tests may set MLWIZ_RAY_GPU_MEMORY).
     ray.init(ignore_reinit_error=True, num_cpus=2, num_gpus=1)
     try:
         evaluator = RiskAssesser(
@@ -166,7 +168,8 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
             risk_assessment_training_runs=1,
             model_selection_training_runs=1,
             higher_is_better=True,
-            gpus_per_task=0,
+            gpu_memory=0,
+            gpus_per_experiment=0,
             base_seed=42,
         )
         evaluator.risk_assessment(debug=False)

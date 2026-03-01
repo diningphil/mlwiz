@@ -70,7 +70,8 @@ class EngineCallback(EventHandler):
         """
         # Forward pass
         # state.batch_input holds the input
-        outputs = state.model.forward(state.batch_input)
+        model = getattr(state, "forward_model", state.model)
+        outputs = model.forward(state.batch_input)
         state.update(batch_outputs=outputs)
 
     def on_epoch_end(self, state: State):
@@ -88,7 +89,9 @@ class EngineCallback(EventHandler):
                 object holding training information
         """
         # Save last checkpoint
-        if self.store_last_checkpoint:
+        if self.store_last_checkpoint and getattr(
+            state, "is_main_process", True
+        ):
             if not os.path.exists(Path(state.exp_path)):
                 os.makedirs(Path(state.exp_path))
 

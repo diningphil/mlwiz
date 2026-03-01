@@ -9,6 +9,7 @@ import os
 import os.path as osp
 import random
 import re
+import socket
 import threading
 import time
 from copy import deepcopy
@@ -18,6 +19,8 @@ import numpy as np
 import ray
 import requests
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
 
 from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
@@ -51,7 +54,8 @@ from mlwiz.static import (
     HIGHER_RESULTS_ARE_BETTER,
     MAIN_LOSS,
     MAIN_SCORE,
-    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MLWIZ_RAY_GPU_MEMORY,
+    MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT,
     MODEL_ASSESSMENT,
     MODEL_SELECTION_CRITERIA,
     MODEL_SELECTION_TRAINING_RUNS,
@@ -162,9 +166,9 @@ def _set_cuda_memory_limit_from_env():
     Best-effort limit of per-process GPU memory based on the configured Ray
     GPU fraction. No-op if CUDA is unavailable or the value is invalid.
     """
-    gpus_per_task = _get_ray_num_gpus_per_task()
+    gpu_memory = _get_ray_gpu_memory()
 
-    if not (0.0 < gpus_per_task <= 1.0):
+    if not (0.0 < gpu_memory <= 1.0):
         return
 
     if torch.cuda.is_available():
@@ -172,9 +176,9 @@ def _set_cuda_memory_limit_from_env():
         visible_gpus = torch.cuda.device_count()
         for gpu_idx in range(visible_gpus):
             torch.cuda.memory.set_per_process_memory_fraction(
-                gpus_per_task, device=torch.device(f"cuda:{gpu_idx}")
+                gpu_memory, device=torch.device(f"cuda:{gpu_idx}")
             )
-            # print(f"Setting max GPU {gpu_idx} memory of process to: {gpus_per_task}")
+            # print(f"Setting max GPU {gpu_idx} memory of process to: {gpu_memory}")
 
 
 def _make_termination_checker(
@@ -216,14 +220,14 @@ def _make_termination_checker(
     return _should_terminate
 
 
-def _get_ray_num_gpus_per_task(default: float = 0.0) -> float:
+def _get_ray_gpu_memory(default: float = 0.0) -> float:
     """
-    Return the Ray GPU request per task from the environment.
+    Return the per-process GPU memory fraction from the environment.
 
     This exists primarily to keep module import side-effect free (e.g. during
     Sphinx autodoc) when the variable is unset or malformed.
     """
-    raw_value = os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK)
+    raw_value = os.environ.get(MLWIZ_RAY_GPU_MEMORY)
     try:
         value = float(raw_value)
     except (TypeError, ValueError):
@@ -231,9 +235,485 @@ def _get_ray_num_gpus_per_task(default: float = 0.0) -> float:
     return value if value >= 0.0 else default
 
 
+def _get_ray_num_gpus_per_experiment(default: float = 0.0) -> float:
+    """
+    Return the Ray GPU request per task from the environment.
+    """
+    raw_value = os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0.0 else default
+
+
+def _get_free_port() -> int:
+    """
+    Find a free localhost TCP port for process-group initialization.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _with_ddp_config(config: dict, rank: int, world_size: int) -> dict:
+    """
+    Return a shallow-immutable copy of the run config with DDP metadata.
+    """
+    ddp_cfg = {
+        "enabled": True,
+        "rank": int(rank),
+        "world_size": int(world_size),
+        "local_rank": int(rank),
+    }
+    run_config = deepcopy(config)
+    run_config["ddp"] = ddp_cfg
+    run_config["device"] = f"cuda:{rank}"
+    return run_config
+
+
+def _run_valid_impl(
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    config: dict,
+    config_id: int,
+    run_id: int,
+    fold_run_exp_folder: str,
+    fold_run_results_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Optional[Logger],
+    progress_actor,
+    persist_output: bool = True,
+) -> Tuple[int, int, int, int, float]:
+    """
+    Execute one model-selection run in-process.
+    """
+    _should_terminate = _make_termination_checker(progress_actor)
+
+    if _should_terminate():
+        return None
+
+    try:
+        _set_cuda_memory_limit_from_env()
+        experiment = experiment_class(config, fold_run_exp_folder, exp_seed)
+
+        def _report_progress(payload: dict):
+            payload = deepcopy(payload)
+            payload.update(
+                {
+                    OUTER_FOLD: dataset_getter.outer_k,
+                    INNER_FOLD: dataset_getter.inner_k,
+                    CONFIG_ID: config_id,
+                    RUN_ID: run_id,
+                    IS_FINAL: False,
+                }
+            )
+            _push_progress_update(progress_actor, payload)
+
+        train_res, val_res = experiment.run_valid(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=_report_progress,
+            should_terminate=_should_terminate,
+        )
+        log_path = osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE)
+        elapsed = (
+            extract_and_sum_elapsed_seconds(log_path)
+            if osp.exists(log_path)
+            else 0.0
+        )
+        if persist_output:
+            atomic_dill_save(
+                (train_res, val_res, elapsed), fold_run_results_torch_path
+            )
+    except ExperimentTerminated:
+        return None
+    except Exception as e:
+        _push_progress_update(
+            progress_actor,
+            {
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): dataset_getter.inner_k,
+                str(CONFIG_ID): config_id,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): False,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
+            },
+        )
+        return None
+
+    return (
+        dataset_getter.outer_k,
+        dataset_getter.inner_k,
+        config_id,
+        run_id,
+        elapsed,
+    )
+
+
+def _run_test_impl(
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    best_config: dict,
+    outer_k: int,
+    run_id: int,
+    final_run_exp_path: str,
+    final_run_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Optional[Logger],
+    progress_actor,
+    persist_output: bool = True,
+) -> Tuple[int, int, float]:
+    """
+    Execute one risk-assessment final run in-process.
+    """
+    _should_terminate = _make_termination_checker(progress_actor)
+
+    if _should_terminate():
+        return None
+
+    try:
+        _set_cuda_memory_limit_from_env()
+        experiment = experiment_class(
+            best_config[CONFIG], final_run_exp_path, exp_seed
+        )
+
+        def _report_progress(payload: dict):
+            payload = deepcopy(payload)
+            payload.update(
+                {
+                    OUTER_FOLD: dataset_getter.outer_k,
+                    INNER_FOLD: None,
+                    CONFIG_ID: best_config["best_config_id"] - 1,
+                    RUN_ID: run_id,
+                    IS_FINAL: True,
+                }
+            )
+            _push_progress_update(progress_actor, payload)
+
+        train_res, val_res, test_res = experiment.run_test(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=_report_progress,
+            should_terminate=_should_terminate,
+        )
+        log_path = osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
+        elapsed = (
+            extract_and_sum_elapsed_seconds(log_path)
+            if osp.exists(log_path)
+            else 0.0
+        )
+        if persist_output:
+            atomic_dill_save(
+                (train_res, val_res, test_res, elapsed), final_run_torch_path
+            )
+    except ExperimentTerminated:
+        return None
+    except Exception as e:
+        _push_progress_update(
+            progress_actor,
+            {
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): None,
+                str(CONFIG_ID): best_config["best_config_id"] - 1,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): True,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
+            },
+        )
+        return None
+
+    return outer_k, run_id, elapsed
+
+
+def _ddp_worker_valid(
+    rank: int,
+    world_size: int,
+    master_port: int,
+    queue,
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    config: dict,
+    config_id: int,
+    run_id: int,
+    fold_run_exp_folder: str,
+    fold_run_results_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Logger,
+    progress_actor,
+):
+    """
+    One spawned process participating in a DDP model-selection run.
+    """
+    has_result = False
+    try:
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(master_port)
+        torch.cuda.set_device(rank)
+        dist.init_process_group(
+            backend="nccl",
+            rank=rank,
+            world_size=world_size,
+        )
+
+        local_dataset_getter = deepcopy(dataset_getter)
+        local_config = _with_ddp_config(config, rank, world_size)
+        local_logger = logger if rank == 0 else None
+        local_progress_actor = progress_actor if rank == 0 else None
+        result = _run_valid_impl(
+            experiment_class=experiment_class,
+            dataset_getter=local_dataset_getter,
+            config=local_config,
+            config_id=config_id,
+            run_id=run_id,
+            fold_run_exp_folder=fold_run_exp_folder,
+            fold_run_results_torch_path=fold_run_results_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=local_logger,
+            progress_actor=local_progress_actor,
+            persist_output=(rank == 0),
+        )
+        if rank == 0:
+            queue.put(result)
+            has_result = True
+    except Exception:
+        if rank == 0 and not has_result:
+            queue.put(None)
+    finally:
+        if dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
+
+
+def _ddp_worker_test(
+    rank: int,
+    world_size: int,
+    master_port: int,
+    queue,
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    best_config: dict,
+    outer_k: int,
+    run_id: int,
+    final_run_exp_path: str,
+    final_run_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Logger,
+    progress_actor,
+):
+    """
+    One spawned process participating in a DDP final run.
+    """
+    has_result = False
+    try:
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(master_port)
+        torch.cuda.set_device(rank)
+        dist.init_process_group(
+            backend="nccl",
+            rank=rank,
+            world_size=world_size,
+        )
+
+        local_dataset_getter = deepcopy(dataset_getter)
+        local_best_config = deepcopy(best_config)
+        local_best_config[CONFIG] = _with_ddp_config(
+            local_best_config[CONFIG], rank, world_size
+        )
+        local_logger = logger if rank == 0 else None
+        local_progress_actor = progress_actor if rank == 0 else None
+        result = _run_test_impl(
+            experiment_class=experiment_class,
+            dataset_getter=local_dataset_getter,
+            best_config=local_best_config,
+            outer_k=outer_k,
+            run_id=run_id,
+            final_run_exp_path=final_run_exp_path,
+            final_run_torch_path=final_run_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=local_logger,
+            progress_actor=local_progress_actor,
+            persist_output=(rank == 0),
+        )
+        if rank == 0:
+            queue.put(result)
+            has_result = True
+    except Exception:
+        if rank == 0 and not has_result:
+            queue.put(None)
+    finally:
+        if dist.is_available() and dist.is_initialized():
+            dist.destroy_process_group()
+
+
+def _run_valid_ddp(
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    config: dict,
+    config_id: int,
+    run_id: int,
+    fold_run_exp_folder: str,
+    fold_run_results_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Logger,
+    progress_actor,
+):
+    """
+    Spawn one local process per GPU to execute a DDP model-selection run.
+    """
+    world_size = int(_get_ray_num_gpus_per_experiment(default=1.0))
+    if world_size <= 1:
+        return _run_valid_impl(
+            experiment_class=experiment_class,
+            dataset_getter=dataset_getter,
+            config=config,
+            config_id=config_id,
+            run_id=run_id,
+            fold_run_exp_folder=fold_run_exp_folder,
+            fold_run_results_torch_path=fold_run_results_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=logger,
+            progress_actor=progress_actor,
+            persist_output=True,
+        )
+
+    master_port = _get_free_port()
+    queue = mp.get_context("spawn").SimpleQueue()
+    try:
+        mp.spawn(
+            _ddp_worker_valid,
+            args=(
+                world_size,
+                master_port,
+                queue,
+                experiment_class,
+                dataset_getter,
+                config,
+                config_id,
+                run_id,
+                fold_run_exp_folder,
+                fold_run_results_torch_path,
+                exp_seed,
+                training_timeout_seconds,
+                logger,
+                progress_actor,
+            ),
+            nprocs=world_size,
+            join=True,
+        )
+        return queue.get()
+    except Exception as e:
+        _push_progress_update(
+            progress_actor,
+            {
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): dataset_getter.inner_k,
+                str(CONFIG_ID): config_id,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): False,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
+            },
+        )
+        return None
+
+
+def _run_test_ddp(
+    experiment_class: Callable[..., Experiment],
+    dataset_getter: Callable[..., DataProvider],
+    best_config: dict,
+    outer_k: int,
+    run_id: int,
+    final_run_exp_path: str,
+    final_run_torch_path: str,
+    exp_seed: int,
+    training_timeout_seconds: int,
+    logger: Logger,
+    progress_actor,
+):
+    """
+    Spawn one local process per GPU to execute a DDP final run.
+    """
+    world_size = int(_get_ray_num_gpus_per_experiment(default=1.0))
+    if world_size <= 1:
+        return _run_test_impl(
+            experiment_class=experiment_class,
+            dataset_getter=dataset_getter,
+            best_config=best_config,
+            outer_k=outer_k,
+            run_id=run_id,
+            final_run_exp_path=final_run_exp_path,
+            final_run_torch_path=final_run_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=logger,
+            progress_actor=progress_actor,
+            persist_output=True,
+        )
+
+    master_port = _get_free_port()
+    queue = mp.get_context("spawn").SimpleQueue()
+    try:
+        mp.spawn(
+            _ddp_worker_test,
+            args=(
+                world_size,
+                master_port,
+                queue,
+                experiment_class,
+                dataset_getter,
+                best_config,
+                outer_k,
+                run_id,
+                final_run_exp_path,
+                final_run_torch_path,
+                exp_seed,
+                training_timeout_seconds,
+                logger,
+                progress_actor,
+            ),
+            nprocs=world_size,
+            join=True,
+        )
+        return queue.get()
+    except Exception as e:
+        _push_progress_update(
+            progress_actor,
+            {
+                "type": RUN_FAILED,
+                str(OUTER_FOLD): dataset_getter.outer_k,
+                str(INNER_FOLD): None,
+                str(CONFIG_ID): best_config["best_config_id"] - 1,
+                str(RUN_ID): run_id,
+                str(IS_FINAL): True,
+                str(EPOCH): 0,
+                str(TOTAL_EPOCHS): 0,
+                "message": f"{e}\n{traceback.format_exc()}",
+            },
+        )
+        return None
+
+
 @ray.remote(
     num_cpus=1,
-    num_gpus=_get_ray_num_gpus_per_task(),
+    num_gpus=_get_ray_num_gpus_per_experiment(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -277,87 +757,39 @@ def run_valid(
         a tuple with outer fold id, inner fold id, config id, run id,
             and time elapsed
     """
-    _should_terminate = _make_termination_checker(progress_actor)
-
-    if _should_terminate():
-        return None
-
-    # if not osp.exists(fold_run_results_torch_path):
-    try:
-        _set_cuda_memory_limit_from_env()
-        experiment = experiment_class(config, fold_run_exp_folder, exp_seed)
-
-        # This is used to comunicate with the progress manager
-        # to display the UI
-        def _report_progress(payload: dict):
-            """
-            Forward per-epoch/batch progress updates to the shared progress UI.
-
-            Args:
-                payload (dict): Progress fields produced by the experiment.
-
-            Side effects:
-                Sends the update to the Ray actor backing the terminal UI.
-            """
-            payload = deepcopy(payload)
-            payload.update(
-                {
-                    OUTER_FOLD: dataset_getter.outer_k,
-                    INNER_FOLD: dataset_getter.inner_k,
-                    CONFIG_ID: config_id,
-                    RUN_ID: run_id,
-                    IS_FINAL: False,
-                }
-            )
-            _push_progress_update(progress_actor, payload)
-
-        train_res, val_res = experiment.run_valid(
-            dataset_getter,
-            training_timeout_seconds,
-            logger,
-            progress_callback=_report_progress,
-            should_terminate=_should_terminate,
+    if int(_get_ray_num_gpus_per_experiment(default=0.0)) > 1:
+        return _run_valid_ddp(
+            experiment_class=experiment_class,
+            dataset_getter=dataset_getter,
+            config=config,
+            config_id=config_id,
+            run_id=run_id,
+            fold_run_exp_folder=fold_run_exp_folder,
+            fold_run_results_torch_path=fold_run_results_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=logger,
+            progress_actor=progress_actor,
         )
-        elapsed = extract_and_sum_elapsed_seconds(
-            osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE)
-        )
-        atomic_dill_save(
-            (train_res, val_res, elapsed), fold_run_results_torch_path
-        )
-    except ExperimentTerminated:
-        return None
-    except Exception as e:
-
-        _push_progress_update(
-            progress_actor,
-            {
-                "type": RUN_FAILED,
-                str(OUTER_FOLD): dataset_getter.outer_k,
-                str(INNER_FOLD): dataset_getter.inner_k,
-                str(CONFIG_ID): config_id,
-                str(RUN_ID): run_id,
-                str(IS_FINAL): False,
-                str(EPOCH): 0,
-                str(TOTAL_EPOCHS): 0,
-                "message": f"{e}\n{traceback.format_exc()}",
-            },
-        )
-
-        elapsed = -1
-        return None
-
-    return (
-        dataset_getter.outer_k,
-        dataset_getter.inner_k,
-        config_id,
-        run_id,
-        elapsed,
+    return _run_valid_impl(
+        experiment_class=experiment_class,
+        dataset_getter=dataset_getter,
+        config=config,
+        config_id=config_id,
+        run_id=run_id,
+        fold_run_exp_folder=fold_run_exp_folder,
+        fold_run_results_torch_path=fold_run_results_torch_path,
+        exp_seed=exp_seed,
+        training_timeout_seconds=training_timeout_seconds,
+        logger=logger,
+        progress_actor=progress_actor,
+        persist_output=True,
     )
 
 
 @ray.remote(
     num_cpus=1,
-    num_gpus=_get_ray_num_gpus_per_task(),
+    num_gpus=_get_ray_num_gpus_per_experiment(),
     max_calls=1,
     # max_calls=1 --> the worker automatically exits after executing the task
     # (thereby releasing the GPU resources).
@@ -400,78 +832,34 @@ def run_test(
     Returns:
         a tuple with outer fold id, final run id, and time elapsed
     """
-    _should_terminate = _make_termination_checker(progress_actor)
-
-    if _should_terminate():
-        return None
-
-    # if not osp.exists(final_run_torch_path):
-    try:
-        _set_cuda_memory_limit_from_env()
-        experiment = experiment_class(
-            best_config[CONFIG], final_run_exp_path, exp_seed
+    if int(_get_ray_num_gpus_per_experiment(default=0.0)) > 1:
+        return _run_test_ddp(
+            experiment_class=experiment_class,
+            dataset_getter=dataset_getter,
+            best_config=best_config,
+            outer_k=outer_k,
+            run_id=run_id,
+            final_run_exp_path=final_run_exp_path,
+            final_run_torch_path=final_run_torch_path,
+            exp_seed=exp_seed,
+            training_timeout_seconds=training_timeout_seconds,
+            logger=logger,
+            progress_actor=progress_actor,
         )
-
-        # This is used to comunicate with the progress manager
-        # to display the UI
-        def _report_progress(payload: dict):
-            """
-            Forward per-epoch/batch progress updates to the shared progress UI.
-
-            Args:
-                payload (dict): Progress fields produced by the experiment.
-
-            Side effects:
-                Sends the update to the Ray actor backing the terminal UI.
-            """
-            payload = deepcopy(payload)
-            payload.update(
-                {
-                    OUTER_FOLD: dataset_getter.outer_k,
-                    INNER_FOLD: None,
-                    CONFIG_ID: best_config["best_config_id"] - 1,
-                    RUN_ID: run_id,
-                    IS_FINAL: True,
-                }
-            )
-            _push_progress_update(progress_actor, payload)
-
-        res = experiment.run_test(
-            dataset_getter,
-            training_timeout_seconds,
-            logger,
-            progress_callback=_report_progress,
-            should_terminate=_should_terminate,
-        )
-        elapsed = extract_and_sum_elapsed_seconds(
-            osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
-        )
-        train_res, val_res, test_res = res
-        atomic_dill_save(
-            (train_res, val_res, test_res, elapsed), final_run_torch_path
-        )
-    except ExperimentTerminated:
-        return None
-    except Exception as e:
-
-        _push_progress_update(
-            progress_actor,
-            {
-                "type": RUN_FAILED,
-                str(OUTER_FOLD): dataset_getter.outer_k,
-                str(INNER_FOLD): None,
-                str(CONFIG_ID): best_config["best_config_id"] - 1,
-                str(RUN_ID): run_id,
-                str(IS_FINAL): True,
-                str(EPOCH): 0,
-                str(TOTAL_EPOCHS): 0,
-                "message": f"{e}\n{traceback.format_exc()}",
-            },
-        )
-        elapsed = -1
-        return None
-
-    return outer_k, run_id, elapsed
+    return _run_test_impl(
+        experiment_class=experiment_class,
+        dataset_getter=dataset_getter,
+        best_config=best_config,
+        outer_k=outer_k,
+        run_id=run_id,
+        final_run_exp_path=final_run_exp_path,
+        final_run_torch_path=final_run_torch_path,
+        exp_seed=exp_seed,
+        training_timeout_seconds=training_timeout_seconds,
+        logger=logger,
+        progress_actor=progress_actor,
+        persist_output=True,
+    )
 
 
 class RiskAssesser:
@@ -504,8 +892,10 @@ class RiskAssesser:
         higher_is_better (bool | None): legacy model-selection direction for
             ``validation_main_score`` when ``model_selection_criteria`` is not
             provided in config.
-        gpus_per_task (float): Number of gpus to assign to each
-            experiment. Can be < ``1``.
+        gpu_memory (float): Fraction of each visible GPU memory allocated to
+            each worker process (in ``(0, 1]``).
+        gpus_per_experiment (int): Number of GPUs allocated by Ray to each
+            experiment run.
         base_seed (int): Seed used to generate experiments seeds.
             Used to replicate results. Default is ``42``
         training_timeout_seconds (int): optional timeout limit per
@@ -523,7 +913,8 @@ class RiskAssesser:
         risk_assessment_training_runs: int,
         model_selection_training_runs: int,
         higher_is_better: Optional[bool],
-        gpus_per_task: float,
+        gpu_memory: float,
+        gpus_per_experiment: int,
         base_seed: int = 42,
         training_timeout_seconds: int = -1,
     ):
@@ -547,7 +938,9 @@ class RiskAssesser:
             higher_is_better (bool | None): Legacy model-selection direction
                 for ``validation_main_score`` when
                 ``model_selection_criteria`` is not configured.
-            gpus_per_task (float): GPUs assigned per Ray task (may be < 1.0).
+            gpu_memory (float): Fraction of each visible GPU memory allocated
+                to each worker process.
+            gpus_per_experiment (int): GPUs assigned per Ray task.
             base_seed (int): Base seed used to derive per-run seeds.
             training_timeout_seconds (int): Optional per-run timeout in seconds.
                 Use ``-1`` to disable.
@@ -594,7 +987,8 @@ class RiskAssesser:
                 f"'{HIGHER_RESULTS_ARE_BETTER}' must be provided."
             )
         self.higher_is_better = higher_is_better
-        self.gpus_per_task = gpus_per_task
+        self.gpu_memory = gpu_memory
+        self.gpus_per_experiment = gpus_per_experiment
 
         # Main folders
         self.exp_path = exp_path

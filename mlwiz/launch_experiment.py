@@ -20,12 +20,14 @@ from mlwiz.static import (
     DEVICE,
     EXECUTE_CONFIG_ID,
     EXECUTE_CONFIG_ID_CLI_ARGUMENT,
-    GPUS_PER_TASK,
+    GPU_MEMORY,
+    GPUS_PER_EXPERIMENT,
     GPUS_SUBSET,
     GRID_SEARCH,
     MAX_CPUS,
     MAX_GPUS,
-    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MLWIZ_RAY_GPU_MEMORY,
+    MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT,
     MODEL_SELECTION_TRAINING_RUNS,
     RANDOM_SEARCH,
     RESULT_FOLDER,
@@ -156,7 +158,8 @@ def evaluation(options: argparse.Namespace):
 
     if not use_cuda:
         max_gpus = 0
-        gpus_per_task = 0
+        gpu_memory = 0.0
+        gpus_per_experiment = 0
     else:
         # We will choose the GPU with least ratio of memory usage
         max_gpus = configs_dict[MAX_GPUS]
@@ -170,9 +173,28 @@ def evaluation(options: argparse.Namespace):
             print(e)
             exit(0)
 
-        gpus_per_task = configs_dict[GPUS_PER_TASK]
+        gpu_memory = float(configs_dict[GPU_MEMORY])
+        if not (0.0 < gpu_memory <= 1.0):
+            raise ValueError(
+                f"'{GPU_MEMORY}' must be in the interval (0, 1], got {gpu_memory}."
+            )
 
-    os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
+        gpus_per_experiment = int(configs_dict.get(GPUS_PER_EXPERIMENT, 1))
+        if gpus_per_experiment <= 0:
+            raise ValueError(
+                f"'{GPUS_PER_EXPERIMENT}' must be a positive integer, got "
+                f"{gpus_per_experiment}."
+            )
+        if gpus_per_experiment > max_gpus:
+            raise ValueError(
+                f"'{GPUS_PER_EXPERIMENT}' ({gpus_per_experiment}) cannot exceed "
+                f"'{MAX_GPUS}' ({max_gpus})."
+            )
+
+    os.environ[MLWIZ_RAY_GPU_MEMORY] = str(float(gpu_memory))
+    os.environ[MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT] = str(
+        float(gpus_per_experiment)
+    )
 
     # we probably don't need this anymore, but keep it commented in case
     # OMP_NUM_THREADS = 'OMP_NUM_THREADS'
@@ -204,7 +226,7 @@ def evaluation(options: argparse.Namespace):
     search = search_class(configs_dict)
 
     if use_cuda:
-        # Ensure a generic "cuda" device is set when using more than 1 GPU
+        # Generic "cuda" lets each process pick its local CUDA index.
         search.device = CUDA
 
     # Set the bot token, chat_id configuration
@@ -284,7 +306,8 @@ def evaluation(options: argparse.Namespace):
             MODEL_SELECTION_TRAINING_RUNS
         ],
         higher_is_better=search.higher_results_are_better,
-        gpus_per_task=gpus_per_task,
+        gpu_memory=gpu_memory,
+        gpus_per_experiment=gpus_per_experiment,
         base_seed=seed,
         training_timeout_seconds=configs_dict.get(TRAINING_TIME_SECONDS, -1),
     )

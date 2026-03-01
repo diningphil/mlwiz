@@ -16,7 +16,7 @@ from torch_geometric.loader.dataloader import Collater
 
 import mlwiz.data.dataset
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.data.sampler import RandomSampler
+from mlwiz.data.sampler import RandomSampler, DistributedRandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
 
@@ -340,6 +340,8 @@ class DataProvider:
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        ddp_world_size = int(kwargs.pop("ddp_world_size", 1))
+        ddp_rank = int(kwargs.pop("ddp_rank", 0))
 
         dataset: DatasetInterface = self._get_dataset(**kwargs)
         dataset = SubsetTrainEval(dataset, indices, is_eval)
@@ -354,7 +356,19 @@ class DataProvider:
 
         kwargs.update(self.data_loader_args)
 
-        if shuffle is True:
+        if ddp_world_size > 1:
+            sampler = DistributedRandomSampler(
+                dataset,
+                num_replicas=ddp_world_size,
+                rank=ddp_rank,
+                shuffle=shuffle,
+                seed=self.exp_seed,
+                drop_last=False,
+            )
+            dataloader = self.data_loader_class(
+                dataset, sampler=sampler, batch_size=batch_size, **kwargs
+            )
+        elif shuffle is True:
             sampler = RandomSampler(dataset)
             dataloader = self.data_loader_class(
                 dataset, sampler=sampler, batch_size=batch_size, **kwargs
@@ -566,6 +580,11 @@ class IterableDataProvider(DataProvider):
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        ddp_world_size = int(kwargs.pop("ddp_world_size", 1))
+        ddp_rank = int(kwargs.pop("ddp_rank", 0))
+
+        if ddp_world_size > 1:
+            indices = indices[ddp_rank::ddp_world_size]
 
         # we can deepcopy the dataset each time the loader is called,
         # because iterable datasets are not supposed to keep all data in memory
@@ -690,6 +709,8 @@ class SingleGraphDataProvider(DataProvider):
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        kwargs.pop("ddp_world_size", None)
+        kwargs.pop("ddp_rank", None)
 
         # TODO is there a way to refactor the code to avoid that we have
         #  to duplicate the dataset for every loader just to set different

@@ -114,7 +114,8 @@ explanation of each field as a comment:
     device:  # cpu | cuda
     max_cpus:  # > 1 for parallelism
     max_gpus: # > 0 for gpu usage (device must be cuda though)
-    gpus_per_task:  # percentage of gpus to allocate for each task
+    gpus_per_experiment:  # number of GPUs to allocate to each experiment (DDP if > 1)
+    gpu_memory:  # per-process fraction of each visible GPU memory to reserve (0,1]
     gpus_subset: # optional, comma-separated list of gpu indices, e.g. 0,2. Used to force a particular subset of GPUs being used.
 
 
@@ -242,7 +243,8 @@ Here we can define how many resources to allocate to parallelize different exper
     device:  cuda
     max_cpus:  8
     max_gpus: 2
-    gpus_per_task:  0.5
+    gpus_per_experiment: 1
+    gpu_memory:  0.5
 
 
 

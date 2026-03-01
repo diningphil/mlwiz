@@ -60,7 +60,7 @@ def test_grid_rejects_conflicting_model_selection_keys():
                 "device": "cpu",
                 "max_cpus": 1,
                 "max_gpus": 0,
-                "gpus_per_task": 0,
+                "gpu_memory": 0,
                 "dataset_getter": "mlwiz.data.provider.DataProvider",
                 "data_loader": {
                     "class_name": "torch.utils.data.DataLoader",

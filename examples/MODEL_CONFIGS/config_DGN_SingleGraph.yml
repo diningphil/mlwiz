@@ -12,7 +12,7 @@ data_splits_file:  DATA_SPLITS/Cora/Cora_outer3_inner2.splits
 device:  cpu
 max_cpus:  8
 max_gpus: 1
-gpus_per_task:  1
+gpu_memory:  1
 # gpus_subset: 0,1,2,3,4,5,6,7,8
 
 

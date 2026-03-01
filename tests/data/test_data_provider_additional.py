@@ -20,7 +20,7 @@ from mlwiz.data.provider import (
     SubsetTrainEval,
     _iterable_worker_init_fn,
 )
-from mlwiz.data.sampler import RandomSampler
+from mlwiz.data.sampler import RandomSampler, DistributedRandomSampler
 from mlwiz.data.splitter import Splitter
 
 
@@ -213,6 +213,58 @@ def test_data_provider_get_loader_uses_random_sampler_when_shuffling():
         indices=[0, 1, 2], is_eval=False, shuffle=True, batch_size=2
     )
     assert isinstance(loader_shuffle.sampler, RandomSampler)
+
+
+def test_data_provider_ddp_sampler_exposes_global_and_local_permutations():
+    """DDP loaders should use the MLWiz distributed sampler with permutation metadata."""
+    provider = DataProvider(
+        storage_folder="unused",
+        splits_filepath="unused",
+        dataset_class=object,
+        data_loader_class=DataLoader,
+        data_loader_args={},
+        outer_folds=1,
+        inner_folds=1,
+    )
+    provider.dataset = _DummyDataset(values=list(range(5)))
+    provider.set_exp_seed(0)
+
+    loader_rank0 = provider._get_loader(
+        indices=[0, 1, 2, 3, 4],
+        is_eval=False,
+        shuffle=True,
+        batch_size=2,
+        ddp_world_size=2,
+        ddp_rank=0,
+    )
+    loader_rank1 = provider._get_loader(
+        indices=[0, 1, 2, 3, 4],
+        is_eval=False,
+        shuffle=True,
+        batch_size=2,
+        ddp_world_size=2,
+        ddp_rank=1,
+    )
+
+    assert isinstance(loader_rank0.sampler, DistributedRandomSampler)
+    assert isinstance(loader_rank1.sampler, DistributedRandomSampler)
+
+    rank0_local_perm = list(iter(loader_rank0.sampler))
+    rank1_local_perm = list(iter(loader_rank1.sampler))
+
+    assert loader_rank0.sampler.permutation is not None
+    assert loader_rank0.sampler.local_permutation == rank0_local_perm
+    assert loader_rank1.sampler.permutation is not None
+    assert loader_rank1.sampler.local_permutation == rank1_local_perm
+
+    reconstructed_global = []
+    for idx in range(max(len(rank0_local_perm), len(rank1_local_perm))):
+        if idx < len(rank0_local_perm):
+            reconstructed_global.append(rank0_local_perm[idx])
+        if idx < len(rank1_local_perm):
+            reconstructed_global.append(rank1_local_perm[idx])
+
+    assert reconstructed_global == loader_rank0.sampler.permutation
 
 
 def test_data_provider_dim_access_requires_loader_initialization():

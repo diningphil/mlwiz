@@ -116,7 +116,7 @@ class EarlyStopper(EventHandler):
             state.best_epoch_results[SCHEDULER_STATE] = state[
                 SCHEDULER_STATE
             ]  # computed by scheduler
-            if self.checkpoint:
+            if self.checkpoint and getattr(state, "is_main_process", True):
                 atomic_torch_save(
                     state.best_epoch_results,
                     Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
@@ -139,7 +139,7 @@ class EarlyStopper(EventHandler):
                 state.best_epoch_results[SCHEDULER_STATE] = state[
                     SCHEDULER_STATE
                 ]  # computed by scheduler
-                if self.checkpoint:
+                if self.checkpoint and getattr(state, "is_main_process", True):
                     atomic_torch_save(
                         state.best_epoch_results,
                         Path(state.exp_path, BEST_CHECKPOINT_FILENAME),

@@ -235,8 +235,25 @@ class Experiment:
             store_last_checkpoint=store_last_checkpoint,
             mixed_precision=mixed_precision,
             mixed_precision_dtype=mixed_precision_dtype,
+            ddp=config.get("ddp", None),
         )
         return engine
+
+    def _ddp_loader_kwargs(self) -> dict:
+        """
+        Return DataProvider kwargs needed to shard loaders in DDP mode.
+        """
+        ddp_cfg = self.model_config.get("ddp", None)
+        if not isinstance(ddp_cfg, dict):
+            return {}
+
+        enabled = bool(ddp_cfg.get("enabled", False))
+        world_size = int(ddp_cfg.get("world_size", 1))
+        rank = int(ddp_cfg.get("rank", 0))
+        if not enabled or world_size <= 1:
+            return {}
+
+        return {"ddp_world_size": world_size, "ddp_rank": rank}
 
     def run_valid(
         self,
@@ -278,11 +295,12 @@ class Experiment:
         )
 
         # Instantiate the Dataset
+        loader_kwargs = self._ddp_loader_kwargs()
         train_loader = dataset_getter.get_inner_train(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size, shuffle=shuffle, **loader_kwargs
         )
         val_loader = dataset_getter.get_inner_val(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size, shuffle=shuffle, **loader_kwargs
         )
 
         dim_input_features = dataset_getter.get_dim_input_features()
@@ -366,14 +384,15 @@ class Experiment:
         )
 
         # Instantiate the Dataset
+        loader_kwargs = self._ddp_loader_kwargs()
         train_loader = dataset_getter.get_outer_train(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size, shuffle=shuffle, **loader_kwargs
         )
         val_loader = dataset_getter.get_outer_val(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size, shuffle=shuffle, **loader_kwargs
         )
         test_loader = dataset_getter.get_outer_test(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size, shuffle=shuffle, **loader_kwargs
         )
 
         # Call this after the loaders: the datasets may need to be instantiated

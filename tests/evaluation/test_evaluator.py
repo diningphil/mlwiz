@@ -18,10 +18,11 @@ from mlwiz.static import (
     SCORE,
     MAIN_LOSS,
     MAIN_SCORE,
-    MLWIZ_RAY_NUM_GPUS_PER_TASK,
+    MLWIZ_RAY_GPU_MEMORY,
 )
 
-os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(1.0)
+os.environ[MLWIZ_RAY_GPU_MEMORY] = str(1.0)
+os.environ["MLWIZ_RAY_NUM_GPUS_PER_EXPERIMENT"] = str(0.0)
 
 from mlwiz.evaluation.evaluator import RiskAssesser
 from mlwiz.evaluation.grid import Grid
@@ -139,6 +140,7 @@ def test_evaluator():
         10,
         2,
         True,
+        0,
         0,
         base_seed=42,
     )
