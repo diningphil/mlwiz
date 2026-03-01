@@ -191,7 +191,11 @@ explanation of each field as a comment:
             my_second_metric: mlwiz.training.callback.metric.ToyMetric
 
       # Training engine
-      engine: mlwiz.training.engine.TrainingEngine
+      engine:
+        class_name: mlwiz.training.engine.TrainingEngine
+        args:
+          mixed_precision: False  # set to True to enable torch AMP autocast (CUDA/CPU)
+          mixed_precision_dtype: torch.float16  # torch.float16 | torch.bfloat16
 
       # Gradient clipper (optional)
       gradient_clipper: null

@@ -213,6 +213,10 @@ class Experiment:
             engine_args.get("engine_callback", DEFAULT_ENGINE_CALLBACK)
         )
         eval_training = engine_args.get("eval_training", False)
+        mixed_precision = engine_args.get("mixed_precision", False)
+        mixed_precision_dtype = engine_args.get(
+            "mixed_precision_dtype", "torch.float16"
+        )
 
         engine = engine_class(
             engine_callback=engine_callback,
@@ -229,6 +233,8 @@ class Experiment:
             evaluate_every=evaluate_every,
             eval_training=eval_training,
             store_last_checkpoint=store_last_checkpoint,
+            mixed_precision=mixed_precision,
+            mixed_precision_dtype=mixed_precision_dtype,
         )
         return engine
 

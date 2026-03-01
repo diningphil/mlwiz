@@ -4,6 +4,7 @@ Defines :class:`~mlwiz.training.engine.TrainingEngine` and helpers for checkpoin
 """
 
 import os
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Callable, List, Union, Tuple, Optional
 
@@ -35,6 +36,7 @@ from mlwiz.static import (
     OPTIMIZER_STATE,
     RUN_COMPLETED,
     RUN_PROGRESS,
+    SCALER_STATE,
     SCHEDULER_STATE,
     SCORES,
     START_CONFIG,
@@ -57,6 +59,7 @@ from mlwiz.training.event.dispatcher import EventDispatcher
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.profiler import Profiler
+from mlwiz.util import s2c
 from copy import deepcopy
 
 
@@ -183,6 +186,8 @@ class TrainingEngine(EventDispatcher):
         eval_training: bool = False,
         eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
+        mixed_precision: bool = False,
+        mixed_precision_dtype: str = "torch.float16",
     ):
         """
         Initialize the training engine and register event callbacks.
@@ -210,6 +215,10 @@ class TrainingEngine(EventDispatcher):
                 after each epoch (if available).
             store_last_checkpoint (bool): Whether to store a checkpoint at the
                 end of each epoch.
+            mixed_precision (bool): Whether to enable torch AMP autocast for
+                training/evaluation on CUDA/CPU.
+            mixed_precision_dtype (str): Dotted path to a ``torch.dtype``
+                (for example ``torch.float16`` or ``torch.bfloat16``).
 
         Side effects:
             Registers all non-``None`` callbacks (loss, scorer, optimizer, etc.)
@@ -233,6 +242,25 @@ class TrainingEngine(EventDispatcher):
         self.eval_training = eval_training
         self.eval_test_every_epoch = eval_test_every_epoch
         self.store_last_checkpoint = store_last_checkpoint
+        self.mixed_precision = mixed_precision
+        self.mixed_precision_dtype = mixed_precision_dtype
+        self.amp_dtype = s2c(self.mixed_precision_dtype)
+        if not isinstance(self.amp_dtype, torch.dtype):
+            raise TypeError(
+                "`mixed_precision_dtype` must resolve to a torch.dtype, "
+                f"got {type(self.amp_dtype)} from '{self.mixed_precision_dtype}'."
+            )
+        self.amp_device_type = self.device.split(":")[0]
+        self.use_mixed_precision = (
+            self.mixed_precision and self.amp_device_type in ("cuda", "cpu")
+        )
+        self.grad_scaler = (
+            torch.amp.GradScaler("cuda")
+            if self.use_mixed_precision
+            and self.amp_device_type == "cuda"
+            and self.amp_dtype == torch.float16
+            else None
+        )
         self.training = False
         self.logger = None
 
@@ -273,7 +301,11 @@ class TrainingEngine(EventDispatcher):
         self.state = State(
             self.model, self.optimizer, self.device
         )  # Initialize the state
-        self.state.update(exp_path=self.exp_path)
+        self.state.update(
+            exp_path=self.exp_path,
+            grad_scaler=self.grad_scaler,
+            scaler_state=None,
+        )
 
     def _check_termination(self):
         """
@@ -433,55 +465,64 @@ class TrainingEngine(EventDispatcher):
         else:
             self._dispatch(EventHandler.ON_EVAL_BATCH_START, self.state)
 
-        self._dispatch(EventHandler.ON_FORWARD, self.state)
+        autocast_cm = (
+            torch.amp.autocast(
+                device_type=self.amp_device_type,
+                dtype=self.amp_dtype,
+            )
+            if self.use_mixed_precision
+            else nullcontext()
+        )
+        with autocast_cm:
+            self._dispatch(EventHandler.ON_FORWARD, self.state)
 
-        # EngineCallback will store the outputs in state.batch_outputs
-        output = self.state.batch_outputs
+            # EngineCallback will store the outputs in state.batch_outputs
+            output = self.state.batch_outputs
 
-        if len(output) > 1 and self.state.return_embeddings:
-            # Embeddings should be in position 2 of the output
-            embeddings = output[1]
+            if len(output) > 1 and self.state.return_embeddings:
+                # Embeddings should be in position 2 of the output
+                embeddings = output[1]
 
-            epoch_data_list = self.state.epoch_data_list
+                epoch_data_list = self.state.epoch_data_list
 
-            if isinstance(x, torch.Tensor):  # classical ML
-                if epoch_data_list is None:
-                    epoch_data_list = []
-                epoch_data_list.extend(
-                    [
-                        (embeddings[i], targets[i])
-                        for i in range(embeddings.shape[0])
-                    ]
-                )
-            elif isinstance(x, torch_geometric.data.Batch):  # graph dataset
-                # graphs need special handling
-                batch_idx = x.batch
-                epoch_data_list = self._to_list(
-                    self.state.epoch_data_list,
-                    embeddings,
-                    batch_idx,
-                    targets,
-                )
-            elif isinstance(x, torch_geometric.data.Data):  # single graph
-                # graphs need special handling
-                batch_idx = torch.zeros(x.x.shape[0])
-                epoch_data_list = self._to_list(
-                    self.state.epoch_data_list,
-                    embeddings,
-                    batch_idx,
-                    targets,
-                )
-            else:
-                raise NotImplementedError(
-                    f"Input type not understood. Allowed data types are torch "
-                    f"Tensors and torch_geometric Batches, got {type(x)}."
-                )
+                if isinstance(x, torch.Tensor):  # classical ML
+                    if epoch_data_list is None:
+                        epoch_data_list = []
+                    epoch_data_list.extend(
+                        [
+                            (embeddings[i], targets[i])
+                            for i in range(embeddings.shape[0])
+                        ]
+                    )
+                elif isinstance(x, torch_geometric.data.Batch):  # graph dataset
+                    # graphs need special handling
+                    batch_idx = x.batch
+                    epoch_data_list = self._to_list(
+                        self.state.epoch_data_list,
+                        embeddings,
+                        batch_idx,
+                        targets,
+                    )
+                elif isinstance(x, torch_geometric.data.Data):  # single graph
+                    # graphs need special handling
+                    batch_idx = torch.zeros(x.x.shape[0])
+                    epoch_data_list = self._to_list(
+                        self.state.epoch_data_list,
+                        embeddings,
+                        batch_idx,
+                        targets,
+                    )
+                else:
+                    raise NotImplementedError(
+                        f"Input type not understood. Allowed data types are torch "
+                        f"Tensors and torch_geometric Batches, got {type(x)}."
+                    )
 
-            # I am extending the data list, not replacing! Hence the name
-            # "epoch" data list
-            self.state.update(epoch_data_list=epoch_data_list)
+                # I am extending the data list, not replacing! Hence the name
+                # "epoch" data list
+                self.state.update(epoch_data_list=epoch_data_list)
 
-        self._dispatch(EventHandler.ON_COMPUTE_METRICS, self.state)
+            self._dispatch(EventHandler.ON_COMPUTE_METRICS, self.state)
 
         if self.training:
             self._dispatch(EventHandler.ON_BACKWARD, self.state)
@@ -752,6 +793,12 @@ class TrainingEngine(EventDispatcher):
                 )
 
             self._dispatch(EventHandler.ON_FIT_START, self.state)
+            if (
+                self.grad_scaler is not None
+                and self.state.scaler_state is not None
+                and not zero_epoch
+            ):
+                self.grad_scaler.load_state_dict(self.state.scaler_state)
 
             # In case we already have a trained model
             epoch = self.state.initial_epoch
@@ -1070,6 +1117,7 @@ class TrainingEngine(EventDispatcher):
         if not zero_epoch:
             optimizer_state = ckpt_dict[OPTIMIZER_STATE]
             self.state.update(optimizer_state=optimizer_state)
+            self.state.update(scaler_state=ckpt_dict.get(SCALER_STATE, None))
 
         if os.path.exists(best_ckpt_filename):
             best_ckpt_dict = torch.load(

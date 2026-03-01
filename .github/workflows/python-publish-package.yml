@@ -32,6 +32,8 @@ jobs:
     permissions:
       contents: write
       actions: read
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
     runs-on: ubuntu-latest
 
@@ -61,20 +63,32 @@ jobs:
         user: __token__
         password: ${{ secrets.PYPI_API_TOKEN }}
 
+    - name: Checkout default branch for badge commit
+      uses: actions/checkout@v6
+      with:
+        ref: ${{ env.DEFAULT_BRANCH }}
+        fetch-depth: 0
+
     - name: Download badges
       uses: actions/download-artifact@v7
       with:
         name: badges
-        path: .
+        path: .tmp-badges
+
+    - name: Place badges in repo
+      run: |
+        mkdir -p .badges
+        cp .tmp-badges/*.svg .badges/
 
     - name: Commit badge updates
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "github-actions[bot]"
+        git pull --ff-only origin "${DEFAULT_BRANCH}"
         git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
         if git diff --cached --quiet; then
           echo "No badge changes."
           exit 0
         fi
         git commit -m "chore: update badges"
-        git push origin HEAD:main || echo "Badge push failed (branch protection?)"  # non-blocking for publishing
+        git push origin HEAD:"${DEFAULT_BRANCH}" || echo "Badge push failed (branch protection?)"  # non-blocking for publishing

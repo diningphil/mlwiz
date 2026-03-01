@@ -174,7 +174,11 @@ grid:
         weight_decay: 0.
   loss: mlwiz.training.callback.metric.MulticlassClassification
   scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-  engine: mlwiz.training.engine.TrainingEngine
+  engine:
+    class_name: mlwiz.training.engine.TrainingEngine
+    args:
+      mixed_precision: false
+      mixed_precision_dtype: torch.float16
 ```
 
 See `examples/` for complete configs (including random search, schedulers, early stopping, and more).

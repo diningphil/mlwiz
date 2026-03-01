@@ -41,6 +41,8 @@ class State:
         self.optimizer_state = None
         self.scheduler = None
         self.scheduler_state = None
+        self.grad_scaler = None
+        self.scaler_state = None
         self.stop_training = False
         self.return_embeddings = False
         self.set = None

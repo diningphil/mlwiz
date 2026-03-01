@@ -13,6 +13,7 @@ from mlwiz.static import (
     LAST_RUN_ELAPSED_TIME,
     MODEL_STATE,
     OPTIMIZER_STATE,
+    SCALER_STATE,
     SCHEDULER_STATE,
     STOP_TRAINING,
 )
@@ -95,6 +96,7 @@ class EngineCallback(EventHandler):
                 EPOCH: state.epoch,
                 MODEL_STATE: copy.deepcopy(state.model.state_dict()),
                 OPTIMIZER_STATE: getattr(state, OPTIMIZER_STATE, None),
+                SCALER_STATE: getattr(state, SCALER_STATE, None),
                 SCHEDULER_STATE: getattr(state, SCHEDULER_STATE, None),
                 STOP_TRAINING: state.stop_training,
                 LAST_RUN_ELAPSED_TIME: state.current_elapsed_time,
