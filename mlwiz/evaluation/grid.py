@@ -17,6 +17,7 @@ from mlwiz.static import (
     EXP_NAME,
     GRID_SEARCH,
     HIGHER_RESULTS_ARE_BETTER,
+    MODEL_SELECTION_CRITERIA,
     SEED,
     STORAGE_FOLDER,
     evaluate_every,
@@ -61,9 +62,28 @@ class Grid:
             self.configs_dict, DATA_LOADER, return_class_name=True
         )
         self.experiment = self.configs_dict[EXPERIMENT]
-        self.higher_results_are_better = self.configs_dict[
-            HIGHER_RESULTS_ARE_BETTER
-        ]
+        self.model_selection_criteria = self.configs_dict.get(
+            MODEL_SELECTION_CRITERIA, None
+        )
+        self.higher_results_are_better = self.configs_dict.get(
+            HIGHER_RESULTS_ARE_BETTER, None
+        )
+        if (
+            self.model_selection_criteria is not None
+            and self.higher_results_are_better is not None
+        ):
+            raise ValueError(
+                f"Configuration cannot define both '{MODEL_SELECTION_CRITERIA}' "
+                f"and '{HIGHER_RESULTS_ARE_BETTER}'."
+            )
+        if (
+            self.model_selection_criteria is None
+            and self.higher_results_are_better is None
+        ):
+            raise KeyError(
+                f"Configuration must define either '{MODEL_SELECTION_CRITERIA}' "
+                f"or '{HIGHER_RESULTS_ARE_BETTER}'."
+            )
         self.evaluate_every = self.configs_dict[evaluate_every]
         self.device = self.configs_dict[DEVICE]
         self.dataset_getter = self.configs_dict[DATASET_GETTER]
@@ -86,19 +106,25 @@ class Grid:
             )
         ]
         for cfg in configs:
-            cfg.update(
-                {
-                    DATASET_GETTER: self.dataset_getter,
-                    DATA_LOADER: self.data_loader_class,
-                    DATA_LOADER_ARGS: self.data_loader_args,
-                    DATASET_CLASS: self.dataset_class,
-                    STORAGE_FOLDER: self.storage_folder,
-                    DEVICE: self.device,
-                    EXPERIMENT: self.experiment,
-                    HIGHER_RESULTS_ARE_BETTER: self.higher_results_are_better,
-                    evaluate_every: self.evaluate_every,
-                }
-            )
+            shared_cfg = {
+                DATASET_GETTER: self.dataset_getter,
+                DATA_LOADER: self.data_loader_class,
+                DATA_LOADER_ARGS: self.data_loader_args,
+                DATASET_CLASS: self.dataset_class,
+                STORAGE_FOLDER: self.storage_folder,
+                DEVICE: self.device,
+                EXPERIMENT: self.experiment,
+                evaluate_every: self.evaluate_every,
+            }
+            if self.higher_results_are_better is not None:
+                shared_cfg[HIGHER_RESULTS_ARE_BETTER] = (
+                    self.higher_results_are_better
+                )
+            if self.model_selection_criteria is not None:
+                shared_cfg[MODEL_SELECTION_CRITERIA] = (
+                    self.model_selection_criteria
+                )
+            cfg.update(shared_cfg)
         return configs
 
     def _gen_helper(self, cfgs_dict: dict) -> dict:

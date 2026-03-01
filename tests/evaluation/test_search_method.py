@@ -44,3 +44,36 @@ def test_search_method(search_method_config_length):
         for i in range(len(search)):
             for j in range(i + 1, len(search)):
                 assert search[i] != search[j]
+
+
+def test_grid_rejects_conflicting_model_selection_keys():
+    """
+    ``Grid`` should reject configs that define both legacy and new selectors.
+    """
+    with pytest.raises(ValueError, match="cannot define both"):
+        Grid(
+            {
+                "exp_name": "conflict",
+                "storage_folder": "DATA",
+                "dataset_class": "builtins.list",
+                "data_splits_file": "dummy.splits",
+                "device": "cpu",
+                "max_cpus": 1,
+                "max_gpus": 0,
+                "gpus_per_task": 0,
+                "dataset_getter": "mlwiz.data.provider.DataProvider",
+                "data_loader": {
+                    "class_name": "torch.utils.data.DataLoader",
+                    "args": {"num_workers": 0, "pin_memory": False},
+                },
+                "experiment": "mlwiz.experiment.Experiment",
+                "higher_results_are_better": True,
+                "model_selection_criteria": [
+                    {"metric": "main_score", "direction": "max"}
+                ],
+                "evaluate_every": 1,
+                "risk_assessment_training_runs": 1,
+                "model_selection_training_runs": 1,
+                "grid": {"hp_id": [0, 1]},
+            }
+        )
