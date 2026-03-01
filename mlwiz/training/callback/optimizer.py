@@ -109,7 +109,12 @@ class Optimizer(EventHandler):
                 object holding training information
         """
         if not self.accumulate_gradients:
-            self.optimizer.step()
+            grad_scaler = getattr(state, "grad_scaler", None)
+            if grad_scaler is not None:
+                grad_scaler.step(self.optimizer)
+                grad_scaler.update()
+            else:
+                self.optimizer.step()
 
     def on_training_epoch_end(self, state):
         """
@@ -121,7 +126,12 @@ class Optimizer(EventHandler):
                 object holding training information
         """
         if self.accumulate_gradients:
-            self.optimizer.step()
+            grad_scaler = getattr(state, "grad_scaler", None)
+            if grad_scaler is not None:
+                grad_scaler.step(self.optimizer)
+                grad_scaler.update()
+            else:
+                self.optimizer.step()
 
     def on_epoch_end(self, state):
         """
@@ -132,6 +142,13 @@ class Optimizer(EventHandler):
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
+        grad_scaler = getattr(state, "grad_scaler", None)
+        scaler_state = (
+            copy.deepcopy(grad_scaler.state_dict())
+            if grad_scaler is not None
+            else None
+        )
         state.update(
-            optimizer_state=copy.deepcopy(self.optimizer.state_dict())
+            optimizer_state=copy.deepcopy(self.optimizer.state_dict()),
+            scaler_state=scaler_state,
         )

@@ -43,4 +43,7 @@ class GradientClipper(EventHandler):
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
+        grad_scaler = getattr(state, "grad_scaler", None)
+        if grad_scaler is not None:
+            grad_scaler.unscale_(state.optimizer.optimizer)
         clip_grad_value_(state.model.parameters(), clip_value=self.clip_value)

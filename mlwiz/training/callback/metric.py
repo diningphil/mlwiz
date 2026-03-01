@@ -400,7 +400,12 @@ class Metric(Module, EventHandler):
         """
         if self.use_as_loss:
             try:
-                state.batch_loss[self.name].backward()
+                loss = state.batch_loss[self.name]
+                grad_scaler = getattr(state, "grad_scaler", None)
+                if grad_scaler is not None:
+                    grad_scaler.scale(loss).backward()
+                else:
+                    loss.backward()
             except Exception as e:
                 # Here we catch potential multiprocessing related issues
                 # see https://github.com/pytorch/pytorch/wiki/Autograd-and-Fork

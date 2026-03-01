@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0] Pytorch Automatic Mixed-Precision Support
+
+## Added
+
+- added optional AMP configuration (`engine.args.mixed_precision`, `engine.args.mixed_precision_dtype`) with dotted dtype paths (e.g. `torch.float16`) and autocast support on CUDA/CPU
+
+
 ## [1.4.2] Version bump
 
 ## Changed
