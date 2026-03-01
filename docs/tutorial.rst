@@ -136,7 +136,9 @@ explanation of each field as a comment:
     result_folder:  # path of the folder where to store results
     exp_name:  # name of the experiment
     experiment:  # dotted path to experiment class
-    higher_results_are_better:  # model selection: should we select based on max (True) or min (False) main score?
+    model_selection_criteria:  # ordered model-selection criteria
+      - metric: main_score
+        direction: max
     evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
     risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
     model_selection_training_runs:  # how many training runs to perform for each hyper-parameter configuration in a specific inner fold
@@ -272,11 +274,17 @@ our results:
     result_folder: RESULTS
     exp_name: mlp
     experiment: mlwiz.experiment.MLP
-    higher_results_are_better: True
+    model_selection_criteria:
+      - metric: main_score
+        direction: max
     evaluate_every: 3
     risk_assessment_training_runs: 3
     model_selection_training_runs: 2
     training_timeout_seconds: -1  # set to a positive value to enforce a per-run time budget
+
+``higher_results_are_better`` is still supported as a legacy shortcut for a
+single ``main_score`` criterion, but it cannot be used together with
+``model_selection_criteria``.
 
 By default MLWiz will run each training session until either the configured number of epochs is reached or the early
 stopper halts it. If you need to cap the wall-clock time of each run, set ``training_timeout_seconds`` to a positive

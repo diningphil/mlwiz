@@ -8,6 +8,7 @@ separate processes). These tests exercise those helpers directly in-process.
 
 from __future__ import annotations
 
+import json
 import os
 import types
 
@@ -364,3 +365,158 @@ def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
     assert test_res[SCORE][MAIN_SCORE] == pytest.approx(6.0)
     assert elapsed == pytest.approx(1.0)
     assert pushed  # progress updates were forwarded
+
+
+def test_compute_best_hyperparameters_uses_ordered_criteria(tmp_path):
+    """
+    Model selection should follow the configured criteria lexicographically.
+    """
+    configs_dict = {
+        "exp_name": "criteria_test",
+        "storage_folder": str(tmp_path / "DATA"),
+        "dataset_class": "builtins.list",
+        "data_splits_file": str(tmp_path / "dummy.splits"),
+        "device": "cpu",
+        "max_cpus": 1,
+        "max_gpus": 0,
+        "gpus_per_task": 0,
+        "dataset_getter": "mlwiz.data.provider.DataProvider",
+        "data_loader": {
+            "class_name": "torch.utils.data.DataLoader",
+            "args": {"num_workers": 0, "pin_memory": False},
+        },
+        "experiment": "mlwiz.experiment.Experiment",
+        "model_selection_criteria": [
+            {"metric": "main_score", "direction": "max"},
+            {"metric": "aux", "source": "score", "direction": "max"},
+        ],
+        "evaluate_every": 1,
+        "risk_assessment_training_runs": 1,
+        "model_selection_training_runs": 1,
+        "grid": {"hp_id": [0, 1]},
+    }
+    search = evaluator.Grid(configs_dict)
+    search.telegram_config = None
+
+    assesser = evaluator.RiskAssesser(
+        outer_folds=1,
+        inner_folds=1,
+        experiment_class=object,
+        exp_path=str(tmp_path / "RESULTS"),
+        splits_filepath=str(tmp_path / "dummy.splits"),
+        model_configs=search,
+        risk_assessment_training_runs=1,
+        model_selection_training_runs=1,
+        higher_is_better=None,
+        gpus_per_task=0,
+        base_seed=42,
+    )
+
+    model_selection_folder = tmp_path / "MODEL_SELECTION"
+    config_1 = model_selection_folder / "config_1"
+    config_2 = model_selection_folder / "config_2"
+    config_1.mkdir(parents=True, exist_ok=True)
+    config_2.mkdir(parents=True, exist_ok=True)
+
+    payload_1 = {
+        "config": {"hp_id": 0},
+        "avg_validation_score": 0.8,
+        "std_validation_score": 0.1,
+        "avg_validation_aux_score": 0.3,
+    }
+    payload_2 = {
+        "config": {"hp_id": 1},
+        "avg_validation_score": 0.8,
+        "std_validation_score": 0.2,
+        "avg_validation_aux_score": 0.7,
+    }
+    (config_1 / "config_results.json").write_text(json.dumps(payload_1))
+    (config_2 / "config_results.json").write_text(json.dumps(payload_2))
+
+    assesser.compute_best_hyperparameters(
+        folder=str(model_selection_folder),
+        outer_k=0,
+        no_configurations=2,
+        skip_config_ids=[],
+    )
+
+    winner_path = model_selection_folder / "winner_config.json"
+    winner = json.loads(winner_path.read_text())
+    assert winner["best_config_id"] == 2
+
+
+def test_compute_best_hyperparameters_requires_source_for_non_main_metric(
+    tmp_path,
+):
+    """
+    Non-main criteria must explicitly specify whether they are score or loss.
+    """
+    configs_dict = {
+        "exp_name": "criteria_source_required_test",
+        "storage_folder": str(tmp_path / "DATA"),
+        "dataset_class": "builtins.list",
+        "data_splits_file": str(tmp_path / "dummy.splits"),
+        "device": "cpu",
+        "max_cpus": 1,
+        "max_gpus": 0,
+        "gpus_per_task": 0,
+        "dataset_getter": "mlwiz.data.provider.DataProvider",
+        "data_loader": {
+            "class_name": "torch.utils.data.DataLoader",
+            "args": {"num_workers": 0, "pin_memory": False},
+        },
+        "experiment": "mlwiz.experiment.Experiment",
+        "model_selection_criteria": [
+            {"metric": "main_score", "direction": "max"},
+            {"metric": "aux", "direction": "max"},
+        ],
+        "evaluate_every": 1,
+        "risk_assessment_training_runs": 1,
+        "model_selection_training_runs": 1,
+        "grid": {"hp_id": [0, 1]},
+    }
+    search = evaluator.Grid(configs_dict)
+    search.telegram_config = None
+
+    assesser = evaluator.RiskAssesser(
+        outer_folds=1,
+        inner_folds=1,
+        experiment_class=object,
+        exp_path=str(tmp_path / "RESULTS"),
+        splits_filepath=str(tmp_path / "dummy.splits"),
+        model_configs=search,
+        risk_assessment_training_runs=1,
+        model_selection_training_runs=1,
+        higher_is_better=None,
+        gpus_per_task=0,
+        base_seed=42,
+    )
+
+    model_selection_folder = tmp_path / "MODEL_SELECTION"
+    config_1 = model_selection_folder / "config_1"
+    config_2 = model_selection_folder / "config_2"
+    config_1.mkdir(parents=True, exist_ok=True)
+    config_2.mkdir(parents=True, exist_ok=True)
+
+    payload_1 = {
+        "config": {"hp_id": 0},
+        "avg_validation_score": 0.8,
+        "std_validation_score": 0.1,
+        "avg_validation_aux_score": 0.3,
+    }
+    payload_2 = {
+        "config": {"hp_id": 1},
+        "avg_validation_score": 0.8,
+        "std_validation_score": 0.2,
+        "avg_validation_aux_score": 0.7,
+    }
+    (config_1 / "config_results.json").write_text(json.dumps(payload_1))
+    (config_2 / "config_results.json").write_text(json.dumps(payload_2))
+
+    with pytest.raises(ValueError, match="must define 'source'"):
+        assesser.compute_best_hyperparameters(
+            folder=str(model_selection_folder),
+            outer_k=0,
+            no_configurations=2,
+            skip_config_ids=[],
+        )

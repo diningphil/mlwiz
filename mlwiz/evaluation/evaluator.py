@@ -5,7 +5,6 @@ Implements the :class:`~mlwiz.evaluation.evaluator.RiskAssesser` workflow and he
 
 import traceback
 import json
-import operator
 import os
 import os.path as osp
 import random
@@ -49,10 +48,12 @@ from mlwiz.static import (
     LOG_FINAL_RUNS,
     LOG_MODEL_SELECTION,
     LOSS,
+    HIGHER_RESULTS_ARE_BETTER,
     MAIN_LOSS,
     MAIN_SCORE,
     MLWIZ_RAY_NUM_GPUS_PER_TASK,
     MODEL_ASSESSMENT,
+    MODEL_SELECTION_CRITERIA,
     MODEL_SELECTION_TRAINING_RUNS,
     OUTER_FOLD,
     OUTER_TEST,
@@ -500,9 +501,9 @@ class RiskAssesser:
             mitigate bad initializations
         model_selection_training_runs (int): no of training runs to mitigate
             bad initializations at model selection time
-        higher_is_better (bool): whether the best model
-            for each external fold should be selected by higher
-            or lower score values
+        higher_is_better (bool | None): legacy model-selection direction for
+            ``validation_main_score`` when ``model_selection_criteria`` is not
+            provided in config.
         gpus_per_task (float): Number of gpus to assign to each
             experiment. Can be < ``1``.
         base_seed (int): Seed used to generate experiments seeds.
@@ -521,7 +522,7 @@ class RiskAssesser:
         model_configs: Union[Grid, RandomSearch],
         risk_assessment_training_runs: int,
         model_selection_training_runs: int,
-        higher_is_better: bool,
+        higher_is_better: Optional[bool],
         gpus_per_task: float,
         base_seed: int = 42,
         training_timeout_seconds: int = -1,
@@ -543,8 +544,9 @@ class RiskAssesser:
                 initialization.
             model_selection_training_runs (int): Number of repeated runs per
                 configuration during model selection.
-            higher_is_better (bool): Whether a larger score indicates a better
-                configuration.
+            higher_is_better (bool | None): Legacy model-selection direction
+                for ``validation_main_score`` when
+                ``model_selection_criteria`` is not configured.
             gpus_per_task (float): GPUs assigned per Ray task (may be < 1.0).
             base_seed (int): Base seed used to derive per-run seeds.
             training_timeout_seconds (int): Optional per-run timeout in seconds.
@@ -572,11 +574,26 @@ class RiskAssesser:
         self.risk_assessment_training_runs = risk_assessment_training_runs
         self.model_selection_training_runs = model_selection_training_runs
         self.training_timeout_seconds = training_timeout_seconds
+        self.model_selection_criteria = model_configs.configs_dict.get(
+            MODEL_SELECTION_CRITERIA, None
+        )
+        if (
+            self.model_selection_criteria is not None
+            and higher_is_better is not None
+        ):
+            raise ValueError(
+                f"Configuration cannot define both '{MODEL_SELECTION_CRITERIA}' "
+                f"and '{HIGHER_RESULTS_ARE_BETTER}'."
+            )
+        if (
+            self.model_selection_criteria is None
+            and higher_is_better is None
+        ):
+            raise ValueError(
+                f"Either '{MODEL_SELECTION_CRITERIA}' or "
+                f"'{HIGHER_RESULTS_ARE_BETTER}' must be provided."
+            )
         self.higher_is_better = higher_is_better
-        if higher_is_better:
-            self.operator = operator.gt
-        else:
-            self.operator = operator.lt
         self.gpus_per_task = gpus_per_task
 
         # Main folders
@@ -1761,6 +1778,166 @@ class RiskAssesser:
         with open(config_filename, "w") as fp:
             json.dump(k_fold_dict, fp, sort_keys=False, indent=4)
 
+    @staticmethod
+    def _values_equal(v1: float, v2: float, atol: float = 1e-12) -> bool:
+        """
+        Compare metric values with a tiny absolute tolerance.
+        """
+        return bool(np.isclose(float(v1), float(v2), rtol=0.0, atol=atol))
+
+    @staticmethod
+    def _direction_to_comparator(direction: str) -> Callable[[float, float], bool]:
+        """
+        Convert a textual direction into a numeric comparator.
+        """
+        if not isinstance(direction, str):
+            raise ValueError(
+                "Each model selection criterion requires a string 'direction'."
+            )
+        norm_direction = direction.strip().lower()
+        if norm_direction in {"max", "higher", "higher_is_better"}:
+            return lambda a, b: float(a) > float(b)
+        if norm_direction in {"min", "lower", "lower_is_better"}:
+            return lambda a, b: float(a) < float(b)
+        raise ValueError(
+            f"Unsupported criterion direction '{direction}'. Use 'max' or 'min'."
+        )
+
+    def _available_validation_avg_keys(self, config_dict: dict) -> List[str]:
+        """
+        Return sorted ``avg_validation_*`` keys available in a config result.
+        """
+        return sorted(
+            [k for k in config_dict.keys() if k.startswith(f"{AVG}_{VALIDATION}_")]
+        )
+
+    def _resolve_criterion_key(
+        self, criterion: dict, config_dict: dict
+    ) -> Tuple[str, Callable[[float, float], bool]]:
+        """
+        Resolve one user criterion to a concrete ``config_results.json`` key.
+        """
+        if not isinstance(criterion, dict):
+            raise ValueError(
+                "Each entry in model_selection_criteria must be a dictionary."
+            )
+
+        metric = criterion.get("metric", None)
+        direction = criterion.get("direction", None)
+        source = criterion.get("source", None)
+
+        if not isinstance(metric, str) or not metric.strip():
+            raise ValueError(
+                "Each criterion must define a non-empty string 'metric'."
+            )
+        metric = metric.strip()
+        comparator = self._direction_to_comparator(direction)
+
+        if source is not None:
+            if not isinstance(source, str):
+                raise ValueError(
+                    f"Criterion '{metric}' has a non-string 'source'."
+                )
+            source = source.strip().lower()
+            if source not in {LOSS, SCORE}:
+                raise ValueError(
+                    f"Criterion '{metric}' has invalid source '{source}'. "
+                    "Valid sources are 'loss' and 'score'."
+                )
+
+        if metric in {MAIN_SCORE}:
+            if source is not None and source != SCORE:
+                raise ValueError(
+                    f"Criterion '{metric}' cannot use source '{source}'."
+                )
+            candidates = [f"{AVG}_{VALIDATION}_{SCORE}"]
+        elif metric in {MAIN_LOSS}:
+            if source is not None and source != LOSS:
+                raise ValueError(
+                    f"Criterion '{metric}' cannot use source '{source}'."
+                )
+            candidates = [f"{AVG}_{VALIDATION}_{LOSS}"]
+        else:
+            if source is None:
+                raise ValueError(
+                    f"Criterion '{metric}' must define 'source' as either "
+                    "'score' or 'loss'."
+                )
+            candidates = [f"{AVG}_{VALIDATION}_{metric}_{source}"]
+
+        matched = [key for key in candidates if key in config_dict]
+        if len(matched) == 0:
+            available = ", ".join(self._available_validation_avg_keys(config_dict))
+            raise ValueError(
+                f"Selection criterion metric '{metric}' not found in results. "
+                f"Expected one of: {candidates}. Available avg validation keys: "
+                f"{available}"
+            )
+        if len(matched) > 1:
+            raise ValueError(
+                f"Selection criterion metric '{metric}' is ambiguous. "
+                "Specify 'source' as either 'score' or 'loss'."
+            )
+
+        return matched[0], comparator
+
+    def _build_selection_criteria(
+        self, config_dict: dict
+    ) -> List[Tuple[str, Callable[[float, float], bool]]]:
+        """
+        Build resolved, ordered model-selection criteria.
+        """
+        if self.model_selection_criteria is None:
+            default_key = f"{AVG}_{VALIDATION}_{SCORE}"
+            if default_key not in config_dict:
+                raise ValueError(
+                    f"Legacy selection metric '{default_key}' is missing from "
+                    "config_results.json."
+                )
+            if self.higher_is_better is None:
+                raise ValueError(
+                    "Legacy 'higher_is_better' cannot be None when "
+                    "model_selection_criteria is not provided."
+                )
+            default_cmp = (
+                (lambda a, b: float(a) > float(b))
+                if self.higher_is_better
+                else (lambda a, b: float(a) < float(b))
+            )
+            return [(default_key, default_cmp)]
+
+        if not isinstance(self.model_selection_criteria, list) or len(
+            self.model_selection_criteria
+        ) == 0:
+            raise ValueError(
+                f"'{MODEL_SELECTION_CRITERIA}' must be a non-empty list."
+            )
+
+        return [
+            self._resolve_criterion_key(criterion, config_dict)
+            for criterion in self.model_selection_criteria
+        ]
+
+    def _compare_by_criteria(
+        self,
+        candidate_dict: dict,
+        best_dict: dict,
+        criteria: List[Tuple[str, Callable[[float, float], bool]]],
+    ) -> int:
+        """
+        Lexicographic comparison under the configured model-selection criteria.
+
+        Returns:
+            1 if candidate is better, -1 if worse, 0 if equal on all criteria.
+        """
+        for key, comparator in criteria:
+            candidate_value = float(candidate_dict[key])
+            best_value = float(best_dict[key])
+            if self._values_equal(candidate_value, best_value):
+                continue
+            return 1 if comparator(candidate_value, best_value) else -1
+        return 0
+
     def compute_best_hyperparameters(
         self,
         folder: str,
@@ -1770,7 +1947,7 @@ class RiskAssesser:
     ):
         r"""
         Chooses the best hyper-parameters configuration using the proper
-        validation mean score.
+        ordered model-selection criteria.
 
         Args:
             folder (str): the model selection folder associated with
@@ -1780,8 +1957,7 @@ class RiskAssesser:
             no_configurations (int): number of possible configurations
             skip_config_ids: list of configuration ids to skip
         """
-        best_avg_vl = -float("inf") if self.higher_is_better else float("inf")
-        best_std_vl = float("inf")
+        evaluated_configs = []
 
         for i in range(1, no_configurations + 1):
             if (i - 1) in skip_config_ids:
@@ -1791,18 +1967,52 @@ class RiskAssesser:
             )
 
             with open(config_filename, "r") as fp:
-                config_dict = json.load(fp)
+                evaluated_configs.append((i, json.load(fp)))
 
-                avg_vl = config_dict[f"{AVG}_{VALIDATION}_{SCORE}"]
-                std_vl = config_dict[f"{STD}_{VALIDATION}_{SCORE}"]
+        if len(evaluated_configs) == 0:
+            raise ValueError(
+                "No model-selection configurations available after applying "
+                "skip_config_ids."
+            )
 
-                if self.operator(avg_vl, best_avg_vl) or (
-                    best_avg_vl == avg_vl and best_std_vl > std_vl
-                ):
-                    best_i = i
-                    best_avg_vl = avg_vl
-                    best_std_vl = std_vl
-                    best_config = config_dict
+        criteria = self._build_selection_criteria(evaluated_configs[0][1])
+
+        # Validate criteria keys across all configurations.
+        for config_id, config_dict in evaluated_configs:
+            missing = [key for key, _ in criteria if key not in config_dict]
+            if len(missing) > 0:
+                raise ValueError(
+                    f"Configuration {config_id} is missing required model "
+                    f"selection keys: {missing}"
+                )
+
+        best_i, best_config = evaluated_configs[0]
+        for config_id, config_dict in evaluated_configs[1:]:
+            cmp_res = self._compare_by_criteria(config_dict, best_config, criteria)
+            if cmp_res > 0:
+                best_i, best_config = config_id, config_dict
+                continue
+            if cmp_res < 0:
+                continue
+
+            # Fully tied under the configured criteria: keep legacy fallback
+            # on lower std validation score, then lower config id.
+            candidate_std = float(
+                config_dict.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
+            )
+            best_std = float(
+                best_config.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
+            )
+            if candidate_std < best_std or (
+                self._values_equal(candidate_std, best_std)
+                and config_id < best_i
+            ):
+                best_i, best_config = config_id, config_dict
+
+        best_avg_vl = best_config.get(f"{AVG}_{VALIDATION}_{SCORE}", None)
+        best_std_vl = best_config.get(f"{STD}_{VALIDATION}_{SCORE}", None)
+        primary_key = criteria[0][0]
+        primary_value = float(best_config[primary_key])
 
         # Send telegram update
         if (
@@ -1814,9 +2024,13 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Model Sel. ended for outer fold *{outer_k + 1}* \n"
                 f"Best config id: *{best_i}* \n"
-                f"Main score: avg *{best_avg_vl:.4f}* "
-                f"/ std *{best_std_vl:.4f}*"
+                f"Primary criterion ({primary_key}): *{primary_value:.4f}*"
             )
+            if best_avg_vl is not None and best_std_vl is not None:
+                telegram_msg += (
+                    f"\nMain score: avg *{float(best_avg_vl):.4f}* "
+                    f"/ std *{float(best_std_vl):.4f}*"
+                )
             send_telegram_update(
                 self.telegram_bot_token,
                 self.telegram_bot_chat_ID,

@@ -5,6 +5,13 @@
 ## Added
 
 - added optional AMP configuration (`engine.args.mixed_precision`, `engine.args.mixed_precision_dtype`) with dotted dtype paths (e.g. `torch.float16`) and autocast support on CUDA/CPU
+- added configurable ordered model-selection criteria via `model_selection_criteria` (lexicographic comparison with per-criterion direction)
+
+## Changed
+
+- model selection now supports metrics from both loss and score aggregates, and non-main metrics must explicitly specify `source: loss|score`
+- configuration validation now raises an error when both `model_selection_criteria` and `higher_results_are_better` are provided
+- updated `MODEL_CONFIGS` examples/integration configs and templates to use `model_selection_criteria` as the default specification
 
 
 ## [1.4.2] Version bump

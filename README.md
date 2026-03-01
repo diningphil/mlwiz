@@ -153,7 +153,9 @@ data_loader:
 result_folder: RESULTS
 exp_name: mlp
 experiment: mlwiz.experiment.Experiment
-higher_results_are_better: true
+model_selection_criteria:
+  - metric: main_score
+    direction: max
 evaluate_every: 1
 risk_assessment_training_runs: 3
 model_selection_training_runs: 2
@@ -180,6 +182,9 @@ grid:
       mixed_precision: false
       mixed_precision_dtype: torch.float16
 ```
+
+`higher_results_are_better` remains available as a legacy shortcut for
+`main_score`, but it cannot be set together with `model_selection_criteria`.
 
 See `examples/` for complete configs (including random search, schedulers, early stopping, and more).
 

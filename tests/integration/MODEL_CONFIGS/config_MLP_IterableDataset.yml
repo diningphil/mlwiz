@@ -28,7 +28,9 @@ seed: 42
 result_folder: tests/tmp/RESULTS
 exp_name: mlp_iterable_dataset
 experiment: mlwiz.experiment.Experiment
-higher_results_are_better: True
+model_selection_criteria:
+  - metric: main_score
+    direction: max
 evaluate_every: 3
 risk_assessment_training_runs: 3
 model_selection_training_runs: 1
