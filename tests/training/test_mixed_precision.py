@@ -159,14 +159,14 @@ def test_optimizer_and_gradient_clipper_use_scaler_hooks():
 @pytest.mark.parametrize(
     ("dtype_path", "expected_dtype"),
     [
-        ("torch.float16", torch.float16),
+        ("torch.float16", torch.bfloat16),
         ("torch.bfloat16", torch.bfloat16),
     ],
 )
 def test_engine_mixed_precision_uses_cpu_autocast_without_scaler(
     tmp_path, dtype_path, expected_dtype
 ):
-    """AMP on CPU should use autocast and skip GradScaler for supported dtypes."""
+    """AMP on CPU should autocast and avoid GradScaler for supported dtypes."""
     model = _EmbeddingModel()
     loss = ToyMetric(use_as_loss=True)
     scorer = ToyMetric(use_as_loss=False)
@@ -195,6 +195,28 @@ def test_engine_mixed_precision_uses_cpu_autocast_without_scaler(
     loss_dict, score_dict, _ = engine.infer(loader, TRAINING, _noop_progress)
     assert MAIN_LOSS in loss_dict
     assert MAIN_SCORE in score_dict
+
+
+def test_engine_mixed_precision_cpu_float16_is_promoted_to_bfloat16(tmp_path):
+    """CPU AMP should promote float16 requests to bfloat16."""
+    model = _EmbeddingModel()
+    loss = ToyMetric(use_as_loss=True)
+    scorer = ToyMetric(use_as_loss=False)
+    optimizer = Optimizer(model, "torch.optim.SGD", lr=0.1)
+
+    engine = TrainingEngine(
+        engine_callback=EngineCallback,
+        model=model,
+        loss=loss,
+        optimizer=optimizer,
+        scorer=scorer,
+        device="cpu",
+        exp_path=str(tmp_path),
+        mixed_precision=True,
+        mixed_precision_dtype="torch.float16",
+    )
+
+    assert engine.amp_dtype == torch.bfloat16
 
 
 def test_engine_mixed_precision_bfloat16_cuda_device_skips_scaler(tmp_path):

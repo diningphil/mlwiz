@@ -183,6 +183,10 @@ grid:
       mixed_precision_dtype: torch.float16
 ```
 
+When `mixed_precision: true` is used on CPU, requesting
+`mixed_precision_dtype: torch.float16` is automatically converted to
+`torch.bfloat16`.
+
 `higher_results_are_better` remains available as a legacy shortcut for
 `main_score`, but it cannot be set together with `model_selection_criteria`.
 

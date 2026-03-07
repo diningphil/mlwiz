@@ -218,7 +218,9 @@ class TrainingEngine(EventDispatcher):
             mixed_precision (bool): Whether to enable torch AMP autocast for
                 training/evaluation on CUDA/CPU.
             mixed_precision_dtype (str): Dotted path to a ``torch.dtype``
-                (for example ``torch.float16`` or ``torch.bfloat16``).
+                (for example ``torch.float16`` or ``torch.bfloat16``). When
+                AMP runs on CPU and ``torch.float16`` is requested, it is
+                automatically promoted to ``torch.bfloat16``.
 
         Side effects:
             Registers all non-``None`` callbacks (loss, scorer, optimizer, etc.)
@@ -251,6 +253,8 @@ class TrainingEngine(EventDispatcher):
                 f"got {type(self.amp_dtype)} from '{self.mixed_precision_dtype}'."
             )
         self.amp_device_type = self.device.split(":")[0]
+        if self.amp_device_type == "cpu" and self.amp_dtype == torch.float16:
+            self.amp_dtype = torch.bfloat16
         self.use_mixed_precision = (
             self.mixed_precision and self.amp_device_type in ("cuda", "cpu")
         )
