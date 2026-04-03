@@ -67,9 +67,9 @@ class EarlyStopper(EventHandler):
         self.checkpoint = checkpoint
 
         if MIN in mode:
-            self.operator = operator.lt
+            self.operator = operator.le
         elif MAX in mode:
-            self.operator = operator.gt
+            self.operator = operator.ge
         else:
             raise NotImplementedError("Mode not understood by early stopper.")
 
