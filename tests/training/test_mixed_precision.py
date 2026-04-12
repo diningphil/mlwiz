@@ -192,7 +192,7 @@ def test_engine_mixed_precision_uses_cpu_autocast_without_scaler(
     x = torch.arange(4, dtype=torch.float32).unsqueeze(1)
     y = torch.arange(4, dtype=torch.float32).unsqueeze(1)
     loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
-    loss_dict, score_dict, _ = engine.infer(loader, TRAINING, _noop_progress)
+    loss_dict, score_dict = engine.infer(loader, TRAINING, _noop_progress)
     assert MAIN_LOSS in loss_dict
     assert MAIN_SCORE in score_dict
 

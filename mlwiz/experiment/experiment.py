@@ -696,11 +696,8 @@ class Experiment:
             (
                 train_loss,
                 train_score,
-                _,  # check the ordering is correct
                 val_loss,
                 val_score,
-                _,
-                _,
                 _,
                 _,
             ) = training_engine.train(
@@ -824,13 +821,10 @@ class Experiment:
             (
                 train_loss,
                 train_score,
-                _,
                 val_loss,
                 val_score,
-                _,
                 test_loss,
                 test_score,
-                _,
             ) = training_engine.train(
                 train_loader=train_loader,
                 validation_loader=val_loader,

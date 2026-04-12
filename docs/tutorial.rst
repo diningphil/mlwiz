@@ -114,7 +114,7 @@ explanation of each field as a comment:
     device:  # cpu | cuda
     max_cpus:  # > 1 for parallelism
     max_gpus: # > 0 for gpu usage (device must be cuda though)
-    gpus_per_task:  # percentage of gpus to allocate for each task
+    gpus_per_task:  # Ray GPUs per task: fraction (<=1) or integer (>1 enables DDP)
     gpus_subset: # optional, comma-separated list of gpu indices, e.g. 0,2. Used to force a particular subset of GPUs being used.
 
 
@@ -244,6 +244,22 @@ Here we can define how many resources to allocate to parallelize different exper
     max_gpus: 2
     gpus_per_task:  0.5
 
+For **Distributed Data Parallel (DDP)**, set ``gpus_per_task`` to an integer greater than 1.
+When ``device: cuda``, MLWiz automatically switches to DDP inside each Ray task.
+
+.. code-block:: yaml
+
+    # one experiment uses 2 GPUs with DDP
+    # with max_gpus: 4, Ray can run up to 2 such experiments in parallel
+    device: cuda
+    max_cpus: 24
+    max_gpus: 4
+    gpus_per_task: 2
+
+MLWiz shards the training data with ``DistributedSampler`` and keeps a single set of
+experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
+``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
+
 
 
 Data Loading
@@ -301,6 +317,7 @@ you can define lists associated to an hyper-parameter and all possible combinati
 nesting of these combinations for maximum flexibility.
 
 There is one config file ``examples/MODEL_CONFIGS/config_MLP.yml`` that you can check to get a better idea.
+For a multi-GPU DDP setup, refer to ``examples/MODEL_CONFIGS/config_MLP_ddp.yml``.
 
 
 Random Search
@@ -332,7 +349,8 @@ or
 
 .. code-block:: bash
 
-    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP_ddp.yml
+
 
 
 And we are up and running!

@@ -1,14 +1,21 @@
 # Changelog
 
-## [1.5.0] Pytorch Automatic Mixed-Precision Support
+## [1.5.0] Pytorch Distributed Data Parallel and Automatic Mixed-Precision Support
 
 ## Added
 
+- added Distributed Data Parallel (DDP) training support that is automatically enabled when `device: cuda` and `gpus_per_task` is an integer greater than 1
+- added DDP-aware data loading through `DistributedSampler` for training splits, so each rank processes a distinct shard
+- added a DDP example configuration file at `examples/MODEL_CONFIGS/config_MLP_ddp.yml` and a lightweight smoke test script at `examples/toy_ddp_training_smoke.py`
 - added optional AMP configuration (`engine.args.mixed_precision`, `engine.args.mixed_precision_dtype`) with dotted dtype paths (e.g. `torch.float16`) and autocast support on CUDA/CPU
 - added configurable ordered model-selection criteria via `model_selection_criteria` (lexicographic comparison with per-criterion direction)
 
+
 ## Changed
 
+- evaluator/experiment execution now forwards progress and termination signals correctly in both debug and non-debug modes when DDP is active
+- distributed helper utilities are now centralized in `mlwiz.training.distributed` for reuse across engine/experiment code paths
+- rank-0-only side effects are enforced for distributed runs (logging/progress/checkpoint-related writes), reducing file contention across ranks
 - model selection now supports metrics from both loss and score aggregates, and non-main metrics must explicitly specify `source: loss|score`
 - configuration validation now raises an error when both `model_selection_criteria` and `higher_results_are_better` are provided
 - updated `MODEL_CONFIGS` examples/integration configs and templates to use `model_selection_criteria` as the default specification

@@ -9,6 +9,7 @@ MLWiz helps you to:
  * reduce the amount of boilerplate code to write,
  * make it flexible enough to encompass a wide range of use cases for research.
  * support a number of different hardware set ups, including a cluster of nodes (using `Ray <https://docs.ray.io/en/latest/>`_),
+ * run single-GPU or multi-GPU training (DDP) transparently through configuration only, with or without mixed-precision
 
 To run an experiment, you usually rely on 2 **YAML configuration files**:
   * one to pre-process the dataset and create the data splits,

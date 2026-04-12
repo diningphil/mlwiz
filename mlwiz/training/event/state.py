@@ -44,7 +44,6 @@ class State:
         self.grad_scaler = None
         self.scaler_state = None
         self.stop_training = False
-        self.return_embeddings = False
         self.set = None
         self.current_elapsed_time = 0
 

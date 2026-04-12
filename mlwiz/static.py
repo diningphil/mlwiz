@@ -76,7 +76,6 @@ BATCH_LOSS_EXTRA = "batch_loss_extra"
 
 # STRING FORMATTING
 TENSORBOARD = "tensorboard"
-EMB_TUPLE_SUBSTR = "_embeddings_tuple"
 ATOMIC_SAVE_EXTENSION = ".part"
 CLASS_NAME = "class_name"
 ARGS = "args"

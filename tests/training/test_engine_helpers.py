@@ -1,8 +1,7 @@
 """
 Additional unit tests for :mod:`mlwiz.training.engine`.
 
-The existing engine tests focus on sampler-permutation behavior during
-inference. This module covers small helpers and additional branches in
+This module covers small helpers and additional branches in
 inference/termination handling.
 """
 
@@ -11,7 +10,6 @@ from __future__ import annotations
 import pytest
 import torch
 from torch.utils.data import DataLoader, TensorDataset
-from torch_geometric.data import Data
 
 from mlwiz.exceptions import TerminationRequested
 from mlwiz.model.interface import ModelInterface
@@ -19,7 +17,7 @@ from mlwiz.static import MAIN_LOSS, MAIN_SCORE, TRAINING
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.metric import ToyMetric
 from mlwiz.training.callback.optimizer import Optimizer
-from mlwiz.training.engine import TrainingEngine, fmt, reorder
+from mlwiz.training.engine import TrainingEngine, fmt
 
 
 class _EmbeddingModel(ModelInterface):
@@ -74,19 +72,6 @@ def _noop_progress(*_args, **_kwargs):
     return None
 
 
-def test_reorder_raises_on_invalid_inputs():
-    """reorder() should validate inputs and raise for invalid lengths."""
-    with pytest.raises(ValueError, match="non-zero length"):
-        reorder([], [])
-    with pytest.raises(ValueError, match="same non-zero length"):
-        reorder([1, 2], [0])
-
-
-def test_reorder_sorts_by_permutation_indices():
-    """reorder() should restore original order given a permutation list."""
-    assert reorder(["a", "b", "c"], [2, 0, 1]) == ["b", "c", "a"]
-
-
 def test_fmt_formats_zero_small_and_regular_numbers():
     """fmt() should format 0, small values (scientific), and regular values."""
     assert fmt(0.0, decimals=2) == "0.00"
@@ -127,59 +112,13 @@ def test_check_termination_behaviors(tmp_path):
 def test_infer_sequential_sampler_requires_no_permutation_and_sets_main_keys(
     tmp_path,
 ):
-    """infer() with SequentialSampler should not require a permutation and should set MAIN_* keys."""
+    """infer() should set MAIN_* keys for downstream consumers."""
     x = torch.arange(5, dtype=torch.float32).unsqueeze(1)
     y = torch.arange(5, dtype=torch.float32).unsqueeze(1)
     loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
 
     engine = _make_engine(tmp_path)
-    engine.state.update(return_embeddings=True)
-
-    loss, score, data_list = engine.infer(loader, TRAINING, _noop_progress)
+    loss, score = engine.infer(loader, TRAINING, _noop_progress)
 
     assert MAIN_LOSS in loss
     assert MAIN_SCORE in score
-    assert [emb.item() for emb, _target in data_list] == [0, 1, 2, 3, 4]
-
-
-def test_to_list_rejects_unknown_embedding_types(tmp_path):
-    """_to_list should raise for non-tensor embedding inputs."""
-    engine = _make_engine(tmp_path)
-    with pytest.raises(NotImplementedError, match="Embeddings not understood"):
-        engine._to_list(
-            data_list=[],
-            embeddings="not-a-tensor",
-            batch=torch.tensor([0]),
-            y=None,
-        )
-
-
-def test_to_data_list_splits_graph_and_node_targets(tmp_path):
-    """_to_data_list should split embeddings by graph and shape targets appropriately."""
-    engine = _make_engine(tmp_path)
-
-    embeddings = torch.arange(10, dtype=torch.float32).reshape(5, 2)
-    batch = torch.tensor([0, 0, 0, 1, 1])
-
-    graph_targets = torch.tensor([1, 2], dtype=torch.long)
-    graph_list = engine._to_data_list(embeddings, batch, graph_targets)
-    assert len(graph_list) == 2
-    g0, y0 = graph_list[0]
-    g1, y1 = graph_list[1]
-    assert isinstance(g0, Data)
-    assert g0.x.shape[0] == 3
-    assert y0.shape == (1, 1)
-    assert g1.x.shape[0] == 2
-    assert y1.shape == (1, 1)
-
-    node_targets = torch.arange(5, dtype=torch.long)
-    node_list = engine._to_data_list(embeddings, batch, node_targets)
-    assert len(node_list) == 2
-    g0, y0 = node_list[0]
-    g1, y1 = node_list[1]
-    assert y0.shape == (3, 1)
-    assert y1.shape == (2, 1)
-
-    none_list = engine._to_data_list(embeddings, batch, None)
-    assert isinstance(none_list[0], Data)
-    assert none_list[1][1] is None
