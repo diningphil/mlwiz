@@ -17,7 +17,6 @@ from torch_geometric.loader.dataloader import Collater
 
 import mlwiz.data.dataset
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter, SingleGraphSplitter
 from mlwiz.data.util import load_dataset, single_graph_collate
 
@@ -132,10 +131,6 @@ class DataProvider:
     or to create a specific type of data loader. The base class does nothing
     special, but here is where the i-th element of a dataset could be
     pre-processed before constructing the mini-batches.
-
-    IMPORTANT: if the dataset is to be shuffled, you MUST use a
-    :class:`mlwiz.data.sampler.RandomSampler` object to determine the
-    permutation.
 
     Args:
         storage_folder (str): the path of the root folder in which data is stored
@@ -369,9 +364,8 @@ class DataProvider:
                 dataset, sampler=sampler, batch_size=batch_size, **kwargs
             )
         elif shuffle is True:
-            sampler = RandomSampler(dataset)
             dataloader = self.data_loader_class(
-                dataset, sampler=sampler, batch_size=batch_size, **kwargs
+                dataset, shuffle=True, batch_size=batch_size, **kwargs
             )
         else:
             dataloader = self.data_loader_class(
@@ -725,10 +719,9 @@ class SingleGraphDataProvider(DataProvider):
         kwargs.update(self.data_loader_args)
 
         if shuffle is True:
-            sampler = RandomSampler(dataset)
             dataloader = self.data_loader_class(
                 dataset,
-                sampler=sampler,
+                shuffle=True,
                 batch_size=batch_size,
                 collate_fn=single_graph_collate,
                 **kwargs,

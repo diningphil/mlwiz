@@ -19,15 +19,6 @@ data.provider
    :undoc-members:
    :show-inheritance:
 
-data.sampler
--------------------------
-
-.. automodule:: mlwiz.data.sampler
-   :members:
-   :private-members:
-   :undoc-members:
-   :show-inheritance:
-
 data.splitter
 --------------------------
 

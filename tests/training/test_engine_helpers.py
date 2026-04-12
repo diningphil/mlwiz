@@ -109,7 +109,7 @@ def test_check_termination_behaviors(tmp_path):
         engine._check_termination()
 
 
-def test_infer_sequential_sampler_requires_no_permutation_and_sets_main_keys(
+def test_infer_sets_main_keys(
     tmp_path,
 ):
     """infer() should set MAIN_* keys for downstream consumers."""

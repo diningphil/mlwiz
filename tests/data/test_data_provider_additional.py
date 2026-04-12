@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import pytest
 import torch
-from torch.utils.data import DataLoader, SequentialSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 
 import mlwiz.data.provider as provider_mod
 from mlwiz.data.provider import (
@@ -20,7 +20,6 @@ from mlwiz.data.provider import (
     SubsetTrainEval,
     _iterable_worker_init_fn,
 )
-from mlwiz.data.sampler import RandomSampler
 from mlwiz.data.splitter import Splitter
 
 
@@ -191,7 +190,7 @@ def test_data_provider_requires_seed_and_fold_ids():
 
 
 def test_data_provider_get_loader_uses_random_sampler_when_shuffling():
-    """Ensure shuffle=True uses MLWiz ``RandomSampler`` (with stored permutation)."""
+    """Ensure shuffle=True uses a random sampler."""
     provider = DataProvider(
         storage_folder="unused",
         splits_filepath="unused",
