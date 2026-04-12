@@ -41,7 +41,8 @@ class FakeTask(Experiment):
         dataset_getter,
         training_timeout_seconds,
         logger,
-        progress_callback,
+        progress_callback=None,
+        should_terminate=None,
     ):
         """
         Return deterministic train/validation results for evaluator tests.
@@ -74,7 +75,8 @@ class FakeTask(Experiment):
         dataset_getter,
         training_timeout_seconds,
         logger,
-        progress_callback,
+        progress_callback=None,
+        should_terminate=None,
     ):
         """
         Return deterministic train/validation/test results for evaluator tests.

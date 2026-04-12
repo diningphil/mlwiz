@@ -39,6 +39,15 @@ def seed_worker(exp_seed, worker_id):
     torch.cuda.manual_seed(exp_seed + worker_id)
 
 
+def _ddp_shard_indices(indices, ddp_rank, ddp_world_size):
+    """
+    Return the shard of indices assigned to this DDP rank.
+    """
+    if ddp_rank is None or ddp_world_size <= 1:
+        return indices
+    return list(indices)[ddp_rank::ddp_world_size]
+
+
 class SubsetTrainEval(Subset):
     r"""
     Extension of Pytorch Subset to differentiate between training and
@@ -574,6 +583,11 @@ class IterableDataProvider(DataProvider):
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        ddp_rank = kwargs.pop("ddp_rank", None)
+        ddp_world_size = kwargs.pop("ddp_world_size", 1)
+
+        # For DDP we split iterable indices manually (sampler is not supported).
+        indices = _ddp_shard_indices(indices, ddp_rank, ddp_world_size)
 
         # we can deepcopy the dataset each time the loader is called,
         # because iterable datasets are not supposed to keep all data in memory
@@ -698,6 +712,16 @@ class SingleGraphDataProvider(DataProvider):
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        ddp_rank = kwargs.pop("ddp_rank", None)
+        ddp_world_size = kwargs.pop("ddp_world_size", 1)
+
+        # For DDP split node indices across ranks for single-graph training.
+        training_indices = _ddp_shard_indices(
+            training_indices, ddp_rank, ddp_world_size
+        )
+        eval_indices = _ddp_shard_indices(
+            eval_indices, ddp_rank, ddp_world_size
+        )
 
         # TODO is there a way to refactor the code to avoid that we have
         #  to duplicate the dataset for every loader just to set different

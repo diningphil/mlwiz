@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 import mlwiz.data.provider as provider_mod
 from mlwiz.data.provider import (
     DataProvider,
+    IterableDataProvider,
     SingleGraphDataProvider,
     SubsetTrainEval,
     _iterable_worker_init_fn,
@@ -313,3 +314,119 @@ def test_single_graph_data_provider_rejects_non_single_graph_splitter():
 
     with pytest.raises(TypeError, match="SingleGraphNodeSplitter"):
         provider._get_splitter()
+
+
+def test_iterable_data_provider_shards_indices_in_ddp(monkeypatch):
+    """Iterable provider should shard input indices when DDP args are provided."""
+
+    class _DummyIterableDataset(torch.utils.data.IterableDataset):
+        """Small iterable dataset stub exposing provider hooks."""
+
+        dim_input_features = 1
+        dim_target = 1
+
+        def __init__(self):
+            """Initialize empty subset state."""
+            self.indices = []
+            self.is_eval = False
+
+        def set_eval(self, is_eval: bool):
+            """Store eval mode flag."""
+            self.is_eval = is_eval
+
+        def subset(self, indices):
+            """Keep only selected indices."""
+            self.indices = list(indices)
+
+        def shuffle_urls(self, _enabled: bool):
+            """No-op shuffle hook."""
+
+        def shuffle_urls_elements(self, _enabled: bool):
+            """No-op shuffle hook."""
+
+        def __len__(self):
+            """Return current subset length."""
+            return len(self.indices)
+
+        def __iter__(self):
+            """Yield one tiny tensor sample per selected index."""
+            for idx in self.indices:
+                x = torch.tensor([float(idx)])
+                y = torch.tensor([float(idx)])
+                yield x, y
+
+    provider = IterableDataProvider(
+        storage_folder="unused",
+        splits_filepath="unused",
+        dataset_class=object,
+        data_loader_class=DataLoader,
+        data_loader_args={},
+        outer_folds=1,
+        inner_folds=1,
+    )
+    provider.set_exp_seed(0)
+    dataset = _DummyIterableDataset()
+    monkeypatch.setattr(provider, "_get_dataset", lambda **kwargs: dataset)
+
+    loader = provider._get_loader(
+        indices=[0, 1, 2, 3, 4],
+        is_eval=False,
+        ddp_rank=1,
+        ddp_world_size=2,
+        batch_size=2,
+    )
+
+    assert loader.dataset.indices == [1, 3]
+
+
+def test_single_graph_data_provider_shards_node_indices_in_ddp(
+    monkeypatch,
+):
+    """Single-graph provider should shard node indices when DDP args are provided."""
+
+    class _NodeSample:
+        """Node container used by the provider to attach masks."""
+
+        pass
+
+    class _SingleGraphDataset(torch.utils.data.Dataset):
+        """Single-graph dataset stub."""
+
+        dim_input_features = 1
+        dim_target = 1
+
+        def __init__(self):
+            """Store one graph sample."""
+            self.sample = _NodeSample()
+
+        def __len__(self):
+            """Always one graph."""
+            return 1
+
+        def __getitem__(self, idx):
+            """Return `(graph, target)` like real single-graph datasets."""
+            return self.sample, torch.tensor([0])
+
+    provider = SingleGraphDataProvider(
+        storage_folder="unused",
+        splits_filepath="unused",
+        dataset_class=object,
+        data_loader_class=DataLoader,
+        data_loader_args={},
+        outer_folds=1,
+        inner_folds=1,
+    )
+    provider.set_exp_seed(0)
+    dataset = _SingleGraphDataset()
+    monkeypatch.setattr(provider, "_get_dataset", lambda **kwargs: dataset)
+
+    loader = provider._get_loader(
+        eval_indices=[0, 1, 2, 3],
+        training_indices=[0, 1, 2, 3],
+        ddp_rank=0,
+        ddp_world_size=2,
+        batch_size=1,
+    )
+
+    assert loader.dataset[0][0].training_indices.tolist() == [0, 2]
+    assert loader.dataset[0][0].eval_indices.tolist() == [0, 2]
