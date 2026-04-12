@@ -18,6 +18,7 @@ from mlwiz.static import (
 )
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
+from mlwiz.training.distributed import is_main_process
 from mlwiz.training.util import atomic_torch_save
 
 
@@ -73,14 +74,18 @@ class Plotter(EventHandler):
         self.exp_path = exp_path
         self.store_on_disk = store_on_disk
         self.enable_tensorboard = enable_tensorboard
+        self.main_process = is_main_process()
 
-        if self.enable_tensorboard:
+        if self.enable_tensorboard and self.main_process:
             tensorboard_dir = Path(self.exp_path, TENSORBOARD)
             tensorboard_dir.mkdir(parents=True, exist_ok=True)
             self.writer = SummaryWriter(log_dir=tensorboard_dir)
         else:
             # Keep the same writer API while preventing any TensorBoard files.
             self.writer = _NullSummaryWriter()
+
+        if not self.main_process:
+            self.store_on_disk = False
 
         self.stored_metrics = {"losses": {}, "scores": {}}
         self.stored_metrics_path = Path(self.exp_path, "metrics_data.torch")
@@ -97,6 +102,9 @@ class Plotter(EventHandler):
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
+        if not self.main_process:
+            return
+
         for k, v in state.epoch_results[LOSSES].items():
             loss_scalars = {}
             # Remove training/validation/test prefix (coupling with Engine)

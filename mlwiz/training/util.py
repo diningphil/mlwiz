@@ -24,5 +24,6 @@ def atomic_torch_save(data: dict, filepath: str):
         torch.save(data, tmp_path)
         os.replace(tmp_path, filepath)
     except Exception as e:
-        os.remove(tmp_path)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
         raise e

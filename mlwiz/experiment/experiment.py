@@ -8,6 +8,8 @@ import os
 import socket
 import threading
 import time
+import traceback
+import faulthandler
 from queue import Empty
 from typing import Callable, Optional, Tuple, Union
 
@@ -27,6 +29,7 @@ from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
 from mlwiz.static import LOSS, SCORE
 from mlwiz.static import MLWIZ_RAY_NUM_GPUS_PER_TASK
+from mlwiz.log.logger import Logger
 from mlwiz.training.distributed import dist_is_initialized
 from mlwiz.training.engine import TrainingEngine
 
@@ -40,14 +43,41 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _to_dotted_path(obj) -> str:
+    """
+    Return the dotted path for a class/function object.
+    """
+    return f"{obj.__module__}.{obj.__qualname__}"
+
+
+def _to_queue_safe(obj):
+    """
+    Convert tensors/numpy values to plain Python before queue transfer.
+    """
+    if torch.is_tensor(obj):
+        obj = obj.detach().cpu()
+        return obj.item() if obj.numel() == 1 else obj.tolist()
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    if isinstance(obj, np.generic):
+        return obj.item()
+    if isinstance(obj, dict):
+        return {k: _to_queue_safe(v) for k, v in obj.items()}
+    if isinstance(obj, tuple):
+        return tuple(_to_queue_safe(v) for v in obj)
+    if isinstance(obj, list):
+        return [_to_queue_safe(v) for v in obj]
+    return obj
+
+
 def _ddp_worker(
     rank: int,
     world_size: int,
     mode: str,
-    experiment,
-    dataset_getter,
+    experiment_spec,
+    dataset_getter_spec,
     training_timeout_seconds,
-    logger,
+    logger_spec,
     master_port: int,
     result_queue,
     progress_queue,
@@ -56,18 +86,64 @@ def _ddp_worker(
     """
     Worker used by DDP spawn.
     """
-    np.random.seed(experiment.exp_seed)
-    torch.manual_seed(experiment.exp_seed)
-    torch.cuda.manual_seed(experiment.exp_seed)
-    random.seed(experiment.exp_seed)
-
-    experiment._setup_ddp(rank, world_size, master_port)
-    progress_cb = None
-    if rank == 0 and progress_queue is not None:
-        # Rank 0 forwards progress to parent process.
-        progress_cb = lambda payload: progress_queue.put(payload)
-    should_terminate_cb = lambda: bool(stop_flag.value)
+    experiment = None
+    rank_log = None
+    res = None
     try:
+        os.makedirs(experiment_spec["exp_path"], exist_ok=True)
+        rank_log = open(
+            os.path.join(
+                experiment_spec["exp_path"], f"ddp_rank_{rank}.log"
+            ),
+            "a",
+        )
+        faulthandler.enable(rank_log)
+        rank_log.write("DDP worker started.\n")
+        rank_log.flush()
+
+        experiment_class = s2c(experiment_spec["class_name"])
+        experiment = experiment_class(
+            experiment_spec["model_configuration"],
+            experiment_spec["exp_path"],
+            experiment_spec["exp_seed"],
+        )
+
+        dataset_getter_class = s2c(dataset_getter_spec["class_name"])
+        dataset_class = s2c(dataset_getter_spec["dataset_class"])
+        data_loader_class = s2c(dataset_getter_spec["data_loader_class"])
+        dataset_getter = dataset_getter_class(
+            dataset_getter_spec["storage_folder"],
+            dataset_getter_spec["splits_filepath"],
+            dataset_class,
+            data_loader_class,
+            dataset_getter_spec["data_loader_args"],
+            dataset_getter_spec["outer_folds"],
+            dataset_getter_spec["inner_folds"],
+        )
+        dataset_getter.set_outer_k(dataset_getter_spec["outer_k"])
+        dataset_getter.set_inner_k(dataset_getter_spec["inner_k"])
+        dataset_getter.set_exp_seed(dataset_getter_spec["exp_seed"])
+
+        logger = None
+        if logger_spec is not None:
+            logger = Logger(
+                logger_spec["filepath"],
+                logger_spec["mode"],
+                logger_spec["debug"],
+            )
+
+        np.random.seed(experiment_spec["exp_seed"])
+        torch.manual_seed(experiment_spec["exp_seed"])
+        torch.cuda.manual_seed(experiment_spec["exp_seed"])
+        random.seed(experiment_spec["exp_seed"])
+
+        experiment._setup_ddp(rank, world_size, master_port)
+        progress_cb = None
+        if rank == 0 and progress_queue is not None:
+            # Rank 0 forwards progress to parent process.
+            progress_cb = lambda payload: progress_queue.put(payload)
+        should_terminate_cb = lambda: bool(stop_flag.value)
+
         if mode == "valid":
             res = experiment._run_valid_impl(
                 dataset_getter,
@@ -92,10 +168,24 @@ def _ddp_worker(
             raise ValueError(f"Unsupported DDP mode: {mode}")
     except ExperimentTerminated:
         res = None
+    except Exception:
+        stop_flag.value = True
+        tb = traceback.format_exc()
+        if rank_log is not None:
+            rank_log.write(tb + "\n")
+            rank_log.flush()
+        res = {"__ddp_error__": tb}
     finally:
         if rank == 0:
-            result_queue.put(res)
-        experiment._cleanup_ddp()
+            # Keep queue payload plain Python to avoid shared-memory FD issues.
+            result_queue.put(_to_queue_safe(res))
+        try:
+            if experiment is not None:
+                experiment._cleanup_ddp()
+        except Exception:
+            pass
+        if rank_log is not None:
+            rank_log.close()
 
 
 class Experiment:
@@ -220,11 +310,49 @@ class Experiment:
         """
         requested = int(float(os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK]))
         world_size = min(requested, torch.cuda.device_count())
-        result_queue = mp.SimpleQueue()
-        progress_queue = mp.Queue()
-        stop_flag = mp.Value("b", False)
+        # Use spawn context for all IPC objects to match mp.spawn().
+        ctx = mp.get_context("spawn")
+        result_queue = ctx.Queue()
+        progress_queue = ctx.Queue()
+        stop_flag = ctx.Value("b", False)
         master_port = _find_free_port()
         stop_event = threading.Event()
+        experiment_spec = {
+            "class_name": _to_dotted_path(self.__class__),
+            "model_configuration": self.model_config.config_dict,
+            "exp_path": self.exp_path,
+            "exp_seed": self.exp_seed,
+        }
+        dataset_getter_spec = {
+            "class_name": _to_dotted_path(dataset_getter.__class__),
+            "storage_folder": dataset_getter.storage_folder,
+            "splits_filepath": dataset_getter.splits_filepath,
+            "dataset_class": (
+                dataset_getter.dataset_class
+                if isinstance(dataset_getter.dataset_class, str)
+                else _to_dotted_path(dataset_getter.dataset_class)
+            ),
+            "data_loader_class": (
+                dataset_getter.data_loader_class
+                if isinstance(dataset_getter.data_loader_class, str)
+                else _to_dotted_path(dataset_getter.data_loader_class)
+            ),
+            "data_loader_args": dataset_getter.data_loader_args,
+            "outer_folds": dataset_getter.outer_folds,
+            "inner_folds": dataset_getter.inner_folds,
+            "outer_k": dataset_getter.outer_k,
+            "inner_k": dataset_getter.inner_k,
+            "exp_seed": dataset_getter.exp_seed,
+        }
+        logger_spec = (
+            {
+                "filepath": str(logger.filepath),
+                "mode": logger.mode,
+                "debug": logger.debug,
+            }
+            if logger is not None
+            else None
+        )
 
         def _progress_loop():
             while not stop_event.is_set():
@@ -266,17 +394,30 @@ class Experiment:
                 args=(
                     world_size,
                     mode,
-                    self,
-                    dataset_getter,
+                    experiment_spec,
+                    dataset_getter_spec,
                     training_timeout_seconds,
-                    logger,
+                    logger_spec,
                     master_port,
                     result_queue,
                     progress_queue,
                     stop_flag,
                 ),
             )
-            return result_queue.get()
+            res = result_queue.get()
+            if isinstance(res, dict) and "__ddp_error__" in res:
+                raise RuntimeError(res["__ddp_error__"])
+            return res
+        except Exception as e:
+            try:
+                res = result_queue.get_nowait()
+                if isinstance(res, dict) and "__ddp_error__" in res:
+                    raise RuntimeError(res["__ddp_error__"]) from e
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"DDP worker exited early. Check rank logs under: {self.exp_path}"
+            ) from e
         finally:
             stop_event.set()
             progress_queue.put(None)

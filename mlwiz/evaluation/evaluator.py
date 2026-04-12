@@ -1263,6 +1263,9 @@ class RiskAssesser:
                                 experiment = self.experiment_class(
                                     config, fold_run_exp_folder, exp_seed
                                 )
+                                _should_terminate = _make_termination_checker(
+                                    self.progress_actor
+                                )
 
                                 # This is used to comunicate with the progress manager
                                 # to display the UI
@@ -1299,6 +1302,7 @@ class RiskAssesser:
                                         self.training_timeout_seconds,
                                         logger,
                                         progress_callback=_report_progress,
+                                        should_terminate=_should_terminate,
                                     )
                                     elapsed = extract_and_sum_elapsed_seconds(
                                         osp.join(
@@ -1500,6 +1504,9 @@ class RiskAssesser:
                     experiment = self.experiment_class(
                         best_config[CONFIG], final_run_exp_path, exp_seed
                     )
+                    _should_terminate = _make_termination_checker(
+                        self.progress_actor
+                    )
 
                     # This is used to comunicate with the progress manager
                     # to display the UI
@@ -1531,6 +1538,7 @@ class RiskAssesser:
                             self.training_timeout_seconds,
                             logger,
                             progress_callback=_report_progress,
+                            should_terminate=_should_terminate,
                         )
                         elapsed = extract_and_sum_elapsed_seconds(
                             osp.join(final_run_exp_path, EXPERIMENT_LOGFILE)
