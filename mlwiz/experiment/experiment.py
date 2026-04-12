@@ -4,10 +4,18 @@ Defines :class:`~mlwiz.experiment.experiment.Experiment`, which instantiates mod
 """
 
 import random
+import os
+import socket
+import threading
+import time
+from queue import Empty
 from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
 import torch
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 from mlwiz.exceptions import (
     ExperimentTerminated,
@@ -18,7 +26,76 @@ from mlwiz.util import return_class_and_args, s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
 from mlwiz.static import LOSS, SCORE
+from mlwiz.static import MLWIZ_RAY_NUM_GPUS_PER_TASK
+from mlwiz.training.distributed import dist_is_initialized
 from mlwiz.training.engine import TrainingEngine
+
+
+def _find_free_port() -> int:
+    """
+    Return a free localhost TCP port.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def _ddp_worker(
+    rank: int,
+    world_size: int,
+    mode: str,
+    experiment,
+    dataset_getter,
+    training_timeout_seconds,
+    logger,
+    master_port: int,
+    result_queue,
+    progress_queue,
+    stop_flag,
+):
+    """
+    Worker used by DDP spawn.
+    """
+    np.random.seed(experiment.exp_seed)
+    torch.manual_seed(experiment.exp_seed)
+    torch.cuda.manual_seed(experiment.exp_seed)
+    random.seed(experiment.exp_seed)
+
+    experiment._setup_ddp(rank, world_size, master_port)
+    progress_cb = None
+    if rank == 0 and progress_queue is not None:
+        # Rank 0 forwards progress to parent process.
+        progress_cb = lambda payload: progress_queue.put(payload)
+    should_terminate_cb = lambda: bool(stop_flag.value)
+    try:
+        if mode == "valid":
+            res = experiment._run_valid_impl(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=progress_cb,
+                should_terminate=should_terminate_cb,
+                ddp_rank=rank,
+                ddp_world_size=world_size,
+            )
+        elif mode == "test":
+            res = experiment._run_test_impl(
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=progress_cb,
+                should_terminate=should_terminate_cb,
+                ddp_rank=rank,
+                ddp_world_size=world_size,
+            )
+        else:
+            raise ValueError(f"Unsupported DDP mode: {mode}")
+    except ExperimentTerminated:
+        res = None
+    finally:
+        if rank == 0:
+            result_queue.put(res)
+        experiment._cleanup_ddp()
 
 
 class Experiment:
@@ -63,6 +140,148 @@ class Experiment:
         # Pytorch
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
+
+    def _should_use_ddp(self) -> bool:
+        """
+        Enable DDP when multiple CUDA devices are visible in this process.
+        """
+        raw_gpus_per_task = os.environ.get(MLWIZ_RAY_NUM_GPUS_PER_TASK, "1")
+        try:
+            gpus_per_task = float(raw_gpus_per_task)
+        except ValueError:
+            gpus_per_task = 1.0
+
+        device = str(self.model_config.get("device", "cpu"))
+        return (
+            "cuda" in device
+            and torch.cuda.is_available()
+            and gpus_per_task > 1
+            and float(gpus_per_task).is_integer()
+            and torch.cuda.device_count() >= gpus_per_task
+        )
+
+    def _set_worker_device(self, ddp_rank: Optional[int]):
+        """
+        Set per-rank device in config.
+        """
+        if ddp_rank is not None:
+            self.model_config.config_dict["device"] = f"cuda:{ddp_rank}"
+
+    def _setup_ddp(self, rank: int, world_size: int, master_port: int):
+        """
+        Initialize the process group for this rank.
+        """
+        os.environ["MASTER_ADDR"] = "127.0.0.1"
+        os.environ["MASTER_PORT"] = str(master_port)
+        os.environ["RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        os.environ["LOCAL_RANK"] = str(rank)
+        torch.cuda.set_device(rank)
+        dist.init_process_group(
+            backend="nccl", rank=rank, world_size=world_size
+        )
+        self._set_worker_device(rank)
+
+    def _cleanup_ddp(self):
+        """
+        Tear down process group.
+        """
+        if dist_is_initialized():
+            dist.destroy_process_group()
+
+    def _wrap_ddp_model(self, model, ddp_rank: Optional[int]):
+        """
+        Wrap model in DDP (single-device and model-parallel cases).
+        """
+        if ddp_rank is None:
+            return model
+
+        # Check whether model params live on a single CUDA device or not.
+        param_devices = {p.device for p in model.parameters() if p.is_cuda}
+        if len(param_devices) <= 1:
+            # Standard case: one GPU per rank, pin this process to local GPU.
+            return DDP(
+                model, device_ids=[ddp_rank], output_device=ddp_rank
+            )
+        # Model-parallel case: params span multiple GPUs, so do not pin.
+        return DDP(model)
+
+    def _run_ddp(
+        self,
+        mode: str,
+        dataset_getter,
+        training_timeout_seconds,
+        logger,
+        progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
+    ):
+        """
+        Spawn one local process per visible GPU and return rank-0 result.
+        """
+        requested = int(float(os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK]))
+        world_size = min(requested, torch.cuda.device_count())
+        result_queue = mp.SimpleQueue()
+        progress_queue = mp.Queue()
+        stop_flag = mp.Value("b", False)
+        master_port = _find_free_port()
+        stop_event = threading.Event()
+
+        def _progress_loop():
+            while not stop_event.is_set():
+                try:
+                    payload = progress_queue.get(timeout=0.1)
+                except Empty:
+                    continue
+                if payload is None:
+                    break
+                if progress_callback is not None:
+                    progress_callback(payload)
+
+        def _termination_loop():
+            while not stop_event.is_set():
+                if should_terminate is not None:
+                    try:
+                        if should_terminate():
+                            stop_flag.value = True
+                            break
+                    except Exception:
+                        stop_flag.value = True
+                        break
+                time.sleep(0.2)
+
+        progress_thread = threading.Thread(
+            target=_progress_loop, daemon=True
+        )
+        termination_thread = threading.Thread(
+            target=_termination_loop, daemon=True
+        )
+        progress_thread.start()
+        termination_thread.start()
+
+        try:
+            mp.spawn(
+                _ddp_worker,
+                nprocs=world_size,
+                join=True,
+                args=(
+                    world_size,
+                    mode,
+                    self,
+                    dataset_getter,
+                    training_timeout_seconds,
+                    logger,
+                    master_port,
+                    result_queue,
+                    progress_queue,
+                    stop_flag,
+                ),
+            )
+            return result_queue.get()
+        finally:
+            stop_event.set()
+            progress_queue.put(None)
+            progress_thread.join()
+            termination_thread.join()
 
     def _return_class_and_args(
         config: Config, key: str
@@ -270,6 +489,37 @@ class Experiment:
             For instance, training_results[SCORE] is a dictionary itself
             with other fields to be used by the evaluator.
         """
+        if self._should_use_ddp():
+            return self._run_ddp(
+                "valid",
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        return self._run_valid_impl(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=progress_callback,
+            should_terminate=should_terminate,
+        )
+
+    def _run_valid_impl(
+        self,
+        dataset_getter,
+        training_timeout_seconds,
+        logger,
+        progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
+        ddp_rank: Optional[int] = None,
+        ddp_world_size: int = 1,
+    ):
+        """
+        Internal validation run used by both single-process and DDP paths.
+        """
+        self._set_worker_device(ddp_rank)
         batch_size = self.model_config["batch_size"]
         shuffle = (
             self.model_config["shuffle"]
@@ -279,7 +529,10 @@ class Experiment:
 
         # Instantiate the Dataset
         train_loader = dataset_getter.get_inner_train(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size,
+            shuffle=shuffle,
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
         )
         val_loader = dataset_getter.get_inner_val(
             batch_size=batch_size, shuffle=shuffle
@@ -292,6 +545,7 @@ class Experiment:
         model = self.create_model(
             dim_input_features, dim_target, self.model_config
         )
+        model = self._wrap_ddp_model(model, ddp_rank)
 
         # Instantiate the engine (it handles the training loop and the
         # inference phase by abstracting the specifics)
@@ -358,6 +612,37 @@ class Experiment:
             For instance, training_results[SCORE] is a dictionary itself with
             other fields to be used by the evaluator.
         """
+        if self._should_use_ddp():
+            return self._run_ddp(
+                "test",
+                dataset_getter,
+                training_timeout_seconds,
+                logger,
+                progress_callback=progress_callback,
+                should_terminate=should_terminate,
+            )
+        return self._run_test_impl(
+            dataset_getter,
+            training_timeout_seconds,
+            logger,
+            progress_callback=progress_callback,
+            should_terminate=should_terminate,
+        )
+
+    def _run_test_impl(
+        self,
+        dataset_getter,
+        training_timeout_seconds,
+        logger,
+        progress_callback: Callable[[dict], None] = None,
+        should_terminate: Optional[Callable[[], bool]] = None,
+        ddp_rank: Optional[int] = None,
+        ddp_world_size: int = 1,
+    ):
+        """
+        Internal final run used by both single-process and DDP paths.
+        """
+        self._set_worker_device(ddp_rank)
         batch_size = self.model_config["batch_size"]
         shuffle = (
             self.model_config["shuffle"]
@@ -367,7 +652,10 @@ class Experiment:
 
         # Instantiate the Dataset
         train_loader = dataset_getter.get_outer_train(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size,
+            shuffle=shuffle,
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
         )
         val_loader = dataset_getter.get_outer_val(
             batch_size=batch_size, shuffle=shuffle
@@ -385,6 +673,7 @@ class Experiment:
         model = self.create_model(
             dim_input_features, dim_target, self.model_config
         )
+        model = self._wrap_ddp_model(model, ddp_rank)
 
         # Instantiate the engine (it handles the training loop and the
         # inference phase by abstracting the specifics)

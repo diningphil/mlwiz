@@ -12,6 +12,7 @@ import numpy as np
 import torch
 import torch_geometric.loader
 from torch.utils.data import Subset
+from torch.utils.data.distributed import DistributedSampler
 from torch_geometric.loader.dataloader import Collater
 
 import mlwiz.data.dataset
@@ -340,6 +341,8 @@ class DataProvider:
         """
         shuffle = kwargs.pop("shuffle", False)
         batch_size = kwargs.pop("batch_size", 1)
+        ddp_rank = kwargs.pop("ddp_rank", None)
+        ddp_world_size = kwargs.pop("ddp_world_size", 1)
 
         dataset: DatasetInterface = self._get_dataset(**kwargs)
         dataset = SubsetTrainEval(dataset, indices, is_eval)
@@ -354,7 +357,18 @@ class DataProvider:
 
         kwargs.update(self.data_loader_args)
 
-        if shuffle is True:
+        if ddp_rank is not None and ddp_world_size > 1:
+            # In DDP each rank reads a different shard of the training set.
+            sampler = DistributedSampler(
+                dataset,
+                num_replicas=ddp_world_size,
+                rank=ddp_rank,
+                shuffle=shuffle,
+            )
+            dataloader = self.data_loader_class(
+                dataset, sampler=sampler, batch_size=batch_size, **kwargs
+            )
+        elif shuffle is True:
             sampler = RandomSampler(dataset)
             dataloader = self.data_loader_class(
                 dataset, sampler=sampler, batch_size=batch_size, **kwargs

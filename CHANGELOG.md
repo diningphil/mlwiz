@@ -13,6 +13,11 @@
 - configuration validation now raises an error when both `model_selection_criteria` and `higher_results_are_better` are provided
 - updated `MODEL_CONFIGS` examples/integration configs and templates to use `model_selection_criteria` as the default specification
 
+
+## Removed
+
+- Creation of data list at the end of the experiment, which was originally meant to support constructive models which are not frequently used. The overhead in the library is not justified. 
+
 ## [1.4.2] Version bump
 
 ## Changed

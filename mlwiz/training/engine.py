@@ -12,6 +12,7 @@ import time
 import torch
 import torch_geometric
 from torch.utils.data import SequentialSampler
+from torch.utils.data.distributed import DistributedSampler
 from torch_geometric.data import Data
 from torch_geometric.loader import DataLoader
 
@@ -59,6 +60,11 @@ from mlwiz.training.event.dispatcher import EventDispatcher
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.profiler import Profiler
+from mlwiz.training.distributed import (
+    dist_is_initialized as _dist_is_initialized,
+    is_main_process as _is_main_process,
+    unwrap_model as _unwrap_model,
+)
 from mlwiz.util import s2c
 from copy import deepcopy
 
@@ -67,7 +73,7 @@ def log(msg, logger: Logger):
     """
     Logs a message using a logger
     """
-    if logger is not None:
+    if logger is not None and _is_main_process():
         logger.log(msg)
 
 
@@ -429,7 +435,10 @@ class TrainingEngine(EventDispatcher):
         """
         Moves the model and the loss metric to the proper device.
         """
-        self.model.to(self.device)
+        if not isinstance(
+            self.model, torch.nn.parallel.DistributedDataParallel
+        ):
+            self.model.to(self.device)
         self.loss_fun.to(self.device)
 
     def set_training_mode(self):
@@ -681,6 +690,10 @@ class TrainingEngine(EventDispatcher):
                     loader.sampler, "permutation", None
                 )  # dataset indices in the order sampled
                 if permutation is None:
+                    if isinstance(loader.sampler, DistributedSampler):
+                        # DistributedSampler does not expose a global
+                        # permutation; keep shard-local order.
+                        return loss, score, data_list
                     raise ValueError(
                         "TrainingEngine requires the DataLoader sampler to expose a non-None "
                         "`permutation` so embeddings can be returned in the original sample order."
@@ -754,6 +767,8 @@ class TrainingEngine(EventDispatcher):
             """
             if progress_callback is None:
                 return
+            if not _is_main_process():
+                return
 
             data = {"type": event_type}
             data.update(payload)
@@ -823,10 +838,22 @@ class TrainingEngine(EventDispatcher):
                         + last_run_elapsed_time
                     )
 
-                    if (
+                    stop_due_to_timeout = (
                         self.state.current_elapsed_time
                         >= training_timeout_seconds
-                    ):
+                    )
+                    if _dist_is_initialized():
+                        timeout_flag = torch.tensor(
+                            int(stop_due_to_timeout),
+                            device=self.device,
+                        )
+                        torch.distributed.all_reduce(
+                            timeout_flag,
+                            op=torch.distributed.ReduceOp.MAX,
+                        )
+                        stop_due_to_timeout = bool(timeout_flag.item())
+
+                    if stop_due_to_timeout:
                         msg = f"Skipping training of new epoch {epoch + 1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
                         log(msg, logger)
                         self.state.update(stop_training=True)
@@ -838,6 +865,8 @@ class TrainingEngine(EventDispatcher):
                 self._dispatch(EventHandler.ON_EPOCH_START, self.state)
 
                 self.state.update(set=TRAINING)
+                if isinstance(getattr(train_loader, "sampler", None), DistributedSampler):
+                    train_loader.sampler.set_epoch(epoch)
                 train_loss, train_score, _ = self._train(
                     train_loader, _notify_progress
                 )
@@ -979,6 +1008,17 @@ class TrainingEngine(EventDispatcher):
 
                 # We can apply early stopping here
                 self._dispatch(EventHandler.ON_EPOCH_END, self.state)
+                if _dist_is_initialized():
+                    # Share stop flag across ranks so they all exit together.
+                    stop_flag = torch.tensor(
+                        int(bool(self.state.stop_training)),
+                        device=self.device,
+                    )
+                    # MAX means: if any rank asks to stop, everybody stops.
+                    torch.distributed.all_reduce(
+                        stop_flag, op=torch.distributed.ReduceOp.MAX
+                    )
+                    self.state.update(stop_training=bool(stop_flag.item()))
 
                 if self.state.stop_training:
                     log(f"Stopping at epoch {self.state.epoch}.", logger)
@@ -992,7 +1032,7 @@ class TrainingEngine(EventDispatcher):
             if self.early_stopper is not None:
                 ber = self.state.best_epoch_results
                 # Restore the model according to the best validation score!
-                self.model.load_state_dict(ber[MODEL_STATE])
+                _unwrap_model(self.model).load_state_dict(ber[MODEL_STATE])
             else:
                 self.state.update(best_epoch_results={BEST_EPOCH: epoch})
                 ber = self.state.best_epoch_results
@@ -1116,7 +1156,7 @@ class TrainingEngine(EventDispatcher):
         for param in model_state.keys():
             model_state[param] = model_state[param].to(self.device)
 
-        self.model.load_state_dict(model_state)
+        _unwrap_model(self.model).load_state_dict(model_state)
 
         if not zero_epoch:
             optimizer_state = ckpt_dict[OPTIMIZER_STATE]

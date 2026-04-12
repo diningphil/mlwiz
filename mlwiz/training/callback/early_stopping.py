@@ -20,6 +20,10 @@ from mlwiz.static import (
     SCORES,
     TEST,
 )
+from mlwiz.training.distributed import (
+    is_main_process as _is_main_process,
+    unwrap_model as _unwrap_model,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save
@@ -108,7 +112,7 @@ class EarlyStopper(EventHandler):
                 state.epoch_results[score_or_loss][self.monitor]
             )
             state.best_epoch_results[MODEL_STATE] = deepcopy(
-                state.model.state_dict()
+                _unwrap_model(state.model).state_dict()
             )
             state.best_epoch_results[OPTIMIZER_STATE] = state[
                 OPTIMIZER_STATE
@@ -116,7 +120,7 @@ class EarlyStopper(EventHandler):
             state.best_epoch_results[SCHEDULER_STATE] = state[
                 SCHEDULER_STATE
             ]  # computed by scheduler
-            if self.checkpoint:
+            if self.checkpoint and _is_main_process():
                 atomic_torch_save(
                     state.best_epoch_results,
                     Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
@@ -131,7 +135,7 @@ class EarlyStopper(EventHandler):
                     self.monitor
                 ] = metric_to_compare
                 state.best_epoch_results[MODEL_STATE] = deepcopy(
-                    state.model.state_dict()
+                    _unwrap_model(state.model).state_dict()
                 )
                 state.best_epoch_results[OPTIMIZER_STATE] = state[
                     OPTIMIZER_STATE
@@ -139,7 +143,7 @@ class EarlyStopper(EventHandler):
                 state.best_epoch_results[SCHEDULER_STATE] = state[
                     SCHEDULER_STATE
                 ]  # computed by scheduler
-                if self.checkpoint:
+                if self.checkpoint and _is_main_process():
                     atomic_torch_save(
                         state.best_epoch_results,
                         Path(state.exp_path, BEST_CHECKPOINT_FILENAME),

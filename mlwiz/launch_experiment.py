@@ -171,6 +171,10 @@ def evaluation(options: argparse.Namespace):
             exit(0)
 
         gpus_per_task = configs_dict[GPUS_PER_TASK]
+        if gpus_per_task > 1 and not float(gpus_per_task).is_integer():
+            raise ValueError(
+                "DDP requires an integer gpus_per_task when > 1."
+            )
 
     os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
 

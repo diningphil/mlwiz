@@ -669,14 +669,11 @@ class RiskAssesser:
                 self.progress_actor.terminate.remote()
             except Exception:
                 pass
-        else:
-            for job in (
-                self.model_selection_job_list + self.final_runs_job_list
-            ):
-                try:
-                    ray.cancel(job, force=True)
-                except Exception:
-                    pass
+        for job in (self.model_selection_job_list + self.final_runs_job_list):
+            try:
+                ray.cancel(job, force=True)
+            except Exception:
+                pass
         if getattr(self, "progress_manager", None) is not None:
             try:
                 self.progress_manager._stop_input_event.set()

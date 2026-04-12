@@ -12,6 +12,7 @@ checking that inference:
 import pytest
 import torch
 from torch.utils.data import DataLoader, Sampler, TensorDataset
+from torch.utils.data.distributed import DistributedSampler
 
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import TRAINING
@@ -164,3 +165,22 @@ def test_infer_reorders_with_sampler_permutation():
 
     # `data_list` is returned in original dataset-index order (0..N-1), not sampling order.
     assert [emb.item() for emb, _target in data_list] == [0, 1, 2, 3, 4]
+
+
+def test_infer_accepts_distributed_sampler_without_permutation():
+    """
+    DistributedSampler does not expose ``permutation``; inference should not raise.
+    """
+    x = torch.arange(6, dtype=torch.float32).unsqueeze(1)
+    y = torch.arange(6, dtype=torch.float32).unsqueeze(1)
+    dataset = TensorDataset(x, y)
+    sampler = DistributedSampler(
+        dataset, num_replicas=2, rank=0, shuffle=True
+    )
+    loader = DataLoader(dataset, batch_size=1, sampler=sampler)
+
+    engine = _make_engine()
+    engine.state.update(return_embeddings=True)
+
+    _loss, _score, data_list = engine.infer(loader, TRAINING, _noop_progress)
+    assert data_list is not None

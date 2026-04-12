@@ -17,6 +17,10 @@ from mlwiz.static import (
     SCHEDULER_STATE,
     STOP_TRAINING,
 )
+from mlwiz.training.distributed import (
+    is_main_process as _is_main_process,
+    unwrap_model as _unwrap_model,
+)
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.util import atomic_torch_save
@@ -89,12 +93,14 @@ class EngineCallback(EventHandler):
         """
         # Save last checkpoint
         if self.store_last_checkpoint:
+            if not _is_main_process():
+                return
             if not os.path.exists(Path(state.exp_path)):
                 os.makedirs(Path(state.exp_path))
 
             last_ckpt = {
                 EPOCH: state.epoch,
-                MODEL_STATE: copy.deepcopy(state.model.state_dict()),
+                MODEL_STATE: copy.deepcopy(_unwrap_model(state.model).state_dict()),
                 OPTIMIZER_STATE: getattr(state, OPTIMIZER_STATE, None),
                 SCALER_STATE: getattr(state, SCALER_STATE, None),
                 SCHEDULER_STATE: getattr(state, SCHEDULER_STATE, None),
