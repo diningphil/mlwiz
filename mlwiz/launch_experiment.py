@@ -14,6 +14,7 @@ from mlwiz.static import (
     CONFIG_FILE,
     CONFIG_FILE_CLI_ARGUMENT,
     CUDA,
+    BAYES_SEARCH,
     DATA_SPLITS_FILE,
     DEBUG,
     DEBUG_CLI_ARGUMENT,
@@ -197,14 +198,32 @@ def evaluation(options: argparse.Namespace):
 
     from mlwiz.util import s2c
     from mlwiz.data.splitter import Splitter
+    from mlwiz.evaluation.bayesian_search import BayesianSearch
     from mlwiz.evaluation.grid import Grid
     from mlwiz.evaluation.random_search import RandomSearch
 
-    if GRID_SEARCH not in configs_dict and RANDOM_SEARCH not in configs_dict:
+    enabled_search_sections = [
+        key
+        for key in (GRID_SEARCH, RANDOM_SEARCH, BAYES_SEARCH)
+        if key in configs_dict
+    ]
+    if len(enabled_search_sections) == 0:
         raise ValueError(
-            f"Configuration must define either {GRID_SEARCH} or {RANDOM_SEARCH}."
+            f"Configuration must define one of {GRID_SEARCH}, {RANDOM_SEARCH}, or {BAYES_SEARCH}."
         )
-    search_class = Grid if GRID_SEARCH in configs_dict else RandomSearch
+    if len(enabled_search_sections) > 1:
+        raise ValueError(
+            "Configuration must define only one search section among "
+            f"{GRID_SEARCH}, {RANDOM_SEARCH}, and {BAYES_SEARCH}."
+        )
+
+    search_key = enabled_search_sections[0]
+    if search_key == GRID_SEARCH:
+        search_class = Grid
+    elif search_key == RANDOM_SEARCH:
+        search_class = RandomSearch
+    else:
+        search_class = BayesianSearch
     search = search_class(configs_dict)
 
     if use_cuda:
@@ -272,9 +291,17 @@ def evaluation(options: argparse.Namespace):
     )
 
     # WARNING: leave the import here, it reads env variables set before
-    from mlwiz.evaluation.evaluator import RiskAssesser
+    from mlwiz.evaluation.evaluator import (
+        BayesOptRiskAssesser,
+        RiskAssesser,
+    )
 
-    risk_assesser = RiskAssesser(
+    # Use a dedicated assessor for adaptive BO search.
+    assesser_class = (
+        BayesOptRiskAssesser if search_key == BAYES_SEARCH else RiskAssesser
+    )
+
+    risk_assesser = assesser_class(
         outer_folds,
         inner_folds,
         experiment_class,

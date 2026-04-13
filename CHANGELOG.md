@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.5.1]
+
+## Added
+
+- Bayesian Optimization search method
+
+## Fixed
+
+- Badge creation in workflow (untested, done with Codex)
+
+
 ## [1.5.0] Pytorch Distributed Data Parallel and Automatic Mixed-Precision Support
 
 ## Added

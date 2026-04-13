@@ -16,7 +16,7 @@ dataset_getter:  # dotted path to dataset provider class
 data_loader:
   class_name:  # dotted path to data loader class
   args:
-    num_workers :
+    num_workers:
     pin_memory:
     # possibly other arguments (we set `worker_init_fn`, `sampler` and `shuffle`, so do not override)
 
@@ -36,17 +36,21 @@ evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
 risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
 model_selection_training_runs:  # how many (model selection) training runs to perform to mitigate bad initializations
 
-# Random Search
+
+# Bayesian Search
 # if only 1 configuration is selected, any inner model selection will be skipped
-# see doc for tutorial on random search
-budget: 7  # number of random searches to try
-random:
+# syntax of sampled dimensions is the same as random search (`sample_method` + `args`)
+# but configurations are proposed sequentially via Bayesian optimization
+budget: 7  # number of BO trials to try
+random_starts: 2  # number of initial random BO trials
+candidate_pool_size: 64  # candidate samples scored by EI at each BO step
+ei_xi: 0.001  # EI exploration parameter (higher means more exploration)
+bayes:
   model:  # dotted path to model class
   checkpoint:  # whether to keep a checkpoint of the last epoch to resume training
   shuffle:  # whether to shuffle the data
   batch_size:
     sample_method: mlwiz.evaluation.util.choice
-    # one or the other
     args:
       - 32
       - 64
@@ -68,11 +72,10 @@ random:
       args:
         optimizer_class_name: torch.optim.Adam
         lr:
-          sample_method: mlwiz.evaluation.util.normal
-          # sample from normal distribution each time
+          sample_method: mlwiz.evaluation.util.loguniform
           args:
-            - 0.001  # mu
-            - 0.0001  # sigma
+            - 0.0001  # min
+            - 0.01  # max
 
   # Scheduler (optional)
   scheduler: null
@@ -93,7 +96,7 @@ random:
   # Gradient clipper (optional)
   gradient_clipper: null
 
-  # Early stopper (optional, with an example of "patience" early stopping on the validation score)
+  # Early stopper (optional)
   early_stopper: null
 
   # Plotter of metrics

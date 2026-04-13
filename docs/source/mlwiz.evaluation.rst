@@ -37,6 +37,15 @@ evaluation.random\_search
    :undoc-members:
    :show-inheritance:
 
+evaluation.bayesian\_search
+----------------------------------------
+
+.. automodule:: mlwiz.evaluation.bayesian_search
+   :members:
+   :private-members:
+   :undoc-members:
+   :show-inheritance:
+
 evaluation.util
 ----------------------------
 
@@ -45,4 +54,3 @@ evaluation.util
    :private-members:
    :undoc-members:
    :show-inheritance:
-
