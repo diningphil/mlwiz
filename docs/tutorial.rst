@@ -324,7 +324,7 @@ Random Search
 --------------
 
 Random search, on the other hand, is identified by the keyword ``random`` after the experimental details. One line above
-we have to specify the number of random trials, using the keyword ``num_samples``.
+we have to specify the number of random trials, using the keyword ``budget``.
 
 We provide different sampling methods:
  * choice --> pick at random from a list of arguments
@@ -334,6 +334,21 @@ We provide different sampling methods:
  * loguniform --> pick following the reciprocal distribution from log_min, log_max, with a specified base
 
 There is one config file ``examples/MODEL_CONFIGS/template_random_search.yml`` that you can check to get a better idea.
+
+
+Bayesian Search
+----------------
+
+Bayesian search is identified by the keyword ``bayes`` after the experimental details.
+It uses the same sampled-parameter syntax of random search (``sample_method`` + ``args``),
+but configurations are proposed sequentially by Bayesian optimization based on previous results.
+
+Set the optimization budget with ``budget`` and explicitly configure BO
+controls with ``random_starts``, ``candidate_pool_size``, and ``ei_xi``.
+
+There are two example files you can use as a starting point:
+``examples/MODEL_CONFIGS/template_bayes_search.yml`` and
+``examples/MODEL_CONFIGS/config_MLP_bayes.yml``.
 
 
 Experiment

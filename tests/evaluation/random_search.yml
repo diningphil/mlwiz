@@ -33,7 +33,7 @@ evaluate_every: 1
 risk_assessment_training_runs: 1
 
 
-num_samples: 10  # number of random searches to try
+budget: 10  # number of random searches to try
 random:
   model: mlwiz.model.graph.toy_dgn.ToyDGN
   checkpoint: True

@@ -2240,3 +2240,513 @@ class RiskAssesser:
             osp.join(self._ASSESSMENT_FOLDER, self._ASSESSMENT_FILENAME), "w"
         ) as fp:
             json.dump(assessment_results, fp, sort_keys=False, indent=4)
+
+
+class BayesOptRiskAssesser(RiskAssesser):
+    """
+    Risk assessor for adaptive Bayesian optimization.
+
+    Unlike :class:`RiskAssesser`, model-selection configs are requested
+    incrementally via ``ask/tell`` and scheduled one configuration at a time
+    (each config still runs all inner folds/runs in parallel when possible).
+
+    High-level pseudocode::
+
+        for each outer fold:
+            initialize BO state (start_outer)
+            schedule first BO config with ask()
+
+        while there are pending Ray tasks:
+            when a model-selection run completes:
+                aggregate per-run/per-inner-fold results
+                if one BO config is fully evaluated:
+                    aggregate config metrics
+                    convert primary selection criterion to BO objective
+                    tell(config_id, objective)
+                    next_cfg = ask()
+                    if next_cfg exists:
+                        schedule its inner-fold runs
+                    else:
+                        compute winner_config for that outer fold
+                        schedule final risk-assessment runs
+
+            when a final run completes:
+                aggregate final-run metrics for that outer fold
+
+        aggregate outer-fold metrics into final assessment results
+    """
+
+    def _ask_next_bayes_config(
+        self, outer_k: int
+    ) -> Optional[Tuple[int, Config]]:
+        """
+        Ask the adaptive search object for the next config to evaluate.
+        """
+        return self.model_configs.ask(outer_k)
+
+    def _tell_bayes_objective(
+        self, outer_k: int, config_id: int, config_folder: str
+    ):
+        """
+        Feed the observed config score back to the BO search object.
+        """
+        config_filename = osp.join(config_folder, self._CONFIG_RESULTS)
+        with open(config_filename, "r") as fp:
+            config_dict = json.load(fp)
+
+        # BO expects one scalar objective to maximize. We map the primary
+        # selection criterion to a maximization objective.
+        primary_key, primary_cmp = self._build_selection_criteria(config_dict)[
+            0
+        ]
+        primary_value = float(config_dict[primary_key])
+        objective = (
+            primary_value if primary_cmp(1.0, 0.0) else -primary_value
+        )
+        self.model_configs.tell(outer_k, config_id, objective)
+
+    def _schedule_bayes_config(
+        self, outer_k: int, config_id: int, config: Config, debug: bool
+    ):
+        """
+        Schedule/evaluate one BO-proposed configuration over all inner folds.
+        """
+        model_selection_folder = osp.join(
+            self._ASSESSMENT_FOLDER,
+            self._OUTER_FOLD_BASE + str(outer_k + 1),
+            self._SELECTION_FOLDER,
+        )
+        config_folder = osp.join(
+            model_selection_folder, self._CONFIG_BASE + str(config_id + 1)
+        )
+        if not osp.exists(config_folder):
+            os.makedirs(config_folder)
+
+        dataset_getter = self._create_dataset_getter(outer_k, None)
+        for inner_k in range(self.inner_folds):
+            config_inner_fold_folder = osp.join(
+                config_folder, self._INNER_FOLD_BASE + str(inner_k + 1)
+            )
+            dataset_getter.set_inner_k(inner_k)
+
+            for run_id in range(self.model_selection_training_runs):
+                fold_run_exp_folder = osp.join(
+                    config_inner_fold_folder, f"run_{run_id + 1}"
+                )
+                fold_run_results_torch_path = osp.join(
+                    fold_run_exp_folder, f"run_{run_id + 1}_results.dill"
+                )
+                exp_seed = self.model_selection_seeds[outer_k][config_id][
+                    inner_k
+                ][run_id]
+                dataset_getter.set_exp_seed(exp_seed)
+
+                logger = Logger(
+                    osp.join(fold_run_exp_folder, EXPERIMENT_LOGFILE),
+                    mode="a",
+                    debug=debug,
+                )
+                logger.log(
+                    json.dumps(
+                        dict(
+                            outer_k=dataset_getter.outer_k,
+                            inner_k=dataset_getter.inner_k,
+                            run_id=run_id,
+                            exp_seed=exp_seed,
+                            **config,
+                        ),
+                        sort_keys=False,
+                        indent=4,
+                    )
+                )
+
+                if not debug:
+                    if osp.exists(fold_run_results_torch_path):
+                        train_res, val_res, cached_elapsed = dill_load(
+                            fold_run_results_torch_path
+                        )
+                        run_log_path = osp.join(
+                            fold_run_exp_folder, EXPERIMENT_LOGFILE
+                        )
+                        elapsed = (
+                            extract_and_sum_elapsed_seconds(run_log_path)
+                            if osp.exists(run_log_path)
+                            else cached_elapsed
+                        )
+                        self.completed_model_selection_runs.append(
+                            (
+                                dataset_getter.outer_k,
+                                dataset_getter.inner_k,
+                                config_id,
+                                run_id,
+                                elapsed,
+                            )
+                        )
+
+                        cached_msg = "Recovered cached result."
+                        try:
+                            tr_loss = float(train_res[LOSS][MAIN_LOSS])
+                            val_loss = float(val_res[LOSS][MAIN_LOSS])
+                            tr_score = float(train_res[SCORE][MAIN_SCORE])
+                            val_score = float(val_res[SCORE][MAIN_SCORE])
+                            cached_msg = (
+                                f"TR/VL/TE loss: {tr_loss:.2f}/{val_loss:.2f}/N/A "
+                                f"TR/VL/TE score: {tr_score:.2f}/{val_score:.2f}/N/A"
+                            )
+                        except Exception as e:
+                            cached_msg += f" {e}\n{traceback.format_exc()}"
+
+                        _push_progress_update(
+                            self.progress_actor,
+                            {
+                                "type": RUN_PROGRESS,
+                                OUTER_FOLD: dataset_getter.outer_k,
+                                INNER_FOLD: dataset_getter.inner_k,
+                                CONFIG_ID: config_id,
+                                RUN_ID: run_id,
+                                IS_FINAL: False,
+                                EPOCH: 0,
+                                TOTAL_EPOCHS: 0,
+                                BATCH: 1,
+                                TOTAL_BATCHES: 1,
+                                "message": cached_msg,
+                            },
+                        )
+                    else:
+                        future = run_valid.remote(
+                            self.experiment_class,
+                            dataset_getter,
+                            config,
+                            config_id,
+                            run_id,
+                            fold_run_exp_folder,
+                            fold_run_results_torch_path,
+                            exp_seed,
+                            self.training_timeout_seconds,
+                            logger,
+                            self.progress_actor,
+                        )
+                        self.model_selection_job_list.append(future)
+                else:
+                    if not osp.exists(fold_run_results_torch_path):
+                        experiment = self.experiment_class(
+                            config, fold_run_exp_folder, exp_seed
+                        )
+                        _should_terminate = _make_termination_checker(
+                            self.progress_actor
+                        )
+
+                        def _report_progress(payload: dict):
+                            payload = deepcopy(payload)
+                            payload.update(
+                                {
+                                    OUTER_FOLD: dataset_getter.outer_k,
+                                    INNER_FOLD: dataset_getter.inner_k,
+                                    CONFIG_ID: config_id,
+                                    RUN_ID: run_id,
+                                    IS_FINAL: False,
+                                }
+                            )
+                            _push_progress_update(self.progress_actor, payload)
+
+                        try:
+                            training_score, validation_score = (
+                                experiment.run_valid(
+                                    dataset_getter,
+                                    self.training_timeout_seconds,
+                                    logger,
+                                    progress_callback=_report_progress,
+                                    should_terminate=_should_terminate,
+                                )
+                            )
+                            elapsed = extract_and_sum_elapsed_seconds(
+                                osp.join(
+                                    fold_run_exp_folder, EXPERIMENT_LOGFILE
+                                )
+                            )
+                            atomic_dill_save(
+                                (
+                                    training_score,
+                                    validation_score,
+                                    elapsed,
+                                ),
+                                fold_run_results_torch_path,
+                            )
+                        except Exception as e:
+                            _push_progress_update(
+                                self.progress_actor,
+                                {
+                                    "type": RUN_FAILED,
+                                    str(OUTER_FOLD): dataset_getter.outer_k,
+                                    str(INNER_FOLD): dataset_getter.inner_k,
+                                    str(CONFIG_ID): config_id,
+                                    str(RUN_ID): run_id,
+                                    str(IS_FINAL): False,
+                                    str(EPOCH): 0,
+                                    str(TOTAL_EPOCHS): 0,
+                                    "message": f"{e}\n{traceback.format_exc()}",
+                                },
+                            )
+                            if self.failure_message is None:
+                                self.failure_message = (
+                                    "A model selection run failed; "
+                                    "stopping before computing the best "
+                                    "configuration. Check the run logs for "
+                                    "details."
+                                )
+                            return
+
+            if debug:
+                self.process_model_selection_runs(
+                    config_inner_fold_folder, inner_k
+                )
+
+        if debug:
+            self.process_config_results_across_inner_folds(
+                config_folder, deepcopy(config)
+            )
+            self._tell_bayes_objective(outer_k, config_id, config_folder)
+
+    def _schedule_next_bayes_config(
+        self, outer_k: int, debug: bool
+    ) -> Optional[int]:
+        """
+        Ask for and schedule the next BO configuration for an outer fold.
+        """
+        proposal = self._ask_next_bayes_config(outer_k)
+        if proposal is None:
+            return None
+        config_id, config = proposal
+
+        if not hasattr(self, "_bo_configs_by_outer"):
+            self._bo_configs_by_outer = {}
+        self._bo_configs_by_outer.setdefault(outer_k, {})[config_id] = (
+            deepcopy(config)
+        )
+
+        # Refresh UI list because adaptive search materializes configs lazily.
+        self.progress_manager.set_model_configs(
+            deepcopy(self.model_configs.hparams)
+        )
+        self._schedule_bayes_config(outer_k, config_id, config, debug)
+        return config_id
+
+    def model_selection(
+        self,
+        kfold_folder: str,
+        outer_k: int,
+        debug: bool,
+        execute_config_id: Optional[int],
+        skip_config_ids: List[int],
+    ):
+        """
+        BO model selection: schedule configs sequentially via ask/tell.
+        """
+        if not all(
+            hasattr(self.model_configs, attr)
+            for attr in ("start_outer", "ask", "tell")
+        ):
+            raise TypeError(
+                "BayesOptRiskAssesser expects model_configs with "
+                "'start_outer', 'ask', and 'tell' methods."
+            )
+        if execute_config_id is not None:
+            raise ValueError(
+                "execute_config_id is not supported by "
+                "BayesOptRiskAssesser because adaptive BO proposes "
+                "configurations sequentially via ask/tell."
+            )
+        if len(skip_config_ids) > 0:
+            raise ValueError(
+                "skip_config_ids is not supported by BayesOptRiskAssesser "
+                "because adaptive BO proposes configurations sequentially "
+                "via ask/tell."
+            )
+
+        model_selection_folder = osp.join(kfold_folder, self._SELECTION_FOLDER)
+        if not osp.exists(model_selection_folder):
+            os.makedirs(model_selection_folder)
+
+        self.model_configs.start_outer(outer_k)
+
+        if not hasattr(self, "_bo_configs_by_outer"):
+            self._bo_configs_by_outer = {}
+        self._bo_configs_by_outer[outer_k] = {}
+
+        # BO configs are generated lazily. Start by exposing placeholders.
+        self.progress_manager.set_model_configs(
+            deepcopy(self.model_configs.hparams)
+        )
+
+        if debug:
+            while True:
+                config_id = self._schedule_next_bayes_config(outer_k, True)
+                if config_id is None or self.failure_message is not None:
+                    break
+            if self.failure_message is None:
+                self.compute_best_hyperparameters(
+                    model_selection_folder,
+                    outer_k,
+                    len(self.model_configs),
+                    [],
+                )
+        else:
+            # Schedule only one BO config now; next ones are scheduled in
+            # wait_configs after feedback from completed runs.
+            self._schedule_next_bayes_config(outer_k, False)
+
+    def wait_configs(self, skip_config_ids: List[int]) -> bool:
+        """
+        Wait for BO tasks and schedule new configs sequentially as they finish.
+        """
+        if len(skip_config_ids) > 0:
+            raise ValueError(
+                "skip_config_ids is not supported by BayesOptRiskAssesser "
+                "because adaptive BO proposes configurations sequentially "
+                "via ask/tell."
+            )
+
+        no_model_configs = len(self.model_configs)
+        waiting = [el for el in self.model_selection_job_list]
+
+        inner_runs_completed = np.zeros(
+            (self.outer_folds, no_model_configs, self.inner_folds), dtype=int
+        )
+        final_runs_completed = [0 for _ in range(self.outer_folds)]
+        finished_outer_model_selection = set()
+
+        def handle_model_selection_result(result):
+            outer_k, inner_k, config_id, run_id, elapsed = result
+            ms_exp_path = osp.join(
+                self._ASSESSMENT_FOLDER,
+                self._OUTER_FOLD_BASE + str(outer_k + 1),
+                self._SELECTION_FOLDER,
+            )
+            config_folder = osp.join(
+                ms_exp_path, self._CONFIG_BASE + str(config_id + 1)
+            )
+            config_inner_fold_folder = osp.join(
+                config_folder, self._INNER_FOLD_BASE + str(inner_k + 1)
+            )
+
+            inner_runs_completed[outer_k][config_id][inner_k] += 1
+            if (
+                inner_runs_completed[outer_k][config_id][inner_k]
+                == self.model_selection_training_runs
+            ):
+                _push_progress_update(
+                    self.progress_actor,
+                    dict(
+                        type=END_CONFIG,
+                        outer_fold=outer_k,
+                        inner_fold=inner_k,
+                        config_id=config_id,
+                        elapsed=elapsed,
+                        message=[
+                            f"Outer fold {outer_k + 1}, "
+                            f"inner fold {inner_k + 1}, "
+                            f"configuration {config_id + 1} completed."
+                        ],
+                    ),
+                )
+                self.process_model_selection_runs(
+                    config_inner_fold_folder, inner_k
+                )
+
+            if (
+                inner_runs_completed[outer_k, config_id, :].sum()
+                == self.inner_folds * self.model_selection_training_runs
+            ):
+                # One BO configuration is fully evaluated: aggregate it, tell
+                # BO the objective, then ask/schedule the next config.
+                self.process_config_results_across_inner_folds(
+                    config_folder,
+                    deepcopy(self._bo_configs_by_outer[outer_k][config_id]),
+                )
+                self._tell_bayes_objective(outer_k, config_id, config_folder)
+
+                prev_len = len(self.model_selection_job_list)
+                next_config_id = self._schedule_next_bayes_config(
+                    outer_k, False
+                )
+                waiting.extend(self.model_selection_job_list[prev_len:])
+
+                if (
+                    next_config_id is None
+                    and outer_k not in finished_outer_model_selection
+                ):
+                    self.compute_best_hyperparameters(
+                        ms_exp_path,
+                        outer_k,
+                        len(self.model_configs),
+                        [],
+                    )
+                    prev_final_len = len(self.final_runs_job_list)
+                    self.run_final_model(outer_k, False)
+                    waiting.extend(self.final_runs_job_list[prev_final_len:])
+                    finished_outer_model_selection.add(outer_k)
+
+        def handle_final_run_result(result):
+            outer_k, run_id, elapsed = result
+            _push_progress_update(
+                self.progress_actor,
+                dict(
+                    type=END_FINAL_RUN,
+                    outer_fold=outer_k,
+                    run_id=run_id,
+                    elapsed=elapsed,
+                    message=[
+                        f"Outer fold {outer_k + 1}, "
+                        f"final run {run_id + 1} completed."
+                    ],
+                ),
+            )
+            final_runs_completed[outer_k] += 1
+            if (
+                final_runs_completed[outer_k]
+                == self.risk_assessment_training_runs
+            ):
+                self.compute_final_runs_score_per_fold(outer_k)
+
+        def process_cached_results():
+            # Drain caches repeatedly because processing one cached config may
+            # schedule another config/final run that is also cached.
+            while self.completed_model_selection_runs:
+                handle_model_selection_result(
+                    self.completed_model_selection_runs.pop()
+                )
+            while self.completed_final_runs:
+                handle_final_run_result(self.completed_final_runs.pop())
+
+        success = True
+        process_cached_results()
+        while waiting:
+            completed, waiting = ray.wait(waiting)
+            for future in completed:
+                is_model_selection_run = (
+                    future in self.model_selection_job_list
+                )
+                is_final_run = future in self.final_runs_job_list
+                result = ray.get(future)
+
+                if result is None:
+                    if self.failure_message is None:
+                        self.failure_message = (
+                            "A model selection run failed; stopping before "
+                            "computing the best configuration. Check the run "
+                            "logs for details."
+                            if is_model_selection_run
+                            else "A final run failed; skipping outer fold "
+                            "scoring and final assessment. Check the run logs "
+                            "for details."
+                        )
+                    success = False
+                elif is_model_selection_run:
+                    handle_model_selection_result(result)
+                elif is_final_run:
+                    handle_final_run_result(result)
+
+            process_cached_results()
+
+        process_cached_results()
+        return success

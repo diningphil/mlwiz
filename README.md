@@ -25,7 +25,7 @@ _Machine Learning Research Wizard — reproducible experiments from YAML (model 
 MLWiz helps you run end-to-end research experiments with minimal boilerplate:
 
 - 🧱 Build/prepare datasets and generate splits (hold-out or nested CV)
-- 🎛️ Expand a hyperparameter search space (grid or random search)
+- 🎛️ Expand a hyperparameter search space (grid, random, or Bayesian search)
 - ⚡ Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
 - 📈 Log metrics, checkpoints, and TensorBoard traces in a consistent folder structure
 
@@ -190,7 +190,7 @@ When `mixed_precision: true` is used on CPU, requesting
 `higher_results_are_better` remains available as a legacy shortcut for
 `main_score`, but it cannot be set together with `model_selection_criteria`.
 
-See `examples/` for complete configs (including random search, schedulers, early stopping, and more).
+See `examples/` for complete configs (including random/Bayesian search, schedulers, early stopping, and more).
 
 ### 🧩 Custom Code Via Dotted Paths
 Point YAML entries to your own classes (in your project). `mlwiz-data` and `mlwiz-exp` add the current working directory to `sys.path`, so this works out of the box:

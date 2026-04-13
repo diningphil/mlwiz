@@ -10,7 +10,7 @@ data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
 # Hardware
 device:  cpu
-max_cpus:  8
+max_cpus:  64
 max_gpus: 1
 gpus_per_task:  1
 # gpus_subset: 0,1,2,3,4,5,6,7,8
@@ -31,7 +31,7 @@ seed: 42
 
 # Experiment
 result_folder: RESULTS
-exp_name: mlprandom
+exp_name: mlp_bayes
 experiment: mlwiz.experiment.Experiment
 model_selection_criteria:
   - metric: main_score
@@ -40,28 +40,42 @@ evaluate_every: 1
 risk_assessment_training_runs: 3
 model_selection_training_runs: 2
 
-budget: 5
-random:
+budget: 10
+random_starts: 2
+candidate_pool_size: 64
+ei_xi: 0.001
+bayes:
   model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
-  batch_size: 512
-  epochs: 2
+  batch_size:
+    sample_method: mlwiz.evaluation.util.choice
+    args:
+      - 256
+      - 512
+  epochs: 10
 
   # Model specific arguments #
 
-  dim_embedding: 5
+  dim_embedding:
+    sample_method: mlwiz.evaluation.util.randint
+    args:
+      - 16  # min
+      - 128  # max
   mlwiz_tests: True  # allow reshaping of MNIST dataset
 
   # ------------------------ #
 
-  # Optimizer (with an example - 3 possible alternatives)
+  # Optimizer
   optimizer:
     - class_name: mlwiz.training.callback.optimizer.Optimizer
       args:
         optimizer_class_name: torch.optim.Adam
         lr:
-          - 0.01
+          sample_method: mlwiz.evaluation.util.loguniform
+          args:
+            - 0.0005
+            - 0.05
         weight_decay: 0.
 
   # Scheduler (optional)
@@ -78,11 +92,9 @@ random:
             - 1.
         accumulate_over_epoch:
           sample_method: mlwiz.evaluation.util.choice
-          # one or the other
           args:
             - True
             - False
-
 
   # Score metric (with an example of Multi Score)
   scorer:
@@ -95,12 +107,11 @@ random:
   engine:
     - class_name: mlwiz.training.engine.TrainingEngine
       args:
-        eval_training:  # whether to re-compute epoch loss/scores after training or use those obtained while the model is being trained with mini-batches
+        eval_training:
           sample_method: mlwiz.evaluation.util.choice
-          # one or the other
           args:
-            - False  # default behavior, saves some compute time as we are generally interested in validation scores
-            - True  # re-evaluates on training set after each training epoch, might not change much loss/score values and causes overhead
+            - False
+            - True
 
   # Gradient clipper (optional)
   gradient_clipper: null

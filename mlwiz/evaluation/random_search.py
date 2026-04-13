@@ -7,7 +7,12 @@ from copy import deepcopy
 
 from mlwiz.evaluation.grid import Grid
 from mlwiz.util import s2c
-from mlwiz.static import ARGS, NUM_SAMPLES, RANDOM_SEARCH, SAMPLE_METHOD
+from mlwiz.static import (
+    ARGS,
+    BUDGET,
+    RANDOM_SEARCH,
+    SAMPLE_METHOD,
+)
 
 from typing import Iterator, Dict, Any
 
@@ -31,17 +36,26 @@ class RandomSearch(Grid):
         Args:
             configs_dict (dict): Configuration dictionary specifying the search
                 space and shared experiment settings. It must include
-                ``NUM_SAMPLES`` (see :mod:`mlwiz.static`) to control how many
+                ``budget`` (see :mod:`mlwiz.static`) to control how many
                 configurations are sampled.
 
         Raises:
-            KeyError: If ``NUM_SAMPLES`` or other required keys are missing.
+            KeyError: If ``budget`` is missing.
 
         Side effects:
-            Stores ``num_samples`` and initializes the base :class:`~Grid`
+            Stores ``budget`` and initializes the base :class:`~Grid`
             fields.
         """
-        self.num_samples = configs_dict[NUM_SAMPLES]
+        raw_budget = configs_dict.get(BUDGET, None)
+        if raw_budget is None:
+            raise KeyError(
+                f"Missing required '{BUDGET}' key in configuration."
+            )
+        self.budget = int(raw_budget)
+        if self.budget <= 0:
+            raise ValueError(
+                f"'{BUDGET}' must be > 0, got {self.budget}."
+            )
         super().__init__(configs_dict)
 
     def _gen_helper(self, cfgs_dict: dict) -> Iterator[Dict[str, Any]]:
@@ -55,7 +69,7 @@ class RandomSearch(Grid):
         keys = cfgs_dict.keys()
         param = list(keys)[0]
 
-        for _ in range(self.num_samples):
+        for _ in range(self.budget):
             result = {}
             for key, values in cfgs_dict.items():
                 # BASE CASE: key is associated to an atomic value
