@@ -1,8 +1,9 @@
 """Training utility helpers.
 
-Includes :func:`~mlwiz.training.util.atomic_torch_save` for safely writing checkpoint dictionaries.
+Includes helper functions for safe and memory-aware checkpoint serialization.
 """
 
+import copy
 import os
 
 import torch
@@ -27,3 +28,21 @@ def atomic_torch_save(data: dict, filepath: str):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise e
+
+
+def clone_to_cpu(obj):
+    r"""
+    Recursively clone tensors to CPU for checkpoint serialization.
+
+    This avoids transient GPU-memory spikes caused by deep-copying large
+    model/optimizer state dictionaries on CUDA.
+    """
+    if torch.is_tensor(obj):
+        return obj.detach().cpu().clone()
+    if isinstance(obj, dict):
+        return {k: clone_to_cpu(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [clone_to_cpu(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(clone_to_cpu(v) for v in obj)
+    return copy.deepcopy(obj)

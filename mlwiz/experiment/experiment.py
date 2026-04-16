@@ -676,7 +676,10 @@ class Experiment:
             ddp_world_size=ddp_world_size,
         )
         val_loader = dataset_getter.get_inner_val(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size,
+            shuffle=shuffle,
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
         )
 
         dim_input_features = dataset_getter.get_dim_input_features()
@@ -796,10 +799,16 @@ class Experiment:
             ddp_world_size=ddp_world_size,
         )
         val_loader = dataset_getter.get_outer_val(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size,
+            shuffle=shuffle,
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
         )
         test_loader = dataset_getter.get_outer_test(
-            batch_size=batch_size, shuffle=shuffle
+            batch_size=batch_size,
+            shuffle=shuffle,
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
         )
 
         # Call this after the loaders: the datasets may need to be instantiated

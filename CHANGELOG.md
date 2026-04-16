@@ -6,9 +6,17 @@
 
 - Bayesian Optimization search method
 
+## Changed
+
+- checkpoint snapshots now clone model/optimizer/scaler/scheduler payloads to CPU before serialization, reducing transient GPU memory spikes during epoch-end and best-model saves
+- checkpoint loading now always maps tensors to CPU first (then moves model weights to the target device), avoiding large direct CUDA allocations during restore/load utilities
+
 ## Fixed
 
 - Badge creation in workflow (untested, done with Codex)
+- DDP validation/test data loaders are now rank-sharded as well (not only training), by forwarding `ddp_rank`/`ddp_world_size` to eval loader creation
+- with rank-sharded DDP evaluation, scalar epoch metrics are now reduced across ranks before returning inference results
+- reduced DDP scalar metrics are now always stored on CPU after cross-rank reduction
 
 
 ## [1.5.0] Pytorch Distributed Data Parallel and Automatic Mixed-Precision Support
