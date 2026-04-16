@@ -26,7 +26,7 @@ from mlwiz.training.distributed import (
 )
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_torch_save
+from mlwiz.training.util import atomic_torch_save, clone_to_cpu
 
 
 class EarlyStopper(EventHandler):
@@ -111,15 +111,16 @@ class EarlyStopper(EventHandler):
             state.best_epoch_results[score_or_loss][self.monitor] = (
                 state.epoch_results[score_or_loss][self.monitor]
             )
-            state.best_epoch_results[MODEL_STATE] = deepcopy(
+            # Keep best-epoch snapshots on CPU to avoid GPU memory spikes.
+            state.best_epoch_results[MODEL_STATE] = clone_to_cpu(
                 _unwrap_model(state.model).state_dict()
             )
-            state.best_epoch_results[OPTIMIZER_STATE] = state[
-                OPTIMIZER_STATE
-            ]  # computed by optimizer
-            state.best_epoch_results[SCHEDULER_STATE] = state[
-                SCHEDULER_STATE
-            ]  # computed by scheduler
+            state.best_epoch_results[OPTIMIZER_STATE] = clone_to_cpu(
+                state[OPTIMIZER_STATE]
+            )  # computed by optimizer
+            state.best_epoch_results[SCHEDULER_STATE] = clone_to_cpu(
+                state[SCHEDULER_STATE]
+            )  # computed by scheduler
             if self.checkpoint and _is_main_process():
                 atomic_torch_save(
                     state.best_epoch_results,
@@ -134,15 +135,15 @@ class EarlyStopper(EventHandler):
                 state.best_epoch_results[score_or_loss][
                     self.monitor
                 ] = metric_to_compare
-                state.best_epoch_results[MODEL_STATE] = deepcopy(
+                state.best_epoch_results[MODEL_STATE] = clone_to_cpu(
                     _unwrap_model(state.model).state_dict()
                 )
-                state.best_epoch_results[OPTIMIZER_STATE] = state[
-                    OPTIMIZER_STATE
-                ]  # computed by optimizer
-                state.best_epoch_results[SCHEDULER_STATE] = state[
-                    SCHEDULER_STATE
-                ]  # computed by scheduler
+                state.best_epoch_results[OPTIMIZER_STATE] = clone_to_cpu(
+                    state[OPTIMIZER_STATE]
+                )  # computed by optimizer
+                state.best_epoch_results[SCHEDULER_STATE] = clone_to_cpu(
+                    state[SCHEDULER_STATE]
+                )  # computed by scheduler
                 if self.checkpoint and _is_main_process():
                     atomic_torch_save(
                         state.best_epoch_results,

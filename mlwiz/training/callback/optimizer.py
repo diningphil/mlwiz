@@ -3,11 +3,10 @@
 Instantiates a PyTorch optimizer from a dotted path and exposes lifecycle hooks.
 """
 
-import copy
-
 from mlwiz.util import s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.training.event.handler import EventHandler
+from mlwiz.training.util import clone_to_cpu
 
 
 class Optimizer(EventHandler):
@@ -144,11 +143,12 @@ class Optimizer(EventHandler):
         """
         grad_scaler = getattr(state, "grad_scaler", None)
         scaler_state = (
-            copy.deepcopy(grad_scaler.state_dict())
+            clone_to_cpu(grad_scaler.state_dict())
             if grad_scaler is not None
             else None
         )
         state.update(
-            optimizer_state=copy.deepcopy(self.optimizer.state_dict()),
+            # Keep optimizer/scaler checkpoints on CPU to reduce GPU memory spikes.
+            optimizer_state=clone_to_cpu(self.optimizer.state_dict()),
             scaler_state=scaler_state,
         )

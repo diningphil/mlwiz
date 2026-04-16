@@ -3,7 +3,6 @@
 Provides :class:`~mlwiz.training.callback.engine_callback.EngineCallback` and iterable-dataset variants.
 """
 
-import copy
 import os
 from pathlib import Path
 
@@ -23,7 +22,7 @@ from mlwiz.training.distributed import (
 )
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_torch_save
+from mlwiz.training.util import atomic_torch_save, clone_to_cpu
 
 
 class EngineCallback(EventHandler):
@@ -98,12 +97,17 @@ class EngineCallback(EventHandler):
             if not os.path.exists(Path(state.exp_path)):
                 os.makedirs(Path(state.exp_path))
 
+            # Store checkpoint payloads on CPU to avoid deep-copy GPU spikes.
             last_ckpt = {
                 EPOCH: state.epoch,
-                MODEL_STATE: copy.deepcopy(_unwrap_model(state.model).state_dict()),
-                OPTIMIZER_STATE: getattr(state, OPTIMIZER_STATE, None),
-                SCALER_STATE: getattr(state, SCALER_STATE, None),
-                SCHEDULER_STATE: getattr(state, SCHEDULER_STATE, None),
+                MODEL_STATE: clone_to_cpu(_unwrap_model(state.model).state_dict()),
+                OPTIMIZER_STATE: clone_to_cpu(
+                    getattr(state, OPTIMIZER_STATE, None)
+                ),
+                SCALER_STATE: clone_to_cpu(getattr(state, SCALER_STATE, None)),
+                SCHEDULER_STATE: clone_to_cpu(
+                    getattr(state, SCHEDULER_STATE, None)
+                ),
                 STOP_TRAINING: state.stop_training,
                 LAST_RUN_ELAPSED_TIME: state.current_elapsed_time,
             }

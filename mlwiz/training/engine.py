@@ -485,6 +485,11 @@ class TrainingEngine(EventDispatcher):
                 "Ensure the loss Metric callback is registered and the loader yields at least one batch."
             )
         loss, score = self.state.epoch_loss, self.state.epoch_score
+        # In DDP each rank may evaluate a different shard; average scalar
+        # epoch metrics across ranks so returned values are cross-rank
+        # consistent.
+        loss = self._average_epoch_metrics_across_ranks(loss)
+        score = self._average_epoch_metrics_across_ranks(score)
 
         # Add the main loss we want to return as a special key
         main_loss_name = self.loss_fun.get_main_metric_name()
@@ -500,6 +505,39 @@ class TrainingEngine(EventDispatcher):
         ]  # normalized key for downstream evaluation
 
         return loss, score
+
+    def _average_epoch_metrics_across_ranks(self, metrics: dict) -> dict:
+        """
+        Average scalar metric tensors across ranks when DDP is active.
+        """
+        if not _dist_is_initialized():
+            return metrics
+
+        world_size = torch.distributed.get_world_size()
+        target_device = torch.device(self.device)
+        reduced_metrics = {}
+        for metric_name, metric_value in metrics.items():
+            if torch.is_tensor(metric_value):
+                if metric_value.numel() != 1:
+                    reduced_metrics[metric_name] = metric_value
+                    continue
+                reduced_tensor = metric_value.detach()
+            elif isinstance(metric_value, (int, float)):
+                reduced_tensor = torch.tensor(
+                    float(metric_value), device=target_device
+                )
+            else:
+                reduced_metrics[metric_name] = metric_value
+                continue
+
+            reduced_tensor = reduced_tensor.to(device=target_device)
+            torch.distributed.all_reduce(
+                reduced_tensor,
+                op=torch.distributed.ReduceOp.SUM,
+            )
+            reduced_tensor = reduced_tensor / float(world_size)
+            reduced_metrics[metric_name] = reduced_tensor.cpu()
+        return reduced_metrics
 
     def train(
         self,
@@ -900,13 +938,11 @@ class TrainingEngine(EventDispatcher):
         Restores the (best or last) checkpoint from a given file, and loads
         the best results so far into the state if any.
         """
-        # When changing exp config from cuda to cpu, cuda will not be available
-        # to pytorch (due to Ray management of resources). Hence, we need to
-        # specify explicitly the map location as cpu. The other way around
-        # (cpu to cuda) poses no problem since GPUs are visible.
+        # Always load checkpoints on CPU first to avoid loading full checkpoint
+        # tensors directly into GPU memory.
         ckpt_dict = torch.load(
             ckpt_filename,
-            map_location="cpu" if self.device == "cpu" else None,
+            map_location="cpu",
             weights_only=True,
         )
 
@@ -936,7 +972,7 @@ class TrainingEngine(EventDispatcher):
         if os.path.exists(best_ckpt_filename):
             best_ckpt_dict = torch.load(
                 best_ckpt_filename,
-                map_location="cpu" if self.device == "cpu" else None,
+                map_location="cpu",
                 weights_only=True,
             )
             self.state.update(best_epoch_results=best_ckpt_dict)

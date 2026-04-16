@@ -402,7 +402,9 @@ def load_checkpoint(
     """
     ckpt_dict = torch.load(
         checkpoint_path,
-        map_location="cpu" if device == "cpu" else None,
+        # Always load checkpoints on CPU first to avoid loading full checkpoint
+        # tensors directly into GPU memory.
+        map_location="cpu",
         weights_only=True,
     )
     model_state = ckpt_dict[MODEL_STATE]
