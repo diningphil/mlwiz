@@ -259,6 +259,9 @@ When ``device: cuda``, MLWiz automatically switches to DDP inside each Ray task.
 MLWiz shards the training data with ``DistributedSampler`` and keeps a single set of
 experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
 ``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
+In DDP mode, ``batch_size`` is interpreted as the global batch size and is divided by
+``gpus_per_task`` (world size) before building per-rank loaders, so choose a value
+that is divisible by the world size.
 
 
 

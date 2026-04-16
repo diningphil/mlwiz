@@ -257,6 +257,32 @@ class Experiment:
         if ddp_rank is not None:
             self.model_config.config_dict["device"] = f"cuda:{ddp_rank}"
 
+    def _resolve_loader_batch_size(
+        self,
+        batch_size: int,
+        ddp_rank: Optional[int],
+        ddp_world_size: int,
+    ) -> int:
+        """
+        Resolve the per-loader batch size for single-process and DDP runs.
+
+        In DDP mode, MLWiz interprets ``batch_size`` as the global batch size
+        across ranks, then divides it by world size so each rank receives an
+        equal local batch.
+        """
+        if ddp_rank is None or ddp_world_size <= 1:
+            return int(batch_size)
+
+        if int(batch_size) % int(ddp_world_size) != 0:
+            raise ValueError(
+                "In DDP mode `batch_size` is treated as the global batch size "
+                f"and must be divisible by world size. Got batch_size={batch_size} "
+                f"and world_size={ddp_world_size}."
+            )
+
+        # Keep per-rank workload balanced across DDP workers.
+        return int(batch_size) // int(ddp_world_size)
+
     def _setup_ddp(self, rank: int, world_size: int, master_port: int):
         """
         Initialize the process group for this rank.
@@ -661,7 +687,11 @@ class Experiment:
         Internal validation run used by both single-process and DDP paths.
         """
         self._set_worker_device(ddp_rank)
-        batch_size = self.model_config["batch_size"]
+        batch_size = self._resolve_loader_batch_size(
+            batch_size=self.model_config["batch_size"],
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
+        )
         shuffle = (
             self.model_config["shuffle"]
             if "shuffle" in self.model_config
@@ -784,7 +814,11 @@ class Experiment:
         Internal final run used by both single-process and DDP paths.
         """
         self._set_worker_device(ddp_rank)
-        batch_size = self.model_config["batch_size"]
+        batch_size = self._resolve_loader_batch_size(
+            batch_size=self.model_config["batch_size"],
+            ddp_rank=ddp_rank,
+            ddp_world_size=ddp_world_size,
+        )
         shuffle = (
             self.model_config["shuffle"]
             if "shuffle" in self.model_config

@@ -10,6 +10,7 @@
 
 - checkpoint snapshots now clone model/optimizer/scaler/scheduler payloads to CPU before serialization, reducing transient GPU memory spikes during epoch-end and best-model saves
 - checkpoint loading now always maps tensors to CPU first (then moves model weights to the target device), avoiding large direct CUDA allocations during restore/load utilities
+- in DDP mode, `batch_size` is now interpreted as the global batch size and divided by world size to build per-rank loaders; non-divisible values now raise a clear error
 
 ## Fixed
 

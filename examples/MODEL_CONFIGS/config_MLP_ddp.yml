@@ -46,7 +46,7 @@ grid:
   model: mlwiz.model.MLP
   checkpoint: True
   shuffle: True
-  batch_size: 512
+  batch_size: 512  # global DDP batch size (per-rank is batch_size / gpus_per_task)
   epochs: 10
 
   # Model specific arguments #
