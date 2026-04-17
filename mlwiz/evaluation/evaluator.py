@@ -1675,16 +1675,35 @@ class RiskAssesser:
         with open(fold_info_filename, "w") as fp:
             json.dump(results_dict, fp, sort_keys=False, indent=4)
 
+        def _build_fold_set_results(set_type: str) -> dict:
+            """
+            Preserve all averaged metrics for this set so downstream model
+            selection can use non-main criteria as tie-breakers.
+            """
+            set_loss = {MAIN_LOSS: results_dict[f"{set_type}_{LOSS}"]}
+            set_score = {MAIN_SCORE: results_dict[f"{set_type}_{SCORE}"]}
+
+            prefix = f"{set_type}_"
+            loss_suffix = f"_{LOSS}"
+            score_suffix = f"_{SCORE}"
+            for key, value in results_dict.items():
+                if key.startswith(f"{STD}_") or key.startswith(f"{CI}_"):
+                    continue
+                if key.startswith(prefix) and key.endswith(loss_suffix):
+                    metric_name = key[len(prefix) : -len(loss_suffix)]
+                    if metric_name != LOSS:
+                        set_loss[metric_name] = value
+                elif key.startswith(prefix) and key.endswith(score_suffix):
+                    metric_name = key[len(prefix) : -len(score_suffix)]
+                    if metric_name != SCORE:
+                        set_score[metric_name] = value
+
+            return {LOSS: set_loss, SCORE: set_score}
+
         atomic_dill_save(
             (
-                {
-                    LOSS: {MAIN_LOSS: results_dict[f"{TRAINING}_{LOSS}"]},
-                    SCORE: {MAIN_SCORE: results_dict[f"{TRAINING}_{SCORE}"]},
-                },
-                {
-                    LOSS: {MAIN_LOSS: results_dict[f"{VALIDATION}_{LOSS}"]},
-                    SCORE: {MAIN_SCORE: results_dict[f"{VALIDATION}_{SCORE}"]},
-                },
+                _build_fold_set_results(TRAINING),
+                _build_fold_set_results(VALIDATION),
                 None,
             ),
             fold_results_filename,
