@@ -11,6 +11,7 @@
 - checkpoint snapshots now clone model/optimizer/scaler/scheduler payloads to CPU before serialization, reducing transient GPU memory spikes during epoch-end and best-model saves
 - checkpoint loading now always maps tensors to CPU first (then moves model weights to the target device), avoiding large direct CUDA allocations during restore/load utilities
 - in DDP mode, `batch_size` is now interpreted as the global batch size and divided by world size to build per-rank loaders; non-divisible values now raise a clear error
+- optimizer checkpoints now include parameter-name metadata (via `named_parameters`) and optimizer-state restore now remaps by parameter name when possible, while keeping legacy order-based loading for checkpoints without names
 
 ## Fixed
 
@@ -19,6 +20,7 @@
 - with rank-sharded DDP evaluation, scalar epoch metrics are now reduced across ranks before returning inference results
 - reduced DDP scalar metrics are now always stored on CPU after cross-rank reduction
 - uncaught experiment exceptions are now persisted to `<run_folder>/experiment.err` so per-run failures are inspectable from disk in both debug and non-debug execution paths
+- added unit tests covering both name-based optimizer-state loading and legacy order-based fallback behavior
 
 
 ## [1.5.0] Pytorch Distributed Data Parallel and Automatic Mixed-Precision Support
