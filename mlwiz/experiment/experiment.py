@@ -27,6 +27,7 @@ from mlwiz.evaluation.config import Config
 from mlwiz.util import return_class_and_args, s2c
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import DEFAULT_ENGINE_CALLBACK
+from mlwiz.static import EXPERIMENT_ERRFILE
 from mlwiz.static import LOSS, SCORE
 from mlwiz.static import MLWIZ_RAY_NUM_GPUS_PER_TASK
 from mlwiz.log.logger import Logger
@@ -256,6 +257,19 @@ class Experiment:
         """
         if ddp_rank is not None:
             self.model_config.config_dict["device"] = f"cuda:{ddp_rank}"
+
+    def _write_experiment_error(self, details: str):
+        """
+        Best-effort append of exception details to ``experiment.err``.
+        """
+        try:
+            os.makedirs(self.exp_path, exist_ok=True)
+            err_path = os.path.join(self.exp_path, EXPERIMENT_ERRFILE)
+            with open(err_path, "a") as f:
+                f.write(details.rstrip() + "\n")
+        except Exception:
+            # Never mask the original exception if writing fails.
+            pass
 
     def _resolve_loader_batch_size(
         self,
@@ -656,22 +670,28 @@ class Experiment:
             For instance, training_results[SCORE] is a dictionary itself
             with other fields to be used by the evaluator.
         """
-        if self._should_use_ddp():
-            return self._run_ddp(
-                "valid",
+        try:
+            if self._should_use_ddp():
+                return self._run_ddp(
+                    "valid",
+                    dataset_getter,
+                    training_timeout_seconds,
+                    logger,
+                    progress_callback=progress_callback,
+                    should_terminate=should_terminate,
+                )
+            return self._run_valid_impl(
                 dataset_getter,
                 training_timeout_seconds,
                 logger,
                 progress_callback=progress_callback,
                 should_terminate=should_terminate,
             )
-        return self._run_valid_impl(
-            dataset_getter,
-            training_timeout_seconds,
-            logger,
-            progress_callback=progress_callback,
-            should_terminate=should_terminate,
-        )
+        except ExperimentTerminated:
+            raise
+        except Exception:
+            self._write_experiment_error(traceback.format_exc())
+            raise
 
     def _run_valid_impl(
         self,
@@ -783,22 +803,28 @@ class Experiment:
             For instance, training_results[SCORE] is a dictionary itself with
             other fields to be used by the evaluator.
         """
-        if self._should_use_ddp():
-            return self._run_ddp(
-                "test",
+        try:
+            if self._should_use_ddp():
+                return self._run_ddp(
+                    "test",
+                    dataset_getter,
+                    training_timeout_seconds,
+                    logger,
+                    progress_callback=progress_callback,
+                    should_terminate=should_terminate,
+                )
+            return self._run_test_impl(
                 dataset_getter,
                 training_timeout_seconds,
                 logger,
                 progress_callback=progress_callback,
                 should_terminate=should_terminate,
             )
-        return self._run_test_impl(
-            dataset_getter,
-            training_timeout_seconds,
-            logger,
-            progress_callback=progress_callback,
-            should_terminate=should_terminate,
-        )
+        except ExperimentTerminated:
+            raise
+        except Exception:
+            self._write_experiment_error(traceback.format_exc())
+            raise
 
     def _run_test_impl(
         self,

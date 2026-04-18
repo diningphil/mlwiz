@@ -3,6 +3,7 @@
 import pytest
 
 from mlwiz.experiment import Experiment
+from mlwiz.static import EXPERIMENT_ERRFILE
 
 
 class _DatasetGetterStub:
@@ -154,3 +155,51 @@ def test_ddp_raises_when_global_batch_is_not_divisible(monkeypatch, tmp_path):
             ddp_rank=0,
             ddp_world_size=2,
         )
+
+
+def test_run_valid_writes_experiment_err_on_exception(monkeypatch, tmp_path):
+    """Validation failures should be recorded in experiment.err and re-raised."""
+    experiment = _make_experiment(monkeypatch, tmp_path, batch_size=32)
+
+    def _boom(self, *args, **kwargs):
+        raise RuntimeError("validation exploded")
+
+    monkeypatch.setattr(Experiment, "_should_use_ddp", lambda self: False)
+    monkeypatch.setattr(Experiment, "_run_valid_impl", _boom)
+
+    with pytest.raises(RuntimeError, match="validation exploded"):
+        experiment.run_valid(
+            dataset_getter=_DatasetGetterStub(),
+            training_timeout_seconds=1,
+            logger=None,
+        )
+
+    err_path = tmp_path / EXPERIMENT_ERRFILE
+    assert err_path.exists()
+    content = err_path.read_text()
+    assert "validation exploded" in content
+    assert "RuntimeError" in content
+
+
+def test_run_test_writes_experiment_err_on_exception(monkeypatch, tmp_path):
+    """Final-run failures should be recorded in experiment.err and re-raised."""
+    experiment = _make_experiment(monkeypatch, tmp_path, batch_size=32)
+
+    def _boom(self, *args, **kwargs):
+        raise RuntimeError("test exploded")
+
+    monkeypatch.setattr(Experiment, "_should_use_ddp", lambda self: False)
+    monkeypatch.setattr(Experiment, "_run_test_impl", _boom)
+
+    with pytest.raises(RuntimeError, match="test exploded"):
+        experiment.run_test(
+            dataset_getter=_DatasetGetterStub(),
+            training_timeout_seconds=1,
+            logger=None,
+        )
+
+    err_path = tmp_path / EXPERIMENT_ERRFILE
+    assert err_path.exists()
+    content = err_path.read_text()
+    assert "test exploded" in content
+    assert "RuntimeError" in content

@@ -258,7 +258,7 @@ When ``device: cuda``, MLWiz automatically switches to DDP inside each Ray task.
 
 MLWiz shards the training data with ``DistributedSampler`` and keeps a single set of
 experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
-``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
+``experiment.err`` and ``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
 In DDP mode, ``batch_size`` is interpreted as the global batch size and is divided by
 ``gpus_per_task`` (world size) before building per-rank loaders, so choose a value
 that is divisible by the world size.
@@ -518,6 +518,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
             |__ final_run_2
                 |__ tensorboard  # tensorboard folder
                 |__ experiment.log  # log file with profiling information
+                |__ experiment.err  # uncaught exception tracebacks, when a run fails
                 |__ best_checkpoint.pth  # torch dict holding the "best" checkpoint information according to the early stopper used
                 |__ last_checkpoint.pth  # torch dict holding the checkpoint information of the last epoch (top ``checkpoint`` keyword set to true)
                 |__ run_2_results.dill  # dict holding the results of the 2nd final run on the 5th outer fold.
@@ -532,6 +533,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
                         |__ run_1
                             |__ tensorboard
                             |__ experiment.log  # log file with profiling information
+                            |__ experiment.err  # uncaught exception tracebacks, when a run fails
                             |__ best_checkpoint.pth
                             |__ last_checkpoint.pth
                         |__ run_2
@@ -549,6 +551,7 @@ Profiling Information
 Inside each ``experiment.log`` file, you will find training logs and, at the end of each training, the profiler information
 with the per-epoch and total time required by each :class:`~mlwiz.training.event.handler.EventHandler`, provided the
 time spent is non-negligible (threshold specified in the log file).
+If a run crashes with an uncaught exception, the traceback is also appended to ``experiment.err`` in the same run folder.
 
 Here's what it looks like:
 

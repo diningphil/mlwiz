@@ -18,6 +18,7 @@
 - DDP validation/test data loaders are now rank-sharded as well (not only training), by forwarding `ddp_rank`/`ddp_world_size` to eval loader creation
 - with rank-sharded DDP evaluation, scalar epoch metrics are now reduced across ranks before returning inference results
 - reduced DDP scalar metrics are now always stored on CPU after cross-rank reduction
+- uncaught experiment exceptions are now persisted to `<run_folder>/experiment.err` so per-run failures are inspectable from disk in both debug and non-debug execution paths
 
 
 ## [1.5.0] Pytorch Distributed Data Parallel and Automatic Mixed-Precision Support
