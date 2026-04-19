@@ -150,7 +150,7 @@ explanation of each field as a comment:
       model:  # dotted path to model class
       checkpoint:  # whether to keep a checkpoint of the last epoch to resume training
       shuffle:  # whether to shuffle the data
-      batch_size:  # batch size
+      batch_size:  # batch size (global when DDP is enabled, per-process otherwise)
       epochs:  # number of maximum training epochs
 
       # Model specific arguments #
@@ -244,8 +244,11 @@ Here we can define how many resources to allocate to parallelize different exper
     max_gpus: 2
     gpus_per_task:  0.5
 
-For **Distributed Data Parallel (DDP)**, set ``gpus_per_task`` to an integer greater than 1.
-When ``device: cuda``, MLWiz automatically switches to DDP inside each Ray task.
+Practical rule for ``gpus_per_task``:
+
+* ``0 < gpus_per_task < 1``: run more experiments in parallel by assigning a GPU fraction to each task.
+* ``gpus_per_task = 1``: single-GPU training per task.
+* ``gpus_per_task > 1``: must be an integer; with ``device: cuda`` MLWiz enables **Distributed Data Parallel (DDP)** inside each Ray task.
 
 .. code-block:: yaml
 
@@ -256,12 +259,29 @@ When ``device: cuda``, MLWiz automatically switches to DDP inside each Ray task.
     max_gpus: 4
     gpus_per_task: 2
 
-MLWiz shards the training data with ``DistributedSampler`` and keeps a single set of
-experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
+In DDP mode, MLWiz shards train/validation/test data per rank and then averages scalar evaluation metrics across ranks.
+It keeps a single set of experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
 ``experiment.err`` and ``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
-In DDP mode, ``batch_size`` is interpreted as the global batch size and is divided by
-``gpus_per_task`` (world size) before building per-rank loaders, so choose a value
-that is divisible by the world size.
+Also, ``batch_size`` is interpreted as the global batch size and is divided by
+``gpus_per_task`` (world size) before building per-rank loaders, so it must be divisible by world size.
+
+
+Automatic Mixed Precision (AMP)
+---------------------------------
+
+You can enable AMP from the training engine section:
+
+.. code-block:: yaml
+
+    engine:
+      class_name: mlwiz.training.engine.TrainingEngine
+      args:
+        mixed_precision: True
+        mixed_precision_dtype: torch.float16  # torch.float16 | torch.bfloat16
+
+When ``mixed_precision`` is enabled, MLWiz wraps forward/metric computation with ``torch.amp.autocast``.
+On CUDA, ``torch.float16`` uses a GradScaler automatically. On CPU, requesting ``torch.float16`` is automatically promoted
+to ``torch.bfloat16`` for compatibility. AMP works in both single-GPU and DDP runs, and each rank applies autocast locally.
 
 
 
@@ -459,6 +479,19 @@ In general, there should not be the need to store test metrics across epochs. Th
 we are implicitly affecting our judgement, so it is good practice to evaluate on the test only at the end of risk assessment runs.
 This is now the default MLWiz behavior; however, if you want to log test split metrics across epochs, you can specify it
 in the ``TrainingEngine`` (in the experiment configuration file) by setting the argument ``eval_test_every_epoch`` to True.
+
+
+Name-based optimizer state restore
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Optimizer checkpoints now include parameter-name metadata (``param_names``) and MLWiz restores optimizer state by
+matching parameter names whenever possible, instead of relying only on parameter order.
+
+This is particularly useful in dynamic settings where the module declaration order may change between runs
+(for example, enabling/disabling optional blocks, injecting adapters, or refactoring model construction) while parameter
+names remain stable. In those cases, momentum/Adam moments are remapped to the correct tensors when resuming from a checkpoint.
+
+For older checkpoints that do not contain ``param_names``, MLWiz falls back to the legacy order-based loading behavior.
 
 
 Executing a specific configuration only (debug only!)
