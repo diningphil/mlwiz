@@ -136,9 +136,12 @@ explanation of each field as a comment:
     result_folder:  # path of the folder where to store results
     exp_name:  # name of the experiment
     experiment:  # dotted path to experiment class
-    model_selection_criteria:  # ordered model-selection criteria
+    model_selection_criteria:  # ordered model-selection criteria (lexicographic tie-break)
       - metric: main_score
         direction: max
+      # - metric: ToyMetric  # for non-main metrics, also specify source: score|loss
+      #   source: score
+      #   direction: max
     evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
     risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
     model_selection_training_runs:  # how many training runs to perform for each hyper-parameter configuration in a specific inner fold
@@ -196,6 +199,7 @@ explanation of each field as a comment:
       engine:
         class_name: mlwiz.training.engine.TrainingEngine
         args:
+          eval_training: False  # if True, re-compute train metrics in eval mode every evaluate_every epochs
           mixed_precision: False  # set to True to enable torch AMP autocast (CUDA/CPU)
           mixed_precision_dtype: torch.float16  # torch.float16 | torch.bfloat16
 
@@ -249,6 +253,15 @@ Practical rule for ``gpus_per_task``:
 * ``0 < gpus_per_task < 1``: run more experiments in parallel by assigning a GPU fraction to each task.
 * ``gpus_per_task = 1``: single-GPU training per task.
 * ``gpus_per_task > 1``: must be an integer; with ``device: cuda`` MLWiz enables **Distributed Data Parallel (DDP)** inside each Ray task.
+
+If you need to force a specific subset of GPUs on a shared machine, use ``gpus_subset``:
+
+.. code-block:: yaml
+
+    device: cuda
+    max_gpus: 2
+    gpus_subset: 0,2
+    gpus_per_task: 1
 
 .. code-block:: yaml
 
@@ -325,11 +338,33 @@ our results:
 single ``main_score`` criterion, but it cannot be used together with
 ``model_selection_criteria``.
 
+``model_selection_criteria`` is evaluated in order (lexicographic tie-break).
+This lets you define deterministic tie-breaking across multiple metrics:
+
+.. code-block:: yaml
+
+    model_selection_criteria:
+      - metric: main_score
+        direction: max
+      - metric: main_loss
+        direction: min
+      - metric: ToyMetric
+        source: score
+        direction: max
+
+For non-main metrics (anything different from ``main_score`` and ``main_loss``),
+you must specify ``source`` as either ``score`` or ``loss``.
+
 By default MLWiz will run each training session until either the configured number of epochs is reached or the early
 stopper halts it. If you need to cap the wall-clock time of each run, set ``training_timeout_seconds`` to a positive
 value. The :class:`~mlwiz.training.engine.TrainingEngine` tracks the elapsed time (including previous attempts when
 resuming from checkpoints) and stops scheduling additional epochs once the limit is reached, logging the reason for the
 interruption. Keeping checkpointing enabled lets you safely resume from where the timeout was triggered.
+
+``eval_training`` controls how training metrics are reported at evaluation time:
+with ``False`` (default), MLWiz reuses training-pass aggregates (faster); with
+``True``, it performs an explicit inference pass on the training split
+(slower, but directly comparable to validation/test inference mode metrics).
 
 
 Grid Search
@@ -352,9 +387,43 @@ we have to specify the number of random trials, using the keyword ``budget``.
 We provide different sampling methods:
  * choice --> pick at random from a list of arguments
  * uniform --> pick uniformly from min and max arguments
- * normal --> sample from normal distribution with mean and std
+ * normal --> sample from normal distribution requiring ``mu`` (mean) and ``sigma`` (std)
  * randint --> pick at random from min and max
  * loguniform --> pick following the reciprocal distribution from log_min, log_max, with a specified base
+
+Example (one usage per method):
+
+.. code-block:: yaml
+
+    budget: 20
+    random:
+      batch_size:  # choice
+        sample_method: mlwiz.evaluation.util.choice
+        args:
+          - 64
+          - 128
+          - 256
+      weight_decay:  # uniform(min, max)
+        sample_method: mlwiz.evaluation.util.uniform
+        args:
+          - 0.0
+          - 0.001
+      feature_noise_std:  # normal(mu, sigma)
+        sample_method: mlwiz.evaluation.util.normal
+        args:
+          - 0.1   # mu
+          - 0.02  # sigma
+      num_layers:  # randint(min, max), closed interval [min, max]
+        sample_method: mlwiz.evaluation.util.randint
+        args:
+          - 2
+          - 6
+      lr:  # loguniform(min, max, [base]); base is optional and defaults to 10
+        sample_method: mlwiz.evaluation.util.loguniform
+        args:
+          - 0.0005
+          - 0.05
+          - 10
 
 There is one config file ``examples/MODEL_CONFIGS/template_random_search.yml`` that you can check to get a better idea.
 
@@ -368,6 +437,34 @@ but configurations are proposed sequentially by Bayesian optimization based on p
 
 Set the optimization budget with ``budget`` and explicitly configure BO
 controls with ``random_starts``, ``candidate_pool_size``, and ``ei_xi``.
+
+Minimal skeleton:
+
+.. code-block:: yaml
+
+    budget: 10
+    random_starts: 2
+    candidate_pool_size: 64
+    ei_xi: 0.001
+    bayes:
+      batch_size:
+        sample_method: mlwiz.evaluation.util.choice
+        args:
+          - 256
+          - 512
+      optimizer:
+        - class_name: mlwiz.training.callback.optimizer.Optimizer
+          args:
+            optimizer_class_name: torch.optim.Adam
+            lr:
+              sample_method: mlwiz.evaluation.util.loguniform
+              args:
+                - 0.0005
+                - 0.05
+
+Available ``sample_method`` values are the same as random search:
+``choice``, ``uniform``, ``normal``, ``randint``, and ``loguniform``.
+Use them as ``mlwiz.evaluation.util.<method>``.
 
 There are two example files you can use as a starting point:
 ``examples/MODEL_CONFIGS/template_bayes_search.yml`` and
@@ -678,13 +775,13 @@ Comparing Statistical Significance Between Models
 ----------------------------------------------------------
 
 When you need to quantify whether a highlighted model is statistically better than others, use the helper
-``compare_statistical_significance``. It automatically chooses the right samples: if multiple outer folds are present,
+``statistical_significance``. It automatically chooses the right samples: if multiple outer folds are present,
 it uses the outer-fold averages; otherwise it falls back to the final runs of the single outer fold. A Welch t-test
 is applied with a 95% confidence level by default.
 
 .. code-block:: python3
 
-    from mlwiz.evaluation.util import compare_statistical_significance
+    from mlwiz.evaluation.util import statistical_significance
 
     reference = ("RESULTS/mlp_MNIST", "MLP", "MNIST")
     competitors = [
@@ -692,7 +789,7 @@ is applied with a 95% confidence level by default.
         ("RESULTS/baseline2_MNIST", "B2", "MNIST"),
     ]
 
-    df = compare_statistical_significance(
+    df = statistical_significance(
         highlighted_exp_metadata=reference,
         other_exp_metadata=competitors,
         metric_key="main_score",
