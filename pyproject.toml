@@ -18,7 +18,7 @@ packages = [
 
 [project]
 name = "mlwiz"
-version = "1.5.1"
+dynamic = ["version"]
 description = "Machine Learning Research Wizard"
 authors = [ { name="Federico Errica", email="f.errica@protonmail.com" } ]
 readme = "README.md"
@@ -55,6 +55,9 @@ dependencies = [
 mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
 mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "mlwiz.__version__"}
 
 
 [tool.interrogate]
