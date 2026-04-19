@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+import pytest
 import torch
 
 from mlwiz.training.callback.optimizer import Optimizer
@@ -27,6 +28,26 @@ class _TwoScalarsBA(torch.nn.Module):
         super().__init__()
         self.p2 = torch.nn.Parameter(torch.tensor([0.0]))
         self.p1 = torch.nn.Parameter(torch.tensor([0.0]))
+
+
+class _TwoDifferentShapesAB(torch.nn.Module):
+    """Model declaring ``p1`` then ``p2`` with different tensor shapes."""
+
+    def __init__(self):
+        """Initialize trainable parameters with non-matching shapes."""
+        super().__init__()
+        self.p1 = torch.nn.Parameter(torch.zeros(2))
+        self.p2 = torch.nn.Parameter(torch.zeros(3))
+
+
+class _TwoDifferentShapesBA(torch.nn.Module):
+    """Model declaring ``p2`` then ``p1`` with different tensor shapes."""
+
+    def __init__(self):
+        """Initialize trainable parameters with reversed declaration order."""
+        super().__init__()
+        self.p2 = torch.nn.Parameter(torch.zeros(3))
+        self.p1 = torch.nn.Parameter(torch.zeros(2))
 
 
 def _make_optimizer_with_state(model: torch.nn.Module) -> Optimizer:
@@ -107,27 +128,97 @@ def test_load_state_dict_matches_optimizer_state_by_param_name():
     )
 
 
-def test_load_state_dict_without_param_names_keeps_legacy_order_behavior():
+def test_legacy_order_mapping_fails_with_swapped_different_shapes():
     """
-    If ``param_names`` are missing, loading should keep legacy order matching.
+    Missing ``param_names`` falls back to order-based loading and breaks
+    state/parameter shape alignment for swapped parameters.
     """
-    source_model = _TwoScalarsAB()
-    source_optimizer = _make_optimizer_with_state(source_model)
-    source_momentum = _momentum_by_name(source_model, source_optimizer)
+    source_model = _TwoDifferentShapesAB()
+    source_optimizer = Optimizer(
+        source_model,
+        "torch.optim.SGD",
+        lr=0.1,
+        momentum=0.9,
+    )
+    for _, param in source_model.named_parameters():
+        param.grad = torch.ones_like(param)
+    source_optimizer.optimizer.step()
 
     legacy_state_dict = deepcopy(source_optimizer.optimizer.state_dict())
     for group in legacy_state_dict["param_groups"]:
         group.pop("param_names", None)
 
-    target_model = _TwoScalarsBA()
+    target_model = _TwoDifferentShapesBA()
     target_optimizer = Optimizer(
         target_model,
         "torch.optim.SGD",
-        lr=3.0,
+        lr=0.3,
         momentum=0.1,
     )
     target_optimizer.load_state_dict(legacy_state_dict)
 
+    assert (
+        target_optimizer.optimizer.state[target_model.p1][
+            "momentum_buffer"
+        ].shape
+        == target_model.p2.shape
+    )
+    assert (
+        target_optimizer.optimizer.state[target_model.p2][
+            "momentum_buffer"
+        ].shape
+        == target_model.p1.shape
+    )
+
+    for _, param in target_model.named_parameters():
+        param.grad = torch.ones_like(param)
+    with pytest.raises(RuntimeError):
+        target_optimizer.optimizer.step()
+
+
+def test_named_mapping_succeeds_with_swapped_different_shapes():
+    """
+    Name-based loading should remap state correctly for swapped shape-mismatched
+    parameters.
+    """
+    source_model = _TwoDifferentShapesAB()
+    source_optimizer = Optimizer(
+        source_model,
+        "torch.optim.SGD",
+        lr=0.1,
+        momentum=0.9,
+    )
+    for name, param in source_model.named_parameters():
+        if name == "p1":
+            param.grad = torch.ones_like(param)
+        else:
+            param.grad = torch.full_like(param, 2.0)
+    source_optimizer.optimizer.step()
+    source_momentum = _momentum_by_name(source_model, source_optimizer)
+    assert not torch.equal(source_momentum["p1"], source_momentum["p2"])
+
+    target_model = _TwoDifferentShapesBA()
+    target_optimizer = Optimizer(
+        target_model,
+        "torch.optim.SGD",
+        lr=0.3,
+        momentum=0.1,
+    )
+    target_optimizer.load_state_dict(source_optimizer.optimizer.state_dict())
+
     loaded_momentum = _momentum_by_name(target_model, target_optimizer)
-    assert torch.equal(loaded_momentum["p1"], source_momentum["p2"])
-    assert torch.equal(loaded_momentum["p2"], source_momentum["p1"])
+    assert not torch.equal(loaded_momentum["p1"], loaded_momentum["p2"])
+    assert torch.equal(loaded_momentum["p1"], source_momentum["p1"])
+    assert torch.equal(loaded_momentum["p2"], source_momentum["p2"])
+    assert (
+        target_optimizer.optimizer.param_groups[0]["lr"]
+        == source_optimizer.optimizer.param_groups[0]["lr"]
+    )
+    assert (
+        target_optimizer.optimizer.param_groups[0]["momentum"]
+        == source_optimizer.optimizer.param_groups[0]["momentum"]
+    )
+
+    for _, param in target_model.named_parameters():
+        param.grad = torch.ones_like(param)
+    target_optimizer.optimizer.step()
