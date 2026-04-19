@@ -3,6 +3,8 @@
 Instantiates a PyTorch optimizer from a dotted path and exposes lifecycle hooks.
 """
 
+from copy import deepcopy
+
 import torch
 
 from mlwiz.util import s2c
@@ -50,102 +52,111 @@ class Optimizer(EventHandler):
             Stores the instantiated optimizer on ``self.optimizer``.
         """
         super().__init__()
-        self.optimizer = s2c(optimizer_class_name)(
-            model.parameters(), **kwargs
-        )
-        self._param_names = (
-            {
+        if hasattr(model, "named_parameters"):
+            named_parameters = list(model.named_parameters())
+            optimizer_parameters = named_parameters
+            self._param_names = {
                 id(param): name
-                for name, param in model.named_parameters()
+                for name, param in named_parameters
             }
-            if hasattr(model, "named_parameters")
-            else {}
+        else:
+            optimizer_parameters = model.parameters()
+            self._param_names = {}
+        self.optimizer = s2c(optimizer_class_name)(
+            optimizer_parameters, **kwargs
         )
         self.accumulate_gradients = accumulate_gradients
 
-    def _collect_state_shape_mismatches(self):
+    @staticmethod
+    def _clone_optimizer_state_value(value):
         """
-        Collects optimizer state tensors whose shapes differ from their
-        corresponding model parameter shapes.
+        Clone optimizer state values to avoid in-place aliasing.
         """
-        mismatches = []
-        for group_idx, group in enumerate(self.optimizer.param_groups):
-            for param_idx, param in enumerate(group["params"]):
-                state = self.optimizer.state.get(param, {})
-                if not state:
+        if torch.is_tensor(value):
+            return value.clone()
+        if isinstance(value, dict):
+            return {
+                k: Optimizer._clone_optimizer_state_value(v)
+                for k, v in value.items()
+            }
+        if isinstance(value, list):
+            return [Optimizer._clone_optimizer_state_value(v) for v in value]
+        if isinstance(value, tuple):
+            return tuple(
+                Optimizer._clone_optimizer_state_value(v) for v in value
+            )
+        return deepcopy(value)
+
+    def _adapt_state_dict_by_param_names(self, loaded_state_dict: dict):
+        """
+        Remap optimizer state to current parameters by ``param_names``.
+
+        If either optimizer lacks ``param_names`` metadata, returns the input
+        state dictionary unchanged so PyTorch keeps the order-based
+        loading behavior.
+        """
+        current_state_dict = self.optimizer.state_dict()
+        loaded_groups = loaded_state_dict.get("param_groups", [])
+        current_groups = current_state_dict.get("param_groups", [])
+
+        # Fall back to PyTorch's default order-based loading if named metadata
+        # is missing or incompatible.
+        if not loaded_groups or len(loaded_groups) != len(current_groups):
+            return loaded_state_dict
+        if not all("param_names" in g for g in loaded_groups):
+            return loaded_state_dict
+        if not all("param_names" in g for g in current_groups):
+            return loaded_state_dict
+
+        # Start from the current optimizer layout so parameter IDs always match
+        # the live optimizer instance.
+        adapted_state_dict = deepcopy(current_state_dict)
+        loaded_state = loaded_state_dict.get("state", {})
+
+        for group_idx, (loaded_group, current_group) in enumerate(
+            zip(loaded_groups, current_groups)
+        ):
+            loaded_names = loaded_group.get("param_names", [])
+            loaded_ids = loaded_group.get("params", [])
+            current_names = current_group.get("param_names", [])
+            current_ids = current_group.get("params", [])
+
+            if len(loaded_names) != len(loaded_ids):
+                return loaded_state_dict
+            if len(current_names) != len(current_ids):
+                return loaded_state_dict
+
+            # Copy non-parameter group settings (e.g. lr/betas/weight_decay)
+            # from the checkpointed optimizer.
+            for key, value in loaded_group.items():
+                if key not in ("params", "param_names"):
+                    adapted_state_dict["param_groups"][group_idx][key] = value
+
+            # Reattach state by parameter name so reordering does not break the
+            # mapping between model parameters and optimizer slots.
+            loaded_id_by_name = dict(zip(loaded_names, loaded_ids))
+            for current_id, current_name in zip(current_ids, current_names):
+                loaded_id = loaded_id_by_name.get(current_name)
+                if loaded_id is None or loaded_id not in loaded_state:
                     continue
+                adapted_state_dict["state"][
+                    current_id
+                ] = self._clone_optimizer_state_value(loaded_state[loaded_id])
 
-                param_shape = tuple(param.shape)
-                grad_shape = (
-                    tuple(param.grad.shape)
-                    if getattr(param, "grad", None) is not None
-                    else None
-                )
-                param_name = self._param_names.get(
-                    id(param), f"group[{group_idx}].param[{param_idx}]"
-                )
-
-                for state_key, state_value in state.items():
-                    if not torch.is_tensor(state_value):
-                        continue
-                    # Optimizers can keep scalar counters (e.g. Adam's step).
-                    if state_value.ndim == 0:
-                        continue
-
-                    state_shape = tuple(state_value.shape)
-                    if state_shape != param_shape:
-                        mismatches.append(
-                            {
-                                "group_idx": group_idx,
-                                "param_idx": param_idx,
-                                "param_name": param_name,
-                                "param_shape": param_shape,
-                                "grad_shape": grad_shape,
-                                "state_key": state_key,
-                                "state_shape": state_shape,
-                            }
-                        )
-
-        return mismatches
-
-    def _step_or_raise_with_state_mismatches(self):
-        """
-        Executes an optimizer step and, on RuntimeError, reports any optimizer
-        state/parameter shape mismatches before re-raising.
-        """
-        try:
-            self.optimizer.step()
-        except RuntimeError as e:
-            mismatches = self._collect_state_shape_mismatches()
-            if not mismatches:
-                raise
-
-            lines = [
-                f"{str(e)}",
-                "Optimizer state shape mismatches (state tensor != parameter tensor):",
-            ]
-            for mismatch in mismatches:
-                lines.append(
-                    (
-                        f"- {mismatch['param_name']} "
-                        f"(group={mismatch['group_idx']}, index={mismatch['param_idx']}): "
-                        f"param={mismatch['param_shape']}, "
-                        f"grad={mismatch['grad_shape']}, "
-                        f"state[{mismatch['state_key']}]={mismatch['state_shape']}"
-                    )
-                )
-
-            raise RuntimeError("\n".join(lines)) from e
+        return adapted_state_dict
 
     def load_state_dict(self, state_dict):
         """
-        Loads the state_dict of the optimizer from a checkpoint
+        Loads the state_dict of the optimizer from a checkpoint.
+        MLWiz stores and loads named metadata for optimizer state
+        to be sure parameters are matched correctly to their optimizer state.
 
         Args:
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
-        self.optimizer.load_state_dict(state_dict)
+        adapted_state_dict = self._adapt_state_dict_by_param_names(state_dict)
+        self.optimizer.load_state_dict(adapted_state_dict)
 
     def on_fit_start(self, state):
         """
@@ -156,7 +167,7 @@ class Optimizer(EventHandler):
                 object holding training information
         """
         if state.optimizer_state is not None:
-            self.optimizer.load_state_dict(state.optimizer_state)
+            self.load_state_dict(state.optimizer_state)
 
     def on_training_epoch_start(self, state):
         """
@@ -197,7 +208,7 @@ class Optimizer(EventHandler):
                 grad_scaler.step(self.optimizer)
                 grad_scaler.update()
             else:
-                self._step_or_raise_with_state_mismatches()
+                self.optimizer.step()
 
     def on_training_epoch_end(self, state):
         """
@@ -214,7 +225,7 @@ class Optimizer(EventHandler):
                 grad_scaler.step(self.optimizer)
                 grad_scaler.update()
             else:
-                self._step_or_raise_with_state_mismatches()
+                self.optimizer.step()
 
     def on_epoch_end(self, state):
         """
