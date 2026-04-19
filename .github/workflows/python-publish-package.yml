@@ -69,7 +69,7 @@ jobs:
         ref: ${{ env.DEFAULT_BRANCH }}
         fetch-depth: 0
 
-    - name: Download badges
+    - name: Download badges artifact (for cross-job handoff)
       uses: actions/download-artifact@v8
       with:
         name: badges
@@ -91,4 +91,4 @@ jobs:
           exit 0
         fi
         git commit -m "chore: update badges"
-        git push origin HEAD:"${DEFAULT_BRANCH}" || echo "Badge push failed (branch protection?)"  # non-blocking for publishing
+        git push origin HEAD:"${DEFAULT_BRANCH}"
