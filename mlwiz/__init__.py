@@ -3,4 +3,4 @@
 Provides utilities for dataset preparation and reproducible experiment orchestration.
 """
 
-__version__ = "1.5.1"
+__version__ = "1.5.2"

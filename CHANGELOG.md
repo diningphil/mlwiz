@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.2]
+
+## Fixed
+
+- kept optimizer `param_names` metadata aligned when dynamic architectures add, replace, or remove parameters
+- optimizer restore now fails clearly when named optimizer metadata is inconsistent, instead of silently falling back to unsafe state mapping
+
 ## [1.5.1]
 
 ## Added
