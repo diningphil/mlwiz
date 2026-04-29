@@ -122,9 +122,17 @@ class Optimizer(EventHandler):
             current_ids = current_group.get("params", [])
 
             if len(loaded_names) != len(loaded_ids):
-                return loaded_state_dict
+                raise RuntimeError(
+                    "Optimizer checkpoint has inconsistent named metadata: "
+                    f"group {group_idx} has {len(loaded_names)} param_names "
+                    f"but {len(loaded_ids)} params."
+                )
             if len(current_names) != len(current_ids):
-                return loaded_state_dict
+                raise RuntimeError(
+                    "Current optimizer has inconsistent named metadata: "
+                    f"group {group_idx} has {len(current_names)} param_names "
+                    f"but {len(current_ids)} params."
+                )
 
             # Copy non-parameter group settings (e.g. lr/betas/weight_decay)
             # from the checkpointed optimizer.
