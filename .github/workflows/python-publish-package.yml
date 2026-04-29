@@ -14,8 +14,9 @@ on:
   workflow_dispatch:  # manual release run (useful for dry-runs)
 
 permissions:
-  contents: write  # needed only for committing badge updates back to the repo
+  contents: write  # needed for pushing badge update branches
   actions: read  # needed for downloading artifacts from CI jobs
+  pull-requests: write  # needed for opening badge update PRs
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
@@ -32,6 +33,7 @@ jobs:
     permissions:
       contents: write
       actions: read
+      pull-requests: write
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
@@ -80,15 +82,40 @@ jobs:
         mkdir -p .badges
         cp .tmp-badges/*.svg .badges/
 
-    - name: Commit badge updates
+    - name: Open badge update pull request
+      env:
+        BADGE_BRANCH: chore/update-badges
+        GH_TOKEN: ${{ github.token }}
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "github-actions[bot]"
         git pull --ff-only origin "${DEFAULT_BRANCH}"
+        git fetch origin "refs/heads/${BADGE_BRANCH}:refs/remotes/origin/${BADGE_BRANCH}" || true
+        git switch -c "${BADGE_BRANCH}"
         git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
         if git diff --cached --quiet; then
           echo "No badge changes."
           exit 0
         fi
         git commit -m "chore: update badges"
-        git push origin HEAD:"${DEFAULT_BRANCH}"
+        git push --force-with-lease origin "${BADGE_BRANCH}"
+
+        pr_number="$(gh pr list \
+          --base "${DEFAULT_BRANCH}" \
+          --head "${BADGE_BRANCH}" \
+          --state open \
+          --json number \
+          --jq '.[0].number // empty')"
+
+        if [ -n "${pr_number}" ]; then
+          gh pr edit "${pr_number}" \
+            --title "chore: update badges" \
+            --body "Updates the generated coverage and docstring badges."
+          echo "Updated existing badge PR #${pr_number}."
+        else
+          gh pr create \
+            --base "${DEFAULT_BRANCH}" \
+            --head "${BADGE_BRANCH}" \
+            --title "chore: update badges" \
+            --body "Updates the generated coverage and docstring badges."
+        fi
