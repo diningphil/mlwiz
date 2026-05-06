@@ -92,6 +92,10 @@ class EngineCallback(EventHandler):
         """
         # Save last checkpoint
         if self.store_last_checkpoint:
+            # Important for dynamic/DDP models: state_dict() may refresh
+            # architecture state (and may include synchronized control ops).
+            # Every rank must execute it to keep collective ordering aligned.
+            model_state = _unwrap_model(state.model).state_dict()
             if not _is_main_process():
                 return
             if not os.path.exists(Path(state.exp_path)):
@@ -100,7 +104,7 @@ class EngineCallback(EventHandler):
             # Store checkpoint payloads on CPU to avoid deep-copy GPU spikes.
             last_ckpt = {
                 EPOCH: state.epoch,
-                MODEL_STATE: clone_to_cpu(_unwrap_model(state.model).state_dict()),
+                MODEL_STATE: clone_to_cpu(model_state),
                 OPTIMIZER_STATE: clone_to_cpu(
                     getattr(state, OPTIMIZER_STATE, None)
                 ),

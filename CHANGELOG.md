@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.5.3]
+
+## Fixed
+
+- in DDP runs with dynamic architectures (e.g., adaptive width neural networks), epoch-end checkpoint collection now executes model `state_dict()` on all ranks (while keeping disk writes on main rank only) to preserve collective ordering and prevent cross-rank desynchronization/hangs. Indeed, calling `state_dict()` may cause the architecture to resize its width.
+
 ## [1.5.2]
 
 ## Fixed
