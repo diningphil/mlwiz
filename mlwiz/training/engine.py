@@ -905,6 +905,8 @@ class TrainingEngine(EventDispatcher):
             log(report, logger)
             raise e
             exit(0)
+        finally:
+            self._dispatch(EventHandler.ON_TERMINATION, self.state)
 
         # Log profile results
         report = self.profiler.report()

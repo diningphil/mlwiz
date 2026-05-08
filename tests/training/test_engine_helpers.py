@@ -18,6 +18,7 @@ from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.metric import ToyMetric
 from mlwiz.training.callback.optimizer import Optimizer
 from mlwiz.training.engine import TrainingEngine, fmt
+from mlwiz.training.event.handler import EventHandler
 
 
 class _EmbeddingModel(ModelInterface):
@@ -42,7 +43,24 @@ class _EmbeddingModel(ModelInterface):
         return out, x
 
 
-def _make_engine(tmp_path=None) -> TrainingEngine:
+class _TerminationRecorder(EventHandler):
+    """Callback used to count fit-end and termination hook invocations."""
+
+    def __init__(self):
+        """Initialize invocation counters."""
+        self.fit_end_calls = 0
+        self.termination_calls = 0
+
+    def on_fit_end(self, state):
+        """Count ``on_fit_end`` invocations."""
+        self.fit_end_calls += 1
+
+    def on_termination(self, state):
+        """Count ``on_termination`` invocations."""
+        self.termination_calls += 1
+
+
+def _make_engine(tmp_path=None, plotter=None) -> TrainingEngine:
     """
     Construct a TrainingEngine instance for unit tests.
 
@@ -62,6 +80,7 @@ def _make_engine(tmp_path=None) -> TrainingEngine:
         loss,
         optimizer,
         scorer,
+        plotter=plotter,
         device="cpu",
         exp_path=str(tmp_path) if tmp_path is not None else None,
     )
@@ -122,3 +141,49 @@ def test_infer_sets_main_keys(
 
     assert MAIN_LOSS in loss
     assert MAIN_SCORE in score
+
+
+def test_on_termination_called_on_normal_end_and_interrupt(tmp_path):
+    """``on_termination`` should run on both normal completion and interrupt."""
+    x = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    y = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
+
+    normal_recorder = _TerminationRecorder()
+    normal_engine = _make_engine(
+        tmp_path / "normal",
+        plotter=normal_recorder,
+    )
+    normal_engine.train(
+        train_loader=loader,
+        validation_loader=None,
+        test_loader=None,
+        max_epochs=0,
+        progress_callback=_noop_progress,
+        should_terminate=lambda: False,
+    )
+    assert normal_recorder.fit_end_calls == 1
+    assert normal_recorder.termination_calls == 1
+
+    interrupt_recorder = _TerminationRecorder()
+    interrupt_engine = _make_engine(
+        tmp_path / "interrupt",
+        plotter=interrupt_recorder,
+    )
+
+    def _raise_keyboard_interrupt():
+        """Simulate a user interrupt request callback."""
+        raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        interrupt_engine.train(
+            train_loader=loader,
+            validation_loader=None,
+            test_loader=None,
+            max_epochs=0,
+            progress_callback=_noop_progress,
+            should_terminate=_raise_keyboard_interrupt,
+        )
+
+    assert interrupt_recorder.fit_end_calls == 0
+    assert interrupt_recorder.termination_calls == 1
