@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.5.4]
+
+## Added
+
+- new training callback event `on_termination`, dispatched when training ends regularly and when it is interrupted (e.g., CTRL-C / external termination signal)
+- `Plotter` now supports `store_every_N_epochs` to flush `metrics_data.torch` every `N` epochs when `store_on_disk=True`
+- added unit coverage to verify termination hooks run on both normal completion and interruption
+
+## Changed
+
+- `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
+
 ## [1.5.3]
 
 ## Fixed

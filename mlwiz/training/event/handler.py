@@ -33,6 +33,7 @@ class EventHandler:
     ON_FETCH_DATA = "on_fetch_data"
     ON_FIT_START = "on_fit_start"
     ON_FIT_END = "on_fit_end"
+    ON_TERMINATION = "on_termination"
     ON_EPOCH_START = "on_epoch_start"
     ON_EPOCH_END = "on_epoch_end"
     ON_TRAINING_EPOCH_START = "on_training_epoch_start"
@@ -104,6 +105,17 @@ class EventHandler:
             state (:class:`~training.event.state.State`): object holding
                 training information
 
+        """
+        pass
+
+    def on_termination(self, state: State):
+        """
+        Called exactly once when the training run is terminating, both on
+        regular completion and on external interruption.
+
+        Args:
+            state (:class:`~training.event.state.State`): object holding
+                training information
         """
         pass
 
