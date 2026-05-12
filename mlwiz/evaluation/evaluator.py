@@ -250,6 +250,7 @@ def run_valid(
     training_timeout_seconds: int,
     logger: Logger,
     progress_actor=None,
+    emit_progress: bool = True,
 ) -> Tuple[int, int, int, int, float]:
     r"""
     Ray job that performs a model selection run and returns bookkeeping
@@ -287,35 +288,39 @@ def run_valid(
         _set_cuda_memory_limit_from_env()
         experiment = experiment_class(config, fold_run_exp_folder, exp_seed)
 
-        # This is used to comunicate with the progress manager
-        # to display the UI
-        def _report_progress(payload: dict):
-            """
-            Forward per-epoch/batch progress updates to the shared progress UI.
+        progress_callback = None
+        if emit_progress and progress_actor is not None:
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                """
+                Forward per-epoch/batch progress updates to the shared progress UI.
 
-            Args:
-                payload (dict): Progress fields produced by the experiment.
+                Args:
+                    payload (dict): Progress fields produced by the experiment.
 
-            Side effects:
-                Sends the update to the Ray actor backing the terminal UI.
-            """
-            payload = deepcopy(payload)
-            payload.update(
-                {
-                    OUTER_FOLD: dataset_getter.outer_k,
-                    INNER_FOLD: dataset_getter.inner_k,
-                    CONFIG_ID: config_id,
-                    RUN_ID: run_id,
-                    IS_FINAL: False,
-                }
-            )
-            _push_progress_update(progress_actor, payload)
+                Side effects:
+                    Sends the update to the Ray actor backing the terminal UI.
+                """
+                payload = deepcopy(payload)
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: dataset_getter.inner_k,
+                        CONFIG_ID: config_id,
+                        RUN_ID: run_id,
+                        IS_FINAL: False,
+                    }
+                )
+                _push_progress_update(progress_actor, payload)
+
+            progress_callback = _report_progress
 
         train_res, val_res = experiment.run_valid(
             dataset_getter,
             training_timeout_seconds,
             logger,
-            progress_callback=_report_progress,
+            progress_callback=progress_callback,
             should_terminate=_should_terminate,
         )
         elapsed = extract_and_sum_elapsed_seconds(
@@ -374,6 +379,7 @@ def run_test(
     training_timeout_seconds: int,
     logger: Logger,
     progress_actor=None,
+    emit_progress: bool = True,
 ) -> Tuple[int, int, float]:
     r"""
     Ray job that performs a risk assessment run and returns bookkeeping
@@ -412,35 +418,39 @@ def run_test(
             best_config[CONFIG], final_run_exp_path, exp_seed
         )
 
-        # This is used to comunicate with the progress manager
-        # to display the UI
-        def _report_progress(payload: dict):
-            """
-            Forward per-epoch/batch progress updates to the shared progress UI.
+        progress_callback = None
+        if emit_progress and progress_actor is not None:
+            # This is used to comunicate with the progress manager
+            # to display the UI
+            def _report_progress(payload: dict):
+                """
+                Forward per-epoch/batch progress updates to the shared progress UI.
 
-            Args:
-                payload (dict): Progress fields produced by the experiment.
+                Args:
+                    payload (dict): Progress fields produced by the experiment.
 
-            Side effects:
-                Sends the update to the Ray actor backing the terminal UI.
-            """
-            payload = deepcopy(payload)
-            payload.update(
-                {
-                    OUTER_FOLD: dataset_getter.outer_k,
-                    INNER_FOLD: None,
-                    CONFIG_ID: best_config["best_config_id"] - 1,
-                    RUN_ID: run_id,
-                    IS_FINAL: True,
-                }
-            )
-            _push_progress_update(progress_actor, payload)
+                Side effects:
+                    Sends the update to the Ray actor backing the terminal UI.
+                """
+                payload = deepcopy(payload)
+                payload.update(
+                    {
+                        OUTER_FOLD: dataset_getter.outer_k,
+                        INNER_FOLD: None,
+                        CONFIG_ID: best_config["best_config_id"] - 1,
+                        RUN_ID: run_id,
+                        IS_FINAL: True,
+                    }
+                )
+                _push_progress_update(progress_actor, payload)
+
+            progress_callback = _report_progress
 
         res = experiment.run_test(
             dataset_getter,
             training_timeout_seconds,
             logger,
-            progress_callback=_report_progress,
+            progress_callback=progress_callback,
             should_terminate=_should_terminate,
         )
         elapsed = extract_and_sum_elapsed_seconds(
@@ -622,6 +632,7 @@ class RiskAssesser:
         self.completed_model_selection_runs = []
         self.completed_final_runs = []
         self.progress_actor = None
+        self._detailed_gui_enabled = False
 
         # telegram config
         tc = model_configs.telegram_config
@@ -683,6 +694,7 @@ class RiskAssesser:
     def risk_assessment(
         self,
         debug: bool,
+        detailed_gui: bool = False,
         execute_config_id: int = None,
         skip_config_ids: List[int] = None,
     ):
@@ -692,6 +704,9 @@ class RiskAssesser:
         Args:
             debug: if ``True``, sequential execution is performed and logs are
                 printed to screen
+            detailed_gui: if ``True`` in non-debug mode, enables detailed
+                per-run updates and focused-run navigation. If ``False``,
+                only the global summary UI is shown.
             execute_config_id: if debug mode is enabled, it will prioritize the
                 execution of this configuration for each model selection
                 procedure. It assumes indices start from 1.
@@ -717,6 +732,7 @@ class RiskAssesser:
         self.final_runs_job_list = []
         self.completed_model_selection_runs = []
         self.completed_final_runs = []
+        self._detailed_gui_enabled = (not debug) and bool(detailed_gui)
 
         self.progress_actor = None
         try:
@@ -733,6 +749,7 @@ class RiskAssesser:
             self.model_selection_training_runs,
             self.risk_assessment_training_runs,
             debug=debug,
+            detailed_gui=self._detailed_gui_enabled,
             progress_actor=self.progress_actor,
             poll_interval=0.1,
         )
@@ -1256,6 +1273,7 @@ class RiskAssesser:
                                     self.training_timeout_seconds,
                                     logger,
                                     self.progress_actor,
+                                    self._detailed_gui_enabled,
                                 )
                                 self.model_selection_job_list.append(future)
                         else:  # debug mode
@@ -1497,6 +1515,7 @@ class RiskAssesser:
                         self.training_timeout_seconds,
                         logger,
                         self.progress_actor,
+                        self._detailed_gui_enabled,
                     )
                     self.final_runs_job_list.append(future)
             else:
@@ -2444,6 +2463,7 @@ class BayesOptRiskAssesser(RiskAssesser):
                             self.training_timeout_seconds,
                             logger,
                             self.progress_actor,
+                            self._detailed_gui_enabled,
                         )
                         self.model_selection_job_list.append(future)
                 else:

@@ -353,7 +353,9 @@ class Experiment:
         # Use spawn context for all IPC objects to match mp.spawn().
         ctx = mp.get_context("spawn")
         result_queue = ctx.Queue()
-        progress_queue = ctx.Queue()
+        progress_queue = (
+            ctx.Queue() if progress_callback is not None else None
+        )
         stop_flag = ctx.Value("b", False)
         master_port = _find_free_port()
         stop_event = threading.Event()
@@ -417,14 +419,18 @@ class Experiment:
                         break
                 time.sleep(0.2)
 
-        progress_thread = threading.Thread(
-            target=_progress_loop, daemon=True
-        )
-        termination_thread = threading.Thread(
-            target=_termination_loop, daemon=True
-        )
-        progress_thread.start()
-        termination_thread.start()
+        progress_thread = None
+        termination_thread = None
+        if progress_queue is not None:
+            progress_thread = threading.Thread(
+                target=_progress_loop, daemon=True
+            )
+            progress_thread.start()
+        if should_terminate is not None:
+            termination_thread = threading.Thread(
+                target=_termination_loop, daemon=True
+            )
+            termination_thread.start()
 
         try:
             mp.spawn(
@@ -460,9 +466,12 @@ class Experiment:
             ) from e
         finally:
             stop_event.set()
-            progress_queue.put(None)
-            progress_thread.join()
-            termination_thread.join()
+            if progress_queue is not None:
+                progress_queue.put(None)
+            if progress_thread is not None:
+                progress_thread.join()
+            if termination_thread is not None:
+                termination_thread.join()
 
     def _return_class_and_args(
         config: Config, key: str
@@ -613,6 +622,9 @@ class Experiment:
             engine_args.get("engine_callback", DEFAULT_ENGINE_CALLBACK)
         )
         eval_training = engine_args.get("eval_training", False)
+        store_log_every_N_epochs = engine_args.get(
+            "store_log_every_N_epochs", 1
+        )
         mixed_precision = engine_args.get("mixed_precision", False)
         mixed_precision_dtype = engine_args.get(
             "mixed_precision_dtype", "torch.float16"
@@ -633,6 +645,7 @@ class Experiment:
             evaluate_every=evaluate_every,
             eval_training=eval_training,
             store_last_checkpoint=store_last_checkpoint,
+            store_log_every_N_epochs=store_log_every_N_epochs,
             mixed_precision=mixed_precision,
             mixed_precision_dtype=mixed_precision_dtype,
         )

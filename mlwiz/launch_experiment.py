@@ -16,6 +16,8 @@ from mlwiz.static import (
     CUDA,
     BAYES_SEARCH,
     DATA_SPLITS_FILE,
+    DETAILED_GUI,
+    DETAILED_GUI_CLI_ARGUMENT,
     DEBUG,
     DEBUG_CLI_ARGUMENT,
     DEVICE,
@@ -128,6 +130,7 @@ def evaluation(options: argparse.Namespace):
     """
     kwargs = vars(options)
     debug = kwargs[DEBUG]
+    detailed_gui = kwargs.get(DETAILED_GUI, False)
     execute_config_id = kwargs.get(EXECUTE_CONFIG_ID, None)
     skip_config_ids = kwargs.get(SKIP_CONFIG_IDS, None)
     if execute_config_id is not None:
@@ -328,6 +331,7 @@ def evaluation(options: argparse.Namespace):
         exit(0)
     risk_assesser.risk_assessment(
         debug=debug,
+        detailed_gui=detailed_gui,
         execute_config_id=execute_config_id,
         skip_config_ids=skip_config_ids,
     )
@@ -346,6 +350,12 @@ def get_args() -> argparse.Namespace:
     parser.add_argument(CONFIG_FILE_CLI_ARGUMENT, dest=CONFIG_FILE)
     parser.add_argument(
         DEBUG_CLI_ARGUMENT, action="store_true", dest=DEBUG, default=False
+    )
+    parser.add_argument(
+        DETAILED_GUI_CLI_ARGUMENT,
+        action="store_true",
+        dest=DETAILED_GUI,
+        default=False,
     )
     parser.add_argument(
         EXECUTE_CONFIG_ID_CLI_ARGUMENT,

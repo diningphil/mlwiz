@@ -65,14 +65,6 @@ from mlwiz.util import s2c
 from copy import deepcopy
 
 
-def log(msg, logger: Logger):
-    """
-    Logs a message using a logger
-    """
-    if logger is not None and _is_main_process():
-        logger.log(msg)
-
-
 def fmt(x, decimals=2, sci_decimals=2):
     """Format number with fixed-point unless it's small, then scientific."""
     thresh = 10 ** (-decimals - 1)
@@ -144,6 +136,9 @@ class TrainingEngine(EventDispatcher):
         store_last_checkpoint (bool): whether to store a checkpoint at
             the end of each epoch. Allows to resume training from last epoch.
             Default is ``False``.
+        store_log_every_N_epochs (int): flush buffered experiment logs to disk
+            every ``N`` epochs. Remaining buffered logs are always flushed on
+            termination and at the end of training. Default is ``1``.
     """
 
     cumulative_batch_unsent_time: float = 0.0
@@ -166,6 +161,7 @@ class TrainingEngine(EventDispatcher):
         eval_training: bool = False,
         eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
+        store_log_every_N_epochs: int = 1,
         mixed_precision: bool = False,
         mixed_precision_dtype: str = "torch.float16",
     ):
@@ -195,6 +191,8 @@ class TrainingEngine(EventDispatcher):
                 after each epoch (if available).
             store_last_checkpoint (bool): Whether to store a checkpoint at the
                 end of each epoch.
+            store_log_every_N_epochs (int): Flush buffered log lines to disk
+                every ``N`` epochs.
             mixed_precision (bool): Whether to enable torch AMP autocast for
                 training/evaluation on CUDA/CPU.
             mixed_precision_dtype (str): Dotted path to a ``torch.dtype``
@@ -224,6 +222,7 @@ class TrainingEngine(EventDispatcher):
         self.eval_training = eval_training
         self.eval_test_every_epoch = eval_test_every_epoch
         self.store_last_checkpoint = store_last_checkpoint
+        self.store_log_every_N_epochs = store_log_every_N_epochs
         self.mixed_precision = mixed_precision
         self.mixed_precision_dtype = mixed_precision_dtype
         self.amp_dtype = s2c(self.mixed_precision_dtype)
@@ -252,6 +251,15 @@ class TrainingEngine(EventDispatcher):
         self._should_terminate = None
 
         self.profiler = Profiler(threshold=1e-5)
+        self._pending_log_lines = []
+
+        if (
+            not isinstance(self.store_log_every_N_epochs, int)
+            or self.store_log_every_N_epochs <= 0
+        ):
+            raise ValueError(
+                "`store_log_every_N_epochs` must be a positive integer."
+            )
 
         # Now register the callbacks (IN THIS ORDER, KNOWN TO THE USER)
         # Decorate with a profiler
@@ -290,6 +298,25 @@ class TrainingEngine(EventDispatcher):
             grad_scaler=self.grad_scaler,
             scaler_state=None,
         )
+
+    def _buffer_log(self, msg, logger: Logger):
+        """
+        Buffer one log line in memory for periodic disk flushes.
+        """
+        if logger is None or not _is_main_process():
+            return
+        self._pending_log_lines.append(msg)
+
+    def _flush_buffered_logs(self, logger: Logger):
+        """
+        Flush buffered log lines to disk.
+        """
+        if logger is None or not _is_main_process():
+            self._pending_log_lines.clear()
+            return
+        for line in self._pending_log_lines:
+            logger.log(line)
+        self._pending_log_lines.clear()
 
     def _check_termination(self):
         """
@@ -631,7 +658,7 @@ class TrainingEngine(EventDispatcher):
                 self._restore_checkpoint_and_best_results(
                     ckpt_filename, best_ckpt_filename, zero_epoch
                 )
-                log(
+                self._buffer_log(
                     f"START AGAIN FROM EPOCH {self.state.initial_epoch}",
                     logger,
                 )
@@ -680,7 +707,7 @@ class TrainingEngine(EventDispatcher):
 
                     if stop_due_to_timeout:
                         msg = f"Skipping training of new epoch {epoch + 1} because time limit of {training_timeout_seconds} has been reached. Current time elapsed: {self.state.current_elapsed_time}"
-                        log(msg, logger)
+                        self._buffer_log(msg, logger)
                         self.state.update(stop_training=True)
                         break
 
@@ -822,7 +849,7 @@ class TrainingEngine(EventDispatcher):
                         f"Epoch: {epoch + 1}, TR loss: {train_loss} "
                         f"TR score: {train_score}" + val_msg_str + test_msg_str
                     )
-                    log(logger_msg, logger)
+                    self._buffer_log(logger_msg, logger)
 
                 # Update state with the result of this epoch
                 self.state.update(epoch_results=epoch_results)
@@ -841,8 +868,13 @@ class TrainingEngine(EventDispatcher):
                     )
                     self.state.update(stop_training=bool(stop_flag.item()))
 
+                if (epoch + 1) % self.store_log_every_N_epochs == 0:
+                    self._flush_buffered_logs(logger)
+
                 if self.state.stop_training:
-                    log(f"Stopping at epoch {self.state.epoch}.", logger)
+                    self._buffer_log(
+                        f"Stopping at epoch {self.state.epoch}.", logger
+                    )
                     break
 
             # Needed to indicate that training has ended
@@ -887,13 +919,14 @@ class TrainingEngine(EventDispatcher):
 
             self._dispatch(EventHandler.ON_FIT_END, self.state)
 
-            log(
+            self._buffer_log(
                 f"Chosen is Epoch {ber[BEST_EPOCH] + 1} "
                 f"TR loss: {train_loss} TR score: {train_score}, "
                 f"VL loss: {val_loss} VL score: {val_score} "
                 f"TE loss: {test_loss} TE score: {test_score}",
                 logger,
             )
+            self._flush_buffered_logs(logger)
 
             self.state.update(set=None)
 
@@ -901,16 +934,17 @@ class TrainingEngine(EventDispatcher):
             raise
         except (KeyboardInterrupt, RuntimeError, FileNotFoundError) as e:
             report = self.profiler.report()
-            log(str(e), logger)
-            log(report, logger)
+            self._buffer_log(str(e), logger)
+            self._buffer_log(report, logger)
             raise e
-            exit(0)
         finally:
+            self._flush_buffered_logs(logger)
             self._dispatch(EventHandler.ON_TERMINATION, self.state)
 
         # Log profile results
         report = self.profiler.report()
-        log(report, logger)
+        self._buffer_log(report, logger)
+        self._flush_buffered_logs(logger)
 
         _notify_progress(
             RUN_COMPLETED,

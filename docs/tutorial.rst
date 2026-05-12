@@ -487,6 +487,13 @@ or
     mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP_ddp.yml
 
 
+By default, non-debug execution keeps only the global summary view (detailed GUI disabled).
+If you want per-run interactive navigation, enable it explicitly:
+
+.. code-block:: bash
+
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml --detailed-gui
+
 
 And we are up and running!
 
@@ -510,7 +517,7 @@ to you, please consider reading `Samy Bengio's lecture (Part 3) <https://bengio.
 Navigating the live progress UI
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The progress screen is interactive. Press ``:`` to open the small prompt in the bottom-right corner, type a command, and
+When ``--detailed-gui`` is enabled, the progress screen is interactive. Press ``:`` to open the small prompt in the bottom-right corner, type a command, and
 hit ``Enter`` to switch what is rendered without stopping the run. Useful commands:
 
 - ``:`` (or ``:g`` / ``:global``): go back to the default overview with all progress bars.
@@ -542,6 +549,26 @@ experiments in progress, if any.
 
 Useful Features to Know About
 ------------------------------
+
+Disabling the detailed GUI
+^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+In non-debug mode, detailed GUI updates are disabled by default. This is useful
+to keep progress reporting lightweight during long runs.
+
+Use:
+
+.. code-block:: bash
+
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
+
+to keep only the global summary view, or:
+
+.. code-block:: bash
+
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml --detailed-gui
+
+to enable focused per-run navigation and updates.
 
 Disabling Data Splitting Automatic Checks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

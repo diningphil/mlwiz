@@ -207,6 +207,7 @@ class ProgressManager:
         config_runs,
         final_runs,
         debug=True,
+        detailed_gui=True,
         progress_actor=None,
         poll_interval: float = 0.2,
     ):
@@ -221,6 +222,9 @@ class ProgressManager:
             final_runs (int): Number of final runs per outer fold.
             debug (bool): If ``True``, disable interactive rendering and rely on
                 simple prints.
+            detailed_gui (bool): If ``True``, enable focused-run navigation and
+                input listener in non-debug mode. If ``False``, keep only the
+                global summary view.
             progress_actor (ray.actor.ActorHandle | None): Actor handle used to
                 pull aggregated progress updates from worker processes.
             poll_interval (float): Minimum poll interval (seconds) used when
@@ -239,6 +243,7 @@ class ProgressManager:
         self.final_runs = final_runs
         self.pbars = []
         self.debug = debug
+        self.detailed_gui = detailed_gui
         self.progress_actor = progress_actor
         self._poll_interval = poll_interval
 
@@ -288,7 +293,8 @@ class ProgressManager:
             self.show_footer()
 
             self.times = [{} for _ in range(len(self.pbars))]
-            self._start_input_listener()
+            if self.detailed_gui:
+                self._start_input_listener()
         self._register_resize_handler()
 
     def set_model_configs(self, model_configs):
