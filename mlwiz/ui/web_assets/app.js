@@ -1,14 +1,27 @@
 (() => {
   "use strict";
 
+  const storageKey = "mlwiz-dashboard-navigation-v1";
+
+  function readStoredState() {
+    try {
+      return JSON.parse(sessionStorage.getItem(storageKey) || "{}");
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  const storedState = readStoredState();
   const state = {
     tree: null,
     details: null,
-    selectedPath: null,
-    group: "all",
-    source: "all",
-    query: "",
-    treeQuery: "",
+    selectedPath: storedState.selectedPath || null,
+    openNodes: storedState.openNodes || {},
+    treeScrollTop: Number(storedState.treeScrollTop) || 0,
+    group: storedState.group || "all",
+    source: storedState.source || "all",
+    query: storedState.query || "",
+    treeQuery: storedState.treeQuery || "",
     charts: [],
   };
 
@@ -22,6 +35,32 @@
     test: "#ef8354",
     other: "#8257e5",
   };
+
+  function persistState() {
+    try {
+      sessionStorage.setItem(storageKey, JSON.stringify({
+        selectedPath: state.selectedPath,
+        openNodes: state.openNodes,
+        treeScrollTop: state.treeScrollTop,
+        group: state.group,
+        source: state.source,
+        query: state.query,
+        treeQuery: state.treeQuery,
+      }));
+    } catch (_error) {
+      // The dashboard remains fully usable when browser storage is disabled.
+    }
+  }
+
+  function bindDisclosure(details, key, defaultOpen) {
+    details.open = Object.hasOwn(state.openNodes, key)
+      ? Boolean(state.openNodes[key])
+      : defaultOpen;
+    details.addEventListener("toggle", () => {
+      state.openNodes[key] = details.open;
+      persistState();
+    });
+  }
 
   function node(tag, className, text) {
     const element = document.createElement(tag);
@@ -49,6 +88,53 @@
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
     return payload;
+  }
+
+  async function postJson(url, body) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+    return payload;
+  }
+
+  function renderCacheStatus(cache) {
+    if (!cache) return;
+    const usage = el("cache-usage");
+    usage.textContent = `Cache · ${formatNumber(cache.used_mb)} / ${formatNumber(cache.max_mb)} MB`;
+    usage.title = `${cache.entries} entries · ${cache.hits} hits · ${cache.misses} misses · ${cache.evictions} evictions · ${cache.invalidations} invalidations · ${cache.skipped} oversized/skipped`;
+    const input = el("cache-limit");
+    if (document.activeElement !== input) input.value = String(cache.max_mb);
+  }
+
+  async function loadCacheStatus() {
+    try {
+      renderCacheStatus(await getJson("/api/cache"));
+    } catch (_error) {
+      el("cache-usage").textContent = "Cache · unavailable";
+    }
+  }
+
+  async function applyCacheLimit() {
+    const button = el("cache-apply");
+    const limit = Number(el("cache-limit").value);
+    button.disabled = true;
+    button.textContent = "Saving…";
+    try {
+      renderCacheStatus(await postJson("/api/cache", { max_mb: limit }));
+      button.textContent = "Saved";
+    } catch (error) {
+      button.textContent = "Error";
+      button.title = error.message;
+    } finally {
+      setTimeout(() => {
+        button.disabled = false;
+        button.textContent = "Apply";
+      }, 900);
+    }
   }
 
   async function loadTree({ quiet = false } = {}) {
@@ -83,6 +169,7 @@
   }
 
   function renderTree() {
+    const scrollTop = treeElement.scrollTop || state.treeScrollTop;
     treeElement.replaceChildren();
     if (!state.tree || state.tree.experiments.length === 0) {
       const empty = node("div", "tree-empty");
@@ -103,7 +190,7 @@
       if (!visibleFolds.length && !expMatches) continue;
 
       const expDetails = node("details", "tree-group");
-      expDetails.open = true;
+      bindDisclosure(expDetails, `experiment:${experiment.path}`, true);
       const summary = node("summary", "experiment-summary");
       summary.append(
         node("span", "chevron", "›"),
@@ -116,11 +203,12 @@
       for (const fold of visibleFolds) expDetails.append(renderFold(fold));
       treeElement.append(expDetails);
     }
+    treeElement.scrollTop = scrollTop;
   }
 
   function renderFold(fold) {
     const foldDetails = node("details", "fold-group");
-    foldDetails.open = true;
+    bindDisclosure(foldDetails, `fold:${fold.path}`, true);
     const summary = node("summary", "fold-summary");
     summary.append(node("span", "chevron", "›"), node("span", "", `Outer fold ${fold.number}`));
     foldDetails.append(summary);
@@ -130,17 +218,22 @@
       for (const config of fold.model_selection) {
         if (!matchesTreeSearch(`config ${config.number}`, JSON.stringify(config.results || {}), `outer fold ${fold.number}`)) continue;
         const configDetails = node("details", "config-group");
+        const disclosureKey = `configuration:${config.path}`;
+        const containsSelection = state.selectedPath === config.path
+          || state.selectedPath?.startsWith(`${config.path}/`);
+        bindDisclosure(configDetails, disclosureKey, containsSelection);
         const configSummary = node("summary", "config-summary");
+        if (config.path === state.selectedPath) configSummary.classList.add("active");
         configSummary.append(node("span", "chevron", "›"));
         const configLink = node("span", "", `Configuration ${config.number}`);
         configSummary.append(configLink);
         if (config.is_winner) configSummary.append(node("span", "winner", "winner"));
         configSummary.addEventListener("click", (event) => {
-          if (event.target === configSummary || event.target === configLink) {
-            event.preventDefault();
-            configDetails.open = !configDetails.open;
-            loadDetails(config.path);
-          }
+          event.preventDefault();
+          configDetails.open = !configDetails.open;
+          state.openNodes[disclosureKey] = configDetails.open;
+          persistState();
+          loadDetails(config.path);
         });
         configDetails.append(configSummary);
         for (const inner of config.inner_folds) {
@@ -176,10 +269,13 @@
 
   async function loadDetails(path, { preserveScroll = false, quiet = false } = {}) {
     const previousScroll = window.scrollY;
+    const selectionChanged = state.selectedPath !== path;
     state.selectedPath = path;
-    renderTree();
+    if (selectionChanged) state.source = "all";
+    persistState();
     detailsView.hidden = false;
     welcome.hidden = true;
+    renderTree();
     if (!quiet) {
       el("selection-kind").textContent = "Loading metrics";
       el("selection-name").textContent = path.split("/").pop();
@@ -188,7 +284,6 @@
     }
     try {
       state.details = await getJson(`/api/details?path=${encodeURIComponent(path)}`);
-      state.source = "all";
       renderDetails();
       if (!preserveScroll && window.innerWidth < 721) detailsView.scrollIntoView({ behavior: "smooth" });
       if (preserveScroll) window.scrollTo(0, previousScroll);
@@ -209,6 +304,7 @@
 
   function renderDetails() {
     const data = state.details;
+    renderCacheStatus(data.cache);
     el("selection-kind").textContent = data.selection.kind;
     el("selection-name").textContent = readableName(data.selection.name);
     el("selection-path").textContent = data.selection.path;
@@ -264,6 +360,10 @@
     const field = el("source-field");
     const select = el("source-select");
     select.replaceChildren();
+    if (state.source !== "all" && !sources.includes(state.source)) {
+      state.source = "all";
+      persistState();
+    }
     if (sources.length <= 1) {
       field.hidden = true;
       return;
@@ -416,24 +516,38 @@
   }
 
   el("refresh-button").addEventListener("click", () => loadTree());
+  el("cache-apply").addEventListener("click", applyCacheLimit);
+  el("cache-limit").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyCacheLimit();
+  });
   el("tree-search").addEventListener("input", (event) => {
     state.treeQuery = event.target.value.trim().toLowerCase();
+    persistState();
     renderTree();
   });
   el("metric-search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
+    persistState();
     renderCharts();
   });
   el("source-select").addEventListener("change", (event) => {
     state.source = event.target.value;
+    persistState();
     renderCharts();
   });
   document.querySelectorAll("[data-group]").forEach((button) => {
     button.addEventListener("click", () => {
       state.group = button.dataset.group;
+      persistState();
       document.querySelectorAll("[data-group]").forEach((candidate) => candidate.classList.toggle("active", candidate === button));
       renderCharts();
     });
+  });
+  let scrollTimer;
+  treeElement.addEventListener("scroll", () => {
+    state.treeScrollTop = treeElement.scrollTop;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(persistState, 100);
   });
   let resizeTimer;
   window.addEventListener("resize", () => {
@@ -441,6 +555,20 @@
     resizeTimer = setTimeout(() => state.charts.forEach(({ canvas, group }) => drawChart(canvas, group)), 100);
   });
 
+  el("tree-search").value = state.treeQuery;
+  el("metric-search").value = state.query;
+  document.querySelectorAll("[data-group]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.group === state.group);
+  });
+  if (state.selectedPath) {
+    detailsView.hidden = false;
+    welcome.hidden = true;
+    el("selection-kind").textContent = "Loading metrics";
+    el("selection-name").textContent = state.selectedPath.split("/").pop();
+    el("selection-path").textContent = state.selectedPath;
+  }
+
+  loadCacheStatus();
   loadTree();
   setInterval(() => loadTree({ quiet: true }), 15000);
 })();

@@ -241,6 +241,13 @@ plotter: mlwiz.training.callback.plotter.Plotter
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
 
+Metric artifacts are loaded only when a configuration or run is selected. The
+dashboard keeps normalized histories in a least-recently-used cache (256 MB by
+default); its memory limit can be changed from the dashboard header, and `0`
+disables caching. The limit applies only to retained cache entries: a selected
+configuration is still loaded and displayed even when it is larger than the
+configured buffer.
+
 ## 🛠️ Utilities
 ### 🗂️ Config Management (CLI)
 Duplicate a base experiment config across multiple datasets:

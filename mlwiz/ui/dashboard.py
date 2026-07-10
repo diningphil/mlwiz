@@ -9,11 +9,13 @@ without adding a web-framework dependency.
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import math
 import mimetypes
 import pickle
 import re
+import sys
 import threading
 import webbrowser
 from http import HTTPStatus
@@ -34,6 +36,9 @@ _RUN_PATTERN = re.compile(r"run_?(\d+)$")
 _FINAL_RUN_PATTERN = re.compile(r"final_run_?(\d+)$")
 _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
+_MEBIBYTE = 1024 * 1024
+_DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
+_MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
 
 
 def _numbered_directories(
@@ -54,7 +59,7 @@ def _read_json(path: Path) -> Optional[Any]:
     """Read a JSON artifact, returning ``None`` while it is absent or partial."""
     try:
         with path.open("r", encoding="utf-8") as stream:
-            return json.load(stream)
+            return _json_safe(json.load(stream))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
 
@@ -101,10 +106,131 @@ def _numeric_series(value: Any) -> Optional[list[Optional[float]]]:
     return output
 
 
+def _deep_size(value: Any, seen: Optional[set[int]] = None) -> int:
+    """Estimate the resident size of a normalized cache value in bytes."""
+    if seen is None:
+        seen = set()
+    identifier = id(value)
+    if identifier in seen:
+        return 0
+    seen.add(identifier)
+    size = sys.getsizeof(value)
+    if isinstance(value, dict):
+        size += sum(
+            _deep_size(key, seen) + _deep_size(item, seen)
+            for key, item in value.items()
+        )
+    elif isinstance(value, (list, tuple, set, frozenset)):
+        size += sum(_deep_size(item, seen) for item in value)
+    return size
+
+
+class MetricsCache:
+    """Thread-safe, memory-bounded LRU cache for normalized metric series."""
+
+    def __init__(self, max_bytes: int = _DEFAULT_CACHE_BYTES):
+        """Initialize an empty cache with a byte ceiling."""
+        self._max_bytes = max_bytes
+        self._used_bytes = 0
+        self._entries: collections.OrderedDict[Path, dict[str, Any]] = (
+            collections.OrderedDict()
+        )
+        self._lock = threading.RLock()
+        self._hits = 0
+        self._misses = 0
+        self._evictions = 0
+        self._invalidations = 0
+        self._skipped = 0
+
+    def get(
+        self, path: Path, signature: tuple[int, int]
+    ) -> Optional[list[dict[str, Any]]]:
+        """Return a fresh cached entry and update LRU order."""
+        with self._lock:
+            entry = self._entries.get(path)
+            if entry is None:
+                self._misses += 1
+                return None
+            if entry["signature"] != signature:
+                self._remove(path)
+                self._invalidations += 1
+                self._misses += 1
+                return None
+            self._entries.move_to_end(path)
+            self._hits += 1
+            return entry["series"]
+
+    def put(
+        self,
+        path: Path,
+        signature: tuple[int, int],
+        series: list[dict[str, Any]],
+    ) -> bool:
+        """Cache normalized series unless the entry exceeds the memory limit."""
+        size = _deep_size(series) + _deep_size(path) + _deep_size(signature)
+        with self._lock:
+            if self._max_bytes == 0 or size > self._max_bytes:
+                self._skipped += 1
+                return False
+            self._remove(path)
+            self._entries[path] = {
+                "signature": signature,
+                "series": series,
+                "size": size,
+            }
+            self._used_bytes += size
+            self._evict_to_limit()
+            return path in self._entries
+
+    def configure(self, max_bytes: int) -> dict[str, Any]:
+        """Set the memory ceiling and immediately evict excess entries."""
+        if not isinstance(max_bytes, int) or not 0 <= max_bytes <= _MAX_CACHE_BYTES:
+            raise ValueError(
+                f"Cache limit must be between 0 and {_MAX_CACHE_BYTES // _MEBIBYTE} MB."
+            )
+        with self._lock:
+            self._max_bytes = max_bytes
+            self._evict_to_limit()
+            return self.stats()
+
+    def stats(self) -> dict[str, Any]:
+        """Return cache capacity, usage, and lifecycle counters."""
+        with self._lock:
+            return {
+                "entries": len(self._entries),
+                "used_bytes": self._used_bytes,
+                "max_bytes": self._max_bytes,
+                "used_mb": round(self._used_bytes / _MEBIBYTE, 2),
+                "max_mb": round(self._max_bytes / _MEBIBYTE, 2),
+                "hits": self._hits,
+                "misses": self._misses,
+                "evictions": self._evictions,
+                "invalidations": self._invalidations,
+                "skipped": self._skipped,
+            }
+
+    def _remove(self, path: Path) -> None:
+        """Remove one entry; the caller must hold ``_lock``."""
+        entry = self._entries.pop(path, None)
+        if entry is not None:
+            self._used_bytes -= entry["size"]
+
+    def _evict_to_limit(self) -> None:
+        """Evict least-recently-used entries; the caller must hold ``_lock``."""
+        while self._used_bytes > self._max_bytes and self._entries:
+            _, entry = self._entries.popitem(last=False)
+            self._used_bytes -= entry["size"]
+            self._evictions += 1
+
+
 class ResultsRepository:
     """Read-only view over one experiment or a directory of experiments."""
 
-    def __init__(self, logdir: str | Path):
+    def __init__(
+        self,
+        logdir: str | Path,
+        cache_max_bytes: int = _DEFAULT_CACHE_BYTES,
+    ):
         """Create a repository rooted at ``logdir``.
 
         Passing a ``MODEL_ASSESSMENT`` directory is treated as passing its
@@ -112,6 +238,20 @@ class ResultsRepository:
         """
         root = Path(logdir).expanduser().resolve()
         self.root = root.parent if root.name == MODEL_ASSESSMENT else root
+        self.metrics_cache = MetricsCache(cache_max_bytes)
+
+    def cache_status(self) -> dict[str, Any]:
+        """Return current metric-cache statistics."""
+        return self.metrics_cache.stats()
+
+    def configure_cache(self, max_mb: float) -> dict[str, Any]:
+        """Set the metric-cache ceiling in mebibytes."""
+        if isinstance(max_mb, bool) or not isinstance(max_mb, (int, float)):
+            raise ValueError("Cache limit must be a number of MB.")
+        if not math.isfinite(max_mb):
+            raise ValueError("Cache limit must be finite.")
+        max_bytes = int(max_mb * _MEBIBYTE)
+        return self.metrics_cache.configure(max_bytes)
 
     def _relative(self, path: Path) -> str:
         """Return a POSIX path relative to the configured result root."""
@@ -259,27 +399,19 @@ class ResultsRepository:
         for metrics_file in metrics_files:
             file_count += 1
             try:
-                stored = torch.load(metrics_file, map_location="cpu", weights_only=True)
-                if not isinstance(stored, dict):
-                    raise ValueError("Expected a dictionary at the file root.")
+                file_stat = metrics_file.stat()
+                signature = (file_stat.st_mtime_ns, file_stat.st_size)
+                file_series = self.metrics_cache.get(metrics_file, signature)
+                if file_series is None:
+                    file_series = self._load_metrics_file(metrics_file)
+                    final_stat = metrics_file.stat()
+                    final_signature = (final_stat.st_mtime_ns, final_stat.st_size)
+                    if final_signature == signature:
+                        self.metrics_cache.put(metrics_file, signature, file_series)
                 source = metrics_file.parent.relative_to(target).as_posix()
                 source = source if source != "." else target.name
-                for group in ("losses", "scores"):
-                    metrics = stored.get(group, {})
-                    if not isinstance(metrics, dict):
-                        continue
-                    for name, values in metrics.items():
-                        normalized = _numeric_series(values)
-                        if normalized is not None:
-                            series.append(
-                                {
-                                    "group": group,
-                                    "name": str(name),
-                                    "source": source,
-                                    "values": normalized,
-                                }
-                            )
-                timestamp = metrics_file.stat().st_mtime
+                series.extend({**item, "source": source} for item in file_series)
+                timestamp = file_stat.st_mtime
                 modified_at = max(modified_at or timestamp, timestamp)
             except (
                 OSError,
@@ -307,7 +439,30 @@ class ResultsRepository:
             "modified_at": modified_at,
             "metadata": self._metadata_for(target),
             "errors": errors,
+            "cache": self.cache_status(),
         }
+
+    def _load_metrics_file(self, metrics_file: Path) -> list[dict[str, Any]]:
+        """Load and normalize one metrics artifact on demand."""
+        stored = torch.load(metrics_file, map_location="cpu", weights_only=True)
+        if not isinstance(stored, dict):
+            raise ValueError("Expected a dictionary at the file root.")
+        series = []
+        for group in ("losses", "scores"):
+            metrics = stored.get(group, {})
+            if not isinstance(metrics, dict):
+                continue
+            for name, values in metrics.items():
+                normalized = _numeric_series(values)
+                if normalized is not None:
+                    series.append(
+                        {
+                            "group": group,
+                            "name": str(name),
+                            "values": normalized,
+                        }
+                    )
+        return series
 
     def _selection_kind(self, target: Path) -> str:
         """Return a human-readable type for a selected result directory."""
@@ -409,6 +564,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     return
                 self._send_json(self.server.repository.details(relative_path))
                 return
+            if parsed.path == "/api/cache":
+                self._send_json(self.server.repository.cache_status())
+                return
             if parsed.path in ("/", "/index.html"):
                 self._send_file(_ASSET_DIRECTORY / "index.html")
                 return
@@ -431,15 +589,57 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 f"Could not read the result directory: {error}",
             )
 
+    def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
+        """Handle dashboard configuration requests."""
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/cache":
+            self._send_error(HTTPStatus.NOT_FOUND, "Page not found.")
+            return
+        try:
+            payload = self._read_json_body()
+            if "max_mb" not in payload:
+                raise ValueError("Missing the 'max_mb' field.")
+            self._send_json(self.server.repository.configure_cache(payload["max_mb"]))
+        except (ValueError, json.JSONDecodeError) as error:
+            self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+
+    def _read_json_body(self) -> dict[str, Any]:
+        """Read a small JSON request body."""
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            raise ValueError("Invalid Content-Length header.") from error
+        if not 0 < content_length <= 65536:
+            raise ValueError("Request body must be between 1 byte and 64 KiB.")
+        payload = json.loads(self.rfile.read(content_length))
+        if not isinstance(payload, dict):
+            raise ValueError("Expected a JSON object.")
+        return payload
+
     def _send_json(self, payload: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
-        """Send a no-cache JSON response."""
-        body = json.dumps(_json_safe(payload), separators=(",", ":")).encode("utf-8")
+        """Stream a no-cache JSON response with bounded temporary memory."""
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+        encoder = json.JSONEncoder(
+            separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+        chunks = []
+        chunk_bytes = 0
+        try:
+            for chunk in encoder.iterencode(payload):
+                encoded = chunk.encode("utf-8")
+                chunks.append(encoded)
+                chunk_bytes += len(encoded)
+                if chunk_bytes >= 64 * 1024:
+                    self.wfile.write(b"".join(chunks))
+                    chunks = []
+                    chunk_bytes = 0
+            if chunks:
+                self.wfile.write(b"".join(chunks))
+        except (BrokenPipeError, ConnectionResetError):
+            return
 
     def _send_error(self, status: HTTPStatus, message: str) -> None:
         """Send a structured JSON error response."""

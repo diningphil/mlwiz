@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import threading
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pytest
 import torch
 
-from mlwiz.ui.dashboard import ResultsRepository, create_server, get_args
+from mlwiz.ui.dashboard import (
+    MetricsCache,
+    ResultsRepository,
+    create_server,
+    get_args,
+)
 
 
 def _write_fixture_results(tmp_path):
@@ -98,6 +103,70 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     ]
 
 
+def test_details_loads_oversized_selection_without_caching(tmp_path):
+    """The cache ceiling must never prevent an active selection from loading."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    repository = ResultsRepository(experiment.parent, cache_max_bytes=0)
+
+    details = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )
+
+    assert len(details["series"]) == 4
+    assert details["cache"]["entries"] == 0
+    assert details["cache"]["skipped"] == 1
+
+
+def test_metrics_cache_hits_and_invalidates_changed_file(tmp_path):
+    """Unchanged files should hit the cache and rewritten files should reload."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    repository = ResultsRepository(experiment.parent)
+    relative_run = selection_run.relative_to(experiment.parent).as_posix()
+
+    repository.details(relative_run)
+    first = repository.cache_status()
+    repository.details(relative_run)
+    second = repository.cache_status()
+    assert first["misses"] == 1
+    assert second["hits"] == 1
+
+    torch.save(
+        {
+            "losses": {},
+            "scores": {"validation_main_score": [0.2, 0.5, 0.75, 0.9]},
+        },
+        selection_run / "metrics_data.torch",
+    )
+    details = repository.details(relative_run)
+    assert details["cache"]["invalidations"] == 1
+    assert details["cache"]["misses"] == 2
+    assert details["series"][0]["values"][-1] == pytest.approx(0.9)
+
+
+def test_metrics_cache_evicts_least_recently_used_entry(tmp_path):
+    """Reducing the ceiling should retain only the most recent fitting data."""
+    cache = MetricsCache(max_bytes=1024 * 1024)
+    series = [
+        {
+            "group": "scores",
+            "name": "validation_main_score",
+            "values": [float(index) for index in range(100)],
+        }
+    ]
+    first_path = tmp_path / "first.torch"
+    second_path = tmp_path / "second.torch"
+    assert cache.put(first_path, (1, 1), series)
+    one_entry_bytes = cache.stats()["used_bytes"]
+    cache.configure(one_entry_bytes)
+
+    assert cache.put(second_path, (1, 1), series)
+
+    status = cache.stats()
+    assert status["entries"] == 1
+    assert status["evictions"] == 1
+    assert cache.get(first_path, (1, 1)) is None
+
+
 def test_details_aggregates_all_runs_below_configuration(tmp_path):
     """Clicking a configuration should collect histories from its child runs."""
     experiment, config, _, _ = _write_fixture_results(tmp_path)
@@ -169,10 +238,34 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         base_url = f"http://127.0.0.1:{server.server_address[1]}"
         with urlopen(f"{base_url}/", timeout=3) as response:
             page = response.read().decode("utf-8")
+        with urlopen(f"{base_url}/assets/app.js", timeout=3) as response:
+            app_script = response.read().decode("utf-8")
+        with urlopen(f"{base_url}/assets/styles.css", timeout=3) as response:
+            stylesheet = response.read().decode("utf-8")
+        with urlopen(f"{base_url}/assets/mlwiz-logo.png", timeout=3) as response:
+            logo = response.read()
         with urlopen(f"{base_url}/api/tree", timeout=3) as response:
             tree = json.loads(response.read())
+        with urlopen(f"{base_url}/api/cache", timeout=3) as response:
+            initial_cache = json.loads(response.read())
+        cache_request = Request(
+            f"{base_url}/api/cache",
+            data=json.dumps({"max_mb": 64}).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(cache_request, timeout=3) as response:
+            updated_cache = json.loads(response.read())
         assert "MLWiz Dashboard" in page
+        assert "/assets/mlwiz-logo.png" in page
+        assert "sessionStorage" in app_script
+        assert "openNodes" in app_script
+        assert 'postJson("/api/cache"' in app_script
+        assert "[hidden] { display: none !important; }" in stylesheet
+        assert logo.startswith(b"\x89PNG\r\n\x1a\n")
         assert tree["experiments"][0]["name"] == "mlp_MNIST"
+        assert initial_cache["max_mb"] == 256
+        assert updated_cache["max_mb"] == 64
     finally:
         server.shutdown()
         server.server_close()

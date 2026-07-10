@@ -11,17 +11,28 @@
   <body>
     <header class="app-header">
       <a class="brand" href="/" aria-label="MLWiz Dashboard home">
-        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-        <span><strong>MLWiz</strong><small>Dashboard</small></span>
+        <img class="brand-logo" src="/assets/mlwiz-logo.png" alt="MLWiz" />
+        <small>Dashboard</small>
       </a>
       <div class="watching" title="Dashboard result root">
         <span class="live-dot" aria-hidden="true"></span>
         <span>Watching</span>
         <code id="root-path">Loading results…</code>
       </div>
-      <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh runs">
-        <span aria-hidden="true">↻</span> Refresh
-      </button>
+      <div class="header-actions">
+        <div class="cache-control" title="Normalized metric histories retained by the server">
+          <span class="cache-usage" id="cache-usage">Cache · loading</span>
+          <label>
+            <span class="sr-only">Maximum metric cache memory in megabytes</span>
+            <input id="cache-limit" type="number" min="0" max="65536" step="64" value="256" />
+            <span>MB</span>
+          </label>
+          <button id="cache-apply" type="button">Apply</button>
+        </div>
+        <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh runs">
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
+      </div>
     </header>
 
     <main class="workspace">
