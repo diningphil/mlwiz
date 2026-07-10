@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.5.4]
+## [1.6.0]
 
 ## Added
 
@@ -9,10 +9,16 @@
 - added unit coverage to verify termination hooks run on both normal completion and interruption
 - training logs are now buffered and flushed to `experiment.log` every `N` epochs via `engine.args.store_log_every_N_epochs` (default: `1`), with a forced flush on termination and at training end
 - added CLI option `--detailed-gui` to toggle detailed per-run progress UI in non-debug mode; without it, MLWiz keeps the lightweight/global view (detailed GUI disabled). Use it when parallelism is low, otherwise it can spawn many threads
+- added `mlwiz-dashboard`, a local web app for browsing model-selection configurations, final runs, epoch metrics, and result metadata
 
 ## Changed
 
 - `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
+- `Plotter` now persists `metrics_data.torch` for MLWiz Dashboard by default
+
+## Removed
+
+- removed the TensorBoard integration and runtime dependency in favor of `mlwiz-dashboard`
 
 ## [1.5.3]
 

@@ -14,7 +14,11 @@ packages = [
     "mlwiz.training.callback",
     "mlwiz.training.event",
     "mlwiz.ui",
+    "mlwiz.ui.web_assets",
 ]
+
+[tool.setuptools.package-data]
+"mlwiz.ui" = ["web_assets/*"]
 
 [project]
 name = "mlwiz"
@@ -37,7 +41,6 @@ dependencies = [
     "scikit_learn>=1.3.0",
     "scipy>=1.15.3",
     "pandas>=2.0.0",
-    "tensorboard>=2.11.0",
     "tqdm>=4.47.0",
     "ray[default]>=2.6.0",
     "torchvision>=0.18.1",
@@ -55,6 +58,7 @@ dependencies = [
 mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
 mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
+mlwiz-dashboard = "mlwiz.ui.dashboard:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "mlwiz.__version__"}

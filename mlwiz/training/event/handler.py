@@ -98,8 +98,7 @@ class EventHandler:
 
     def on_fit_end(self, state: State):
         """
-        Training has ended, free all resources, e.g., close
-        Tensorboard writers.
+        Training has ended; free resources held by the callback.
 
         Args:
             state (:class:`~training.event.state.State`): object holding

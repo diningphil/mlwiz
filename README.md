@@ -27,7 +27,7 @@ MLWiz helps you run end-to-end research experiments with minimal boilerplate:
 - 🧱 Build/prepare datasets and generate splits (hold-out or nested CV)
 - 🎛️ Expand a hyperparameter search space (grid, random, or Bayesian search)
 - ⚡ Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
-- 📈 Log metrics, checkpoints, and TensorBoard traces in a consistent folder structure
+- 📈 Log dashboard-ready metric histories and checkpoints in a consistent folder structure
 
 Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil/PyDGN).
 
@@ -58,7 +58,7 @@ Tip: for GPU / graph workloads, install PyTorch and PyG following their official
 | 1) Prepare dataset + splits | `mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml` | Creates processed data + a `.splits` file |
 | 2) Run an experiment (grid search) | `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` | Add `--debug` to run sequentially and print logs |
 | 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
-| 4) Visualize in TensorBoard | `tensorboard --logdir RESULTS/mlp_MNIST` | Per-run logs are written automatically |
+| 4) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
 | 5) Stop a running experiment | Press `Ctrl-C` | |
 
 ### 🧭 Navigating the CLI (non-debug mode)
@@ -213,7 +213,60 @@ Runs are written under `RESULTS/`:
 | Model selection (inner folds + winner config) | `.../MODEL_SELECTION/...` |
 | Final retrains with selected hyperparams | `.../final_run*/` |
 
-Each training run also writes TensorBoard logs under `<run_dir>/tensorboard/`.
+When a `Plotter` callback is configured, each training run writes dashboard
+histories to `<run_dir>/metrics_data.torch`.
+
+### MLWiz Dashboard
+
+MLWiz includes a local, read-only experiment dashboard tailored to the result
+hierarchy above. Start it from the project that contains your results:
+
+```bash
+mlwiz-dashboard --logdir RESULTS
+```
+
+Open the URL printed by the command (by default
+`http://127.0.0.1:6006`). The run browser groups results by experiment, outer
+fold, model-selection configuration, inner fold, and final run. Selecting a
+configuration compares all of its child runs; selecting an individual run
+shows only that run. When `store_every_N_epochs` is configured, score and loss
+histories are refreshed while training is in progress.
+
+Hover over a chart to inspect the training, validation, and test values at one
+epoch. The `± Log scale` control uses a symmetric logarithmic transform, so it
+also supports zero and negative values. Each experiment has its own lazy-loaded
+configuration filter: choose any discovered score or loss, compare it with a
+threshold using `≥` or `≤`, choose training or validation values, and combine
+multiple conditions with AND or OR. Completed experiments use their aggregated
+results; running experiments use the latest values available in
+`metrics_data.torch`. While a filter is active, final runs are hidden and an
+experiment with no matching configuration shows only its filter controls.
+
+The header also provides a persistent refresh-interval setting and a day/dark
+theme toggle. Dark mode is the default.
+
+Above the selected configuration or run, a collapsible overview summarizes its
+parent experiment only: completed, running, queued, and failed runs; aggregated
+configurations; recorded compute time; average and median run duration; and an
+estimated remaining compute budget. Timing comes from the profiler markers in
+each `experiment.log`. The remaining estimate is deliberately reported as
+compute time because parallel execution may complete in less wall-clock time.
+
+The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
+this artifact (metric storage is enabled by default):
+
+```yaml
+plotter: mlwiz.training.callback.plotter.Plotter
+```
+
+Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
+
+Metric artifacts are loaded only when a configuration or run is selected. The
+dashboard keeps normalized histories in a least-recently-used cache (256 MB by
+default); its memory limit can be changed from the dashboard header, and `0`
+disables caching. The limit applies only to retained cache entries: a selected
+configuration is still loaded and displayed even when it is larger than the
+configured buffer.
 
 ## 🛠️ Utilities
 ### 🗂️ Config Management (CLI)

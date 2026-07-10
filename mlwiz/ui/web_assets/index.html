@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>MLWiz Dashboard</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/app.js" defer></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="brand" href="/" aria-label="MLWiz Dashboard home">
+        <img class="brand-logo" src="/assets/mlwiz-logo.png" alt="MLWiz" />
+        <small>Dashboard</small>
+      </a>
+      <div class="watching" title="Dashboard result root">
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>Watching</span>
+        <code id="root-path">Loading results…</code>
+      </div>
+      <div class="header-actions">
+        <div class="cache-control" title="Normalized metric histories retained by the server">
+          <span class="cache-usage" id="cache-usage">Cache · loading</span>
+          <label>
+            <span class="sr-only">Maximum metric cache memory in megabytes</span>
+            <input id="cache-limit" type="number" min="0" max="65536" step="64" value="256" />
+            <span>MB</span>
+          </label>
+          <button id="cache-apply" type="button">Apply</button>
+        </div>
+        <div class="refresh-control" title="How often the dashboard reloads experiment data">
+          <label>
+            <span>Refresh</span>
+            <input id="refresh-interval" type="number" min="2" max="3600" step="1" value="15" />
+            <span>s</span>
+          </label>
+          <button id="refresh-apply" type="button">Apply</button>
+        </div>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to day mode" aria-pressed="true">
+          ☀ Day
+        </button>
+        <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh runs">
+          <span aria-hidden="true">↻</span> Refresh
+        </button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <aside class="sidebar" aria-label="Experiment browser">
+        <div class="sidebar-head">
+          <div>
+            <p class="eyebrow">Run browser</p>
+            <h1>Experiments</h1>
+          </div>
+          <span class="count-badge" id="experiment-count">0</span>
+        </div>
+        <nav id="experiment-tree" class="experiment-tree" aria-live="polite">
+          <div class="tree-loading"><span></span><span></span><span></span></div>
+        </nav>
+        <footer class="sidebar-footer">
+          <span id="last-refresh">Waiting for first refresh</span>
+          <span id="refresh-status">Auto-refresh · 15s</span>
+        </footer>
+      </aside>
+
+      <section class="content" id="content" aria-live="polite">
+        <div class="welcome" id="welcome">
+          <div class="welcome-graphic" aria-hidden="true">
+            <span class="axis axis-y"></span><span class="axis axis-x"></span>
+            <span class="plot-line line-one"></span><span class="plot-line line-two"></span>
+            <span class="plot-dot dot-one"></span><span class="plot-dot dot-two"></span>
+          </div>
+          <p class="eyebrow">Experiment intelligence</p>
+          <h2>Select a configuration or run</h2>
+          <p class="welcome-copy">
+            Choose a model-selection configuration or a final run to compare its
+            loss and score histories across epochs.
+          </p>
+          <div class="welcome-tip">
+            <span>Metric source</span>
+            <code>Plotter → metrics_data.torch</code>
+          </div>
+        </div>
+
+        <div class="details-view" id="details-view" hidden>
+          <div id="experiment-overview"></div>
+          <div class="details-head">
+            <div>
+              <div class="selection-kind" id="selection-kind">Run</div>
+              <h2 id="selection-name">Selection</h2>
+              <code id="selection-path"></code>
+            </div>
+            <div class="freshness" id="freshness">—</div>
+          </div>
+
+          <div class="summary-grid" id="summary-grid"></div>
+
+          <div class="toolbar" id="chart-toolbar">
+            <div class="segmented" role="group" aria-label="Metric type">
+              <button type="button" class="active" data-group="all">All metrics</button>
+              <button type="button" data-group="scores">Scores</button>
+              <button type="button" data-group="losses">Losses</button>
+            </div>
+            <button
+              class="scale-button"
+              id="scale-toggle"
+              type="button"
+              aria-pressed="false"
+              title="Use a symmetric logarithmic scale that supports zero and negative values"
+            >± Log scale</button>
+            <label class="select-field" id="source-field" hidden>
+              <span>Run</span>
+              <select id="source-select"></select>
+            </label>
+            <label class="metric-search">
+              <span aria-hidden="true">⌕</span>
+              <span class="sr-only">Filter metrics</span>
+              <input id="metric-search" type="search" placeholder="Find metric…" />
+            </label>
+          </div>
+
+          <div class="notice" id="notice" hidden></div>
+          <div class="chart-grid" id="chart-grid"></div>
+          <section class="metadata-section" id="metadata-section" hidden>
+            <div class="section-title">
+              <div>
+                <p class="eyebrow">Context</p>
+                <h3>Configuration &amp; results</h3>
+              </div>
+              <span>JSON artifacts from this fold</span>
+            </div>
+            <div id="metadata-list" class="metadata-list"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -641,10 +641,11 @@ experiments. It cannot be used together with ``-execute-config-id``.
 Storing logged metrics on disk
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-To store epoch-wise metrics computed during training on disk, pass the argument ``store_on_disk: True`` to the ``Plotter``
-in the experiment's configuration file. This will produce a PyTorch file called ``metrics_data.torch`` that gets updated
-at every epoch. The metrics are stored in a dictionary, with separate keys for losses and scores. I am sure you'll get
-around its structure, since I am too lazy to write it here.
+The ``Plotter`` stores epoch-wise metrics for MLWiz Dashboard in a PyTorch file
+called ``metrics_data.torch``. Storage is enabled by default and the file is
+flushed when training terminates. Set ``store_every_N_epochs`` to a positive
+integer to update it periodically while training is running. Metrics are stored
+in a dictionary with separate keys for losses and scores.
 
 
 Loading and storing graphs
@@ -673,7 +674,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
             |__ outer_results.json  # contains the aggregated results of the three final runs
             |__ final_run_1
             |__ final_run_2
-                |__ tensorboard  # tensorboard folder
+                |__ metrics_data.torch  # epoch-wise losses and scores for MLWiz Dashboard
                 |__ experiment.log  # log file with profiling information
                 |__ experiment.err  # uncaught exception tracebacks, when a run fails
                 |__ best_checkpoint.pth  # torch dict holding the "best" checkpoint information according to the early stopper used
@@ -688,7 +689,7 @@ According to our configuration file, the results are stored in the ``RESULTS`` f
                     |__ config_results.json  # contains the aggregated results of the K inner model selection folds
                     |__ INNER_FOLD_1  # first (and only in this case) inner model selection fold
                         |__ run_1
-                            |__ tensorboard
+                            |__ metrics_data.torch
                             |__ experiment.log  # log file with profiling information
                             |__ experiment.err  # uncaught exception tracebacks, when a run fails
                             |__ best_checkpoint.pth
@@ -716,20 +717,23 @@ Here's what it looks like:
    :width: 600
 
 
-Tensorboard
+MLWiz Dashboard
 -----------------------
 
-We can use the generic :class:`~mlwiz.training.callback.plotter.Plotter` class to easily visualize the training trend with
-Tensorboard, using the information in the ``tensorboard`` folder:
+MLWiz also ships a result browser tailored to its model-selection and risk
+assessment hierarchy. Start it from a directory containing your ``RESULTS``
+folder:
 
 .. code-block:: bash
 
-    tensorboard --logdir RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1/tensorboard/
+    mlwiz-dashboard --logdir RESULTS
 
-And we get:
-
-.. image:: _static/tensorboard.png
-   :width: 600
+Then open the URL printed by the command. The sidebar groups runs by experiment,
+outer fold, model-selection configuration, inner fold, and final run. Clicking
+a configuration compares the histories from all of its child runs, while
+clicking a run focuses on that run only. The dashboard reads
+``metrics_data.torch`` written by the
+:class:`~mlwiz.training.callback.plotter.Plotter` described above.
 
 
 Filtering Configurations for Post-processing of Results
