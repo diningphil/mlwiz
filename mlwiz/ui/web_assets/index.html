@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -29,6 +29,17 @@
           </label>
           <button id="cache-apply" type="button">Apply</button>
         </div>
+        <div class="refresh-control" title="How often the dashboard reloads experiment data">
+          <label>
+            <span>Refresh</span>
+            <input id="refresh-interval" type="number" min="2" max="3600" step="1" value="15" />
+            <span>s</span>
+          </label>
+          <button id="refresh-apply" type="button">Apply</button>
+        </div>
+        <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to day mode" aria-pressed="true">
+          ☀ Day
+        </button>
         <button class="icon-button" id="refresh-button" type="button" aria-label="Refresh runs">
           <span aria-hidden="true">↻</span> Refresh
         </button>
@@ -44,17 +55,12 @@
           </div>
           <span class="count-badge" id="experiment-count">0</span>
         </div>
-        <label class="search-box">
-          <span aria-hidden="true">⌕</span>
-          <span class="sr-only">Filter experiments and runs</span>
-          <input id="tree-search" type="search" placeholder="Filter runs…" autocomplete="off" />
-        </label>
         <nav id="experiment-tree" class="experiment-tree" aria-live="polite">
           <div class="tree-loading"><span></span><span></span><span></span></div>
         </nav>
         <footer class="sidebar-footer">
           <span id="last-refresh">Waiting for first refresh</span>
-          <span>Auto-refresh · 15s</span>
+          <span id="refresh-status">Auto-refresh · 15s</span>
         </footer>
       </aside>
 
@@ -95,6 +101,13 @@
               <button type="button" data-group="scores">Scores</button>
               <button type="button" data-group="losses">Losses</button>
             </div>
+            <button
+              class="scale-button"
+              id="scale-toggle"
+              type="button"
+              aria-pressed="false"
+              title="Use a symmetric logarithmic scale that supports zero and negative values"
+            >± Log scale</button>
             <label class="select-field" id="source-field" hidden>
               <span>Run</span>
               <select id="source-select"></select>

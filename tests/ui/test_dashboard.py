@@ -167,6 +167,60 @@ def test_metrics_cache_evicts_least_recently_used_entry(tmp_path):
     assert cache.get(first_path, (1, 1)) is None
 
 
+def test_completed_experiment_filter_uses_aggregated_results(tmp_path):
+    """Finished experiments should filter on config-level validation results."""
+    experiment, config, _, _ = _write_fixture_results(tmp_path)
+    results_path = config / "config_results.json"
+    results = json.loads(results_path.read_text())
+    results["avg_validation_aux_score"] = 0.63
+    results["avg_training_score"] = 0.81
+    results_path.write_text(json.dumps(results))
+    repository = ResultsRepository(experiment.parent)
+
+    data = repository.experiment_filter_data(experiment.name)
+
+    config_path = next(iter(data["configurations"]))
+    assert data["complete"] is True
+    assert data["default_metric"] == "scores:main_score"
+    assert data["value_source"] == "aggregated training/validation result"
+    assert data["configurations"][config_path]["values"][
+        "validation:scores:main_score"
+    ] == pytest.approx(0.75)
+    assert data["configurations"][config_path]["values"][
+        "validation:scores:aux"
+    ] == pytest.approx(0.63)
+    assert data["configurations"][config_path]["values"][
+        "training:scores:main_score"
+    ] == pytest.approx(0.81)
+    assert data["splits"] == ["validation", "training"]
+    assert "scores:aux" in {metric["id"] for metric in data["metrics"]}
+    aux_metric = next(
+        metric for metric in data["metrics"] if metric["id"] == "scores:aux"
+    )
+    assert aux_metric["label"] == "Aux"
+
+
+def test_running_experiment_filter_uses_last_recorded_metrics(tmp_path):
+    """In-progress experiments should use the latest validation history value."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    (experiment / "MODEL_ASSESSMENT" / "assessment_results.json").unlink()
+    metrics_path = selection_run / "metrics_data.torch"
+    metrics = torch.load(metrics_path, weights_only=True)
+    metrics["scores"]["validation_aux"] = [0.1, 0.4, 0.7]
+    torch.save(metrics, metrics_path)
+    repository = ResultsRepository(experiment.parent)
+
+    data = repository.experiment_filter_data(experiment.name)
+
+    config_values = next(iter(data["configurations"].values()))["values"]
+    assert data["complete"] is False
+    assert data["value_source"] == "last recorded training/validation epoch"
+    assert config_values["validation:scores:main_score"] == pytest.approx(0.75)
+    assert config_values["validation:scores:aux"] == pytest.approx(0.7)
+    assert config_values["validation:losses:main_loss"] == pytest.approx(0.4)
+    assert config_values["training:scores:main_score"] == pytest.approx(0.8)
+
+
 def test_details_aggregates_all_runs_below_configuration(tmp_path):
     """Clicking a configuration should collect histories from its child runs."""
     experiment, config, _, _ = _write_fixture_results(tmp_path)
@@ -248,6 +302,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             tree = json.loads(response.read())
         with urlopen(f"{base_url}/api/cache", timeout=3) as response:
             initial_cache = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/experiment-filter?path=mlp_MNIST", timeout=3
+        ) as response:
+            filter_data = json.loads(response.read())
         cache_request = Request(
             f"{base_url}/api/cache",
             data=json.dumps({"max_mb": 64}).encode("utf-8"),
@@ -258,14 +316,26 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             updated_cache = json.loads(response.read())
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
+        assert 'id="scale-toggle"' in page
+        assert 'id="refresh-interval"' in page
+        assert 'id="theme-toggle"' in page
+        assert 'data-theme="dark"' in page
+        assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
+        assert "/api/experiment-filter" in app_script
+        assert 'addEventListener("pointermove"' in app_script
+        assert "createValueScale" in app_script
+        assert "configurationPassesFilter" in app_script
+        assert "scheduleRefresh" in app_script
+        assert "applyTheme" in app_script
         assert "[hidden] { display: none !important; }" in stylesheet
         assert logo.startswith(b"\x89PNG\r\n\x1a\n")
         assert tree["experiments"][0]["name"] == "mlp_MNIST"
         assert initial_cache["max_mb"] == 256
         assert updated_cache["max_mb"] == 64
+        assert filter_data["default_metric"] == "scores:main_score"
     finally:
         server.shutdown()
         server.server_close()

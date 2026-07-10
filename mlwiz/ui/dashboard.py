@@ -39,6 +39,7 @@ _MAX_METRICS_FILES_PER_SELECTION = 256
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
+_FILTER_RESULT_PATTERN = re.compile(r"^avg_(training|validation)_(.+)$")
 
 
 def _numbered_directories(
@@ -253,6 +254,176 @@ class ResultsRepository:
         max_bytes = int(max_mb * _MEBIBYTE)
         return self.metrics_cache.configure(max_bytes)
 
+    def experiment_filter_data(self, relative_path: str) -> dict[str, Any]:
+        """Return lazy configuration-filter values for one experiment."""
+        experiment = self.resolve(relative_path)
+        assessment = experiment / MODEL_ASSESSMENT
+        if not experiment.is_dir() or not assessment.is_dir():
+            raise ValueError("Select an experiment containing MODEL_ASSESSMENT.")
+
+        experiment_complete = (assessment / "assessment_results.json").is_file()
+        options: dict[str, dict[str, str]] = {}
+        configurations = {}
+        for outer_number, outer_folder in _numbered_directories(
+            assessment, _OUTER_FOLD_PATTERN
+        ):
+            selection = outer_folder / "MODEL_SELECTION"
+            for config_number, config_folder in _numbered_directories(
+                selection, _CONFIG_PATTERN
+            ):
+                if experiment_complete:
+                    values = self._completed_filter_values(config_folder, options)
+                    value_source = "aggregated training/validation result"
+                else:
+                    values = self._running_filter_values(config_folder, options)
+                    value_source = "last recorded training/validation epoch"
+                configurations[self._relative(config_folder)] = {
+                    "outer_fold": outer_number,
+                    "configuration": config_number,
+                    "values": values,
+                }
+
+        sorted_options = sorted(
+            options.values(),
+            key=lambda item: (
+                item["id"] != "scores:main_score",
+                item["id"] != "losses:main_loss",
+                item["label"].lower(),
+            ),
+        )
+        option_ids = {item["id"] for item in sorted_options}
+        if "scores:main_score" in option_ids:
+            default_metric = "scores:main_score"
+        elif "losses:main_loss" in option_ids:
+            default_metric = "losses:main_loss"
+        else:
+            default_metric = sorted_options[0]["id"] if sorted_options else None
+        return {
+            "experiment": self._relative(experiment),
+            "complete": experiment_complete,
+            "value_source": value_source if configurations else None,
+            "default_metric": default_metric,
+            "default_split": "validation",
+            "splits": ["validation", "training"],
+            "metrics": sorted_options,
+            "configurations": configurations,
+            "cache": self.cache_status(),
+        }
+
+    def _completed_filter_values(
+        self, config_folder: Path, options: dict[str, dict[str, str]]
+    ) -> dict[str, float]:
+        """Extract aggregated training and validation metrics from a config."""
+        results = _read_json(config_folder / "config_results.json")
+        if not isinstance(results, dict):
+            return {}
+        values = {}
+        for key, value in results.items():
+            parsed = self._result_metric_descriptor(key)
+            if parsed is None or isinstance(value, bool):
+                continue
+            descriptor, split = parsed
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(number):
+                continue
+            options[descriptor["id"]] = descriptor
+            values[f"{split}:{descriptor['id']}"] = number
+        return values
+
+    def _running_filter_values(
+        self, config_folder: Path, options: dict[str, dict[str, str]]
+    ) -> dict[str, float]:
+        """Average latest training and validation values across active runs."""
+        samples: dict[str, list[float]] = {}
+        for metrics_file in sorted(config_folder.rglob("metrics_data.torch")):
+            try:
+                file_series, _ = self._metrics_file_series(metrics_file)
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+                EOFError,
+                pickle.UnpicklingError,
+            ):
+                continue
+            for item in file_series:
+                descriptor, split = self._series_metric_descriptor(
+                    item["group"], item["name"]
+                )
+                if split not in {"training", "validation"}:
+                    continue
+                options[descriptor["id"]] = descriptor
+                last_value = next(
+                    (value for value in reversed(item["values"]) if value is not None),
+                    None,
+                )
+                if last_value is None:
+                    continue
+                value_key = f"{split}:{descriptor['id']}"
+                samples.setdefault(value_key, []).append(float(last_value))
+        return {
+            metric_id: sum(metric_samples) / len(metric_samples)
+            for metric_id, metric_samples in samples.items()
+            if metric_samples
+        }
+
+    @staticmethod
+    def _result_metric_descriptor(
+        key: str,
+    ) -> Optional[tuple[dict[str, str], str]]:
+        """Map one ``config_results.json`` key to a filter metric."""
+        match = _FILTER_RESULT_PATTERN.fullmatch(key)
+        if match is None:
+            return None
+        split, remainder = match.groups()
+        if remainder == "score":
+            return (
+                ResultsRepository._metric_descriptor("scores", "main_score"),
+                split,
+            )
+        if remainder == "loss":
+            return (
+                ResultsRepository._metric_descriptor("losses", "main_loss"),
+                split,
+            )
+        for suffix, group in (("_score", "scores"), ("_loss", "losses")):
+            if remainder.endswith(suffix):
+                return (
+                    ResultsRepository._metric_descriptor(
+                        group, remainder[: -len(suffix)]
+                    ),
+                    split,
+                )
+        return None
+
+    @staticmethod
+    def _series_metric_descriptor(group: str, name: str) -> tuple[dict[str, str], str]:
+        """Map a stored series name to a filter metric and data split."""
+        split = "other"
+        metric_name = name
+        for candidate in ("validation", "training", "test"):
+            prefix = f"{candidate}_"
+            if name.startswith(prefix):
+                split = candidate
+                metric_name = name[len(prefix) :]
+                break
+        return ResultsRepository._metric_descriptor(group, metric_name), split
+
+    @staticmethod
+    def _metric_descriptor(group: str, metric_name: str) -> dict[str, str]:
+        """Build a stable filter id and readable label."""
+        kind = "score" if group == "scores" else "loss"
+        label = metric_name.replace("_", " ").strip().title()
+        return {
+            "id": f"{group}:{metric_name}",
+            "label": label,
+            "kind": kind,
+        }
+
     def _relative(self, path: Path) -> str:
         """Return a POSIX path relative to the configured result root."""
         return path.resolve().relative_to(self.root).as_posix()
@@ -399,15 +570,7 @@ class ResultsRepository:
         for metrics_file in metrics_files:
             file_count += 1
             try:
-                file_stat = metrics_file.stat()
-                signature = (file_stat.st_mtime_ns, file_stat.st_size)
-                file_series = self.metrics_cache.get(metrics_file, signature)
-                if file_series is None:
-                    file_series = self._load_metrics_file(metrics_file)
-                    final_stat = metrics_file.stat()
-                    final_signature = (final_stat.st_mtime_ns, final_stat.st_size)
-                    if final_signature == signature:
-                        self.metrics_cache.put(metrics_file, signature, file_series)
+                file_series, file_stat = self._metrics_file_series(metrics_file)
                 source = metrics_file.parent.relative_to(target).as_posix()
                 source = source if source != "." else target.name
                 series.extend({**item, "source": source} for item in file_series)
@@ -441,6 +604,21 @@ class ResultsRepository:
             "errors": errors,
             "cache": self.cache_status(),
         }
+
+    def _metrics_file_series(
+        self, metrics_file: Path
+    ) -> tuple[list[dict[str, Any]], Any]:
+        """Return normalized series through the live LRU cache."""
+        file_stat = metrics_file.stat()
+        signature = (file_stat.st_mtime_ns, file_stat.st_size)
+        file_series = self.metrics_cache.get(metrics_file, signature)
+        if file_series is None:
+            file_series = self._load_metrics_file(metrics_file)
+            final_stat = metrics_file.stat()
+            final_signature = (final_stat.st_mtime_ns, final_stat.st_size)
+            if final_signature == signature:
+                self.metrics_cache.put(metrics_file, signature, file_series)
+        return file_series, file_stat
 
     def _load_metrics_file(self, metrics_file: Path) -> list[dict[str, Any]]:
         """Load and normalize one metrics artifact on demand."""
@@ -566,6 +744,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/cache":
                 self._send_json(self.server.repository.cache_status())
+                return
+            if parsed.path == "/api/experiment-filter":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                self._send_json(
+                    self.server.repository.experiment_filter_data(relative_path)
+                )
                 return
             if parsed.path in ("/", "/index.html"):
                 self._send_file(_ASSET_DIRECTORY / "index.html")

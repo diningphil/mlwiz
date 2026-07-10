@@ -12,6 +12,7 @@
   }
 
   const storedState = readStoredState();
+  const storedRefreshSeconds = Number(storedState.refreshSeconds);
   const state = {
     tree: null,
     details: null,
@@ -21,7 +22,16 @@
     group: storedState.group || "all",
     source: storedState.source || "all",
     query: storedState.query || "",
-    treeQuery: storedState.treeQuery || "",
+    scale: storedState.scale || "linear",
+    theme: ["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark",
+    refreshSeconds: Number.isFinite(storedRefreshSeconds)
+      && storedRefreshSeconds >= 2
+      && storedRefreshSeconds <= 3600
+      ? Math.round(storedRefreshSeconds)
+      : 15,
+    experimentFilters: storedState.experimentFilters || {},
+    filterData: {},
+    filterLoading: {},
     charts: [],
   };
 
@@ -35,6 +45,7 @@
     test: "#ef8354",
     other: "#8257e5",
   };
+  let refreshTimer = null;
 
   function persistState() {
     try {
@@ -45,7 +56,10 @@
         group: state.group,
         source: state.source,
         query: state.query,
-        treeQuery: state.treeQuery,
+        scale: state.scale,
+        theme: state.theme,
+        refreshSeconds: state.refreshSeconds,
+        experimentFilters: state.experimentFilters,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
@@ -137,12 +151,56 @@
     }
   }
 
+  function applyRefreshInterval() {
+    const input = el("refresh-interval");
+    const button = el("refresh-apply");
+    const seconds = Number(input.value);
+    if (!Number.isFinite(seconds) || seconds < 2 || seconds > 3600) {
+      button.textContent = "2–3600s";
+      setTimeout(() => { button.textContent = "Apply"; }, 1200);
+      return;
+    }
+    state.refreshSeconds = Math.round(seconds);
+    input.value = String(state.refreshSeconds);
+    persistState();
+    updateRefreshStatus();
+    scheduleRefresh();
+    button.textContent = "Saved";
+    setTimeout(() => { button.textContent = "Apply"; }, 900);
+  }
+
+  function updateRefreshStatus() {
+    el("refresh-status").textContent = `Auto-refresh · ${state.refreshSeconds}s`;
+  }
+
+  function scheduleRefresh() {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(async () => {
+      await loadTree({ quiet: true });
+      scheduleRefresh();
+    }, state.refreshSeconds * 1000);
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = state.theme;
+    const button = el("theme-toggle");
+    const dark = state.theme === "dark";
+    button.textContent = dark ? "☀ Day" : "◐ Dark";
+    button.setAttribute("aria-label", dark ? "Switch to day mode" : "Switch to dark mode");
+    button.setAttribute("aria-pressed", String(dark));
+  }
+
   async function loadTree({ quiet = false } = {}) {
     const refresh = el("refresh-button");
     refresh.classList.add("loading");
     try {
       const tree = await getJson("/api/tree");
       state.tree = tree;
+      await Promise.all(
+        tree.experiments
+          .filter((experiment) => state.experimentFilters[experiment.path]?.enabled)
+          .map((experiment) => loadExperimentFilter(experiment.path, false))
+      );
       el("root-path").textContent = tree.root;
       el("experiment-count").textContent = String(tree.experiment_count);
       el("last-refresh").textContent = `Refreshed ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
@@ -162,12 +220,6 @@
     treeElement.append(empty);
   }
 
-  function matchesTreeSearch(...values) {
-    if (!state.treeQuery) return true;
-    const text = values.filter(Boolean).join(" ").toLowerCase();
-    return text.includes(state.treeQuery);
-  }
-
   function renderTree() {
     const scrollTop = treeElement.scrollTop || state.treeScrollTop;
     treeElement.replaceChildren();
@@ -180,15 +232,6 @@
     }
 
     for (const experiment of state.tree.experiments) {
-      const expMatches = matchesTreeSearch(experiment.name, experiment.path);
-      const visibleFolds = experiment.outer_folds.filter((fold) => {
-        if (expMatches || matchesTreeSearch(`outer fold ${fold.number}`)) return true;
-        return fold.model_selection.some((config) =>
-          matchesTreeSearch(`config ${config.number}`, JSON.stringify(config.results || {}))
-        ) || fold.final_runs.some((run) => matchesTreeSearch(`final run ${run.number}`));
-      });
-      if (!visibleFolds.length && !expMatches) continue;
-
       const expDetails = node("details", "tree-group");
       bindDisclosure(expDetails, `experiment:${experiment.path}`, true);
       const summary = node("summary", "experiment-summary");
@@ -199,24 +242,34 @@
         node("span", "tree-count", `${experiment.run_count} runs`)
       );
       expDetails.append(summary);
+      expDetails.append(renderExperimentFilter(experiment));
 
-      for (const fold of visibleFolds) expDetails.append(renderFold(fold));
+      for (const fold of experiment.outer_folds) {
+        const foldElement = renderFold(fold, experiment.path);
+        if (foldElement) expDetails.append(foldElement);
+      }
       treeElement.append(expDetails);
     }
     treeElement.scrollTop = scrollTop;
   }
 
-  function renderFold(fold) {
+  function renderFold(fold, experimentPath) {
+    const visibleConfigs = fold.model_selection.filter((config) =>
+      configurationPassesFilter(experimentPath, config.path)
+    );
+    const filtering = activeFilterClauses(experimentPath).length > 0;
+    const visibleFinalRuns = filtering ? [] : fold.final_runs;
+    if (!visibleConfigs.length && !visibleFinalRuns.length) return null;
+
     const foldDetails = node("details", "fold-group");
     bindDisclosure(foldDetails, `fold:${fold.path}`, true);
     const summary = node("summary", "fold-summary");
     summary.append(node("span", "chevron", "›"), node("span", "", `Outer fold ${fold.number}`));
     foldDetails.append(summary);
 
-    if (fold.model_selection.length) {
+    if (visibleConfigs.length) {
       foldDetails.append(node("div", "tree-section-label", "Model selection"));
-      for (const config of fold.model_selection) {
-        if (!matchesTreeSearch(`config ${config.number}`, JSON.stringify(config.results || {}), `outer fold ${fold.number}`)) continue;
+      for (const config of visibleConfigs) {
         const configDetails = node("details", "config-group");
         const disclosureKey = `configuration:${config.path}`;
         const containsSelection = state.selectedPath === config.path
@@ -244,15 +297,232 @@
       }
     }
 
-    if (fold.final_runs.length) {
+    if (visibleFinalRuns.length) {
       foldDetails.append(node("div", "tree-section-label", "Final runs"));
-      for (const run of fold.final_runs) {
-        if (matchesTreeSearch(`final run ${run.number}`, `outer fold ${fold.number}`)) {
-          foldDetails.append(runButton(run, `Final run ${run.number}`));
-        }
+      for (const run of visibleFinalRuns) {
+        foldDetails.append(runButton(run, `Final run ${run.number}`));
       }
     }
     return foldDetails;
+  }
+
+  async function loadExperimentFilter(experimentPath, rerender = true) {
+    if (state.filterLoading[experimentPath]) return;
+    state.filterLoading[experimentPath] = true;
+    if (rerender) renderTree();
+    try {
+      const data = await getJson(`/api/experiment-filter?path=${encodeURIComponent(experimentPath)}`);
+      state.filterData[experimentPath] = data;
+      renderCacheStatus(data.cache);
+      const definition = state.experimentFilters[experimentPath];
+      if (definition && (!definition.clauses || !definition.clauses.length)) {
+        definition.clauses = [newFilterClause(data)];
+        definition.logic = definition.logic || "AND";
+        persistState();
+      } else if (definition) {
+        const metricIds = new Set(data.metrics.map((metric) => metric.id));
+        for (const clause of definition.clauses) {
+          if (!metricIds.has(clause.metric)) clause.metric = data.default_metric;
+          if (!data.splits.includes(clause.split)) clause.split = data.default_split;
+        }
+        persistState();
+      }
+    } catch (error) {
+      state.filterData[experimentPath] = { error: error.message };
+    } finally {
+      state.filterLoading[experimentPath] = false;
+      if (rerender) renderTree();
+    }
+  }
+
+  function renderExperimentFilter(experiment) {
+    const panel = node("div", "experiment-filter");
+    const definition = state.experimentFilters[experiment.path];
+    if (!definition?.enabled) {
+      const launch = node("button", "filter-launch", "⌕ Filter configurations");
+      launch.type = "button";
+      launch.addEventListener("click", () => {
+        state.experimentFilters[experiment.path] = {
+          enabled: true,
+          logic: "AND",
+          clauses: [],
+        };
+        persistState();
+        loadExperimentFilter(experiment.path);
+      });
+      panel.append(launch);
+      return panel;
+    }
+
+    const data = state.filterData[experiment.path];
+    if (state.filterLoading[experiment.path] || !data) {
+      panel.append(node("span", "filter-loading", "Loading experiment metrics…"));
+      return panel;
+    }
+    if (data.error) {
+      const retry = node("button", "filter-launch filter-error", `Retry filter · ${data.error}`);
+      retry.type = "button";
+      retry.addEventListener("click", () => loadExperimentFilter(experiment.path));
+      panel.append(retry);
+      return panel;
+    }
+
+    const header = node("div", "filter-head");
+    header.append(
+      node("span", "filter-status", activeFilterClauses(experiment.path).length ? "Filtering configurations" : "Configuration filters"),
+      node("span", "filter-source", data.complete ? "aggregated result" : "last epoch")
+    );
+    panel.append(header);
+
+    const clauses = definition.clauses || [];
+    if (clauses.length > 1) {
+      const combine = node("label", "filter-combine");
+      combine.append(node("span", "", "Match"));
+      const logic = node("select", "filter-logic");
+      for (const [value, label] of [["AND", "all conditions (AND)"], ["OR", "any condition (OR)"]]) {
+        const option = node("option", "", label);
+        option.value = value;
+        logic.append(option);
+      }
+      logic.value = definition.logic || "AND";
+      logic.setAttribute("aria-label", "Filter combination operator");
+      logic.addEventListener("change", (event) => {
+        definition.logic = event.target.value;
+        persistState();
+        renderTree();
+      });
+      combine.append(logic);
+      panel.append(combine);
+    }
+    clauses.forEach((clause, index) => {
+      panel.append(renderFilterClause(experiment.path, clause, index, data.metrics));
+    });
+
+    const actions = node("div", "filter-actions");
+    const add = node("button", "", "+ Add condition");
+    add.type = "button";
+    add.addEventListener("click", () => {
+      definition.clauses.push(newFilterClause(data));
+      persistState();
+      renderTree();
+    });
+    const clear = node("button", "", "Clear");
+    clear.type = "button";
+    clear.addEventListener("click", () => {
+      definition.clauses = [newFilterClause(data)];
+      persistState();
+      renderTree();
+    });
+    actions.append(add, clear);
+    panel.append(actions);
+    return panel;
+  }
+
+  function renderFilterClause(experimentPath, clause, index, metrics) {
+    const row = node("div", "filter-clause");
+    const split = node("select", "filter-split");
+    split.setAttribute("aria-label", "Training or validation metric");
+    for (const value of state.filterData[experimentPath].splits) {
+      const option = node("option", "", value[0].toUpperCase() + value.slice(1));
+      option.value = value;
+      split.append(option);
+    }
+    split.value = clause.split;
+    split.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "split", event.target.value));
+
+    const metric = node("select", "filter-metric");
+    metric.setAttribute("aria-label", "Metric to filter");
+    for (const [kind, label] of [["score", "Scores"], ["loss", "Losses"]]) {
+      const optionGroup = node("optgroup", "");
+      optionGroup.label = label;
+      for (const descriptor of metrics.filter((item) => item.kind === kind)) {
+        const option = node("option", "", descriptor.label);
+        option.value = descriptor.id;
+        optionGroup.append(option);
+      }
+      if (optionGroup.children.length) metric.append(optionGroup);
+    }
+    metric.value = clause.metric;
+    metric.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "metric", event.target.value));
+
+    const operator = node("select", "filter-operator");
+    operator.setAttribute("aria-label", "Metric comparison");
+    for (const [value, label] of [["gte", "≥"], ["lte", "≤"]]) {
+      const option = node("option", "", label);
+      option.value = value;
+      operator.append(option);
+    }
+    operator.value = clause.operator;
+    operator.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "operator", event.target.value));
+
+    const threshold = node("input", "filter-value");
+    threshold.type = "number";
+    threshold.step = "any";
+    threshold.placeholder = "value";
+    threshold.value = clause.value;
+    threshold.setAttribute("aria-label", "Filter threshold");
+    threshold.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "value", event.target.value));
+
+    const remove = node("button", "filter-remove", "×");
+    remove.type = "button";
+    remove.title = "Remove condition";
+    remove.addEventListener("click", () => {
+      const definition = state.experimentFilters[experimentPath];
+      definition.clauses.splice(index, 1);
+      if (!definition.clauses.length) {
+        definition.clauses.push(newFilterClause(state.filterData[experimentPath]));
+      }
+      persistState();
+      renderTree();
+    });
+    row.append(split, metric, operator, threshold, remove);
+    return row;
+  }
+
+  function updateFilterClause(experimentPath, index, key, value) {
+    const clause = state.experimentFilters[experimentPath].clauses[index];
+    clause[key] = value;
+    if (key === "metric") {
+      const descriptor = state.filterData[experimentPath].metrics.find((metric) => metric.id === value);
+      clause.operator = descriptor?.kind === "loss" ? "lte" : "gte";
+    }
+    persistState();
+    renderTree();
+  }
+
+  function newFilterClause(data) {
+    const descriptor = data.metrics.find((metric) => metric.id === data.default_metric);
+    return {
+      metric: data.default_metric,
+      split: data.default_split,
+      operator: descriptor?.kind === "loss" ? "lte" : "gte",
+      value: "",
+    };
+  }
+
+  function activeFilterClauses(experimentPath) {
+    const definition = state.experimentFilters[experimentPath];
+    if (!definition?.enabled) return [];
+    return (definition.clauses || []).filter((clause) =>
+      clause.metric && clause.value !== "" && Number.isFinite(Number(clause.value))
+    );
+  }
+
+  function configurationPassesFilter(experimentPath, configPath) {
+    const clauses = activeFilterClauses(experimentPath);
+    const data = state.filterData[experimentPath];
+    if (!clauses.length || !data?.configurations) return true;
+    const values = data.configurations[configPath]?.values || {};
+    const matches = clauses.map((clause) => {
+      const metricValue = values[`${clause.split}:${clause.metric}`];
+      if (!Number.isFinite(metricValue)) return false;
+      return clause.operator === "lte"
+        ? metricValue <= Number(clause.value)
+        : metricValue >= Number(clause.value);
+    });
+    return state.experimentFilters[experimentPath].logic === "OR"
+      ? matches.some(Boolean)
+      : matches.every(Boolean);
   }
 
   function runButton(run, label) {
@@ -417,29 +687,117 @@
       const head = node("div", "chart-head");
       const title = node("div", "chart-title");
       title.append(node("h3", "", group.metric.replaceAll("_", " ")), node("p", "", group.source));
-      head.append(title, node("span", "chart-type", group.group));
+      const headMeta = node("div", "chart-head-meta");
+      const epochLabel = node("span", "chart-epoch", "Latest");
+      headMeta.append(epochLabel, node("span", "chart-type", group.group));
+      head.append(title, headMeta);
       const wrap = node("div", "chart-wrap");
       const canvas = document.createElement("canvas");
       canvas.setAttribute("role", "img");
       canvas.setAttribute("aria-label", `${group.metric} over epochs`);
       wrap.append(canvas);
       const legend = node("div", "chart-legend");
+      const legendValues = new Map();
       for (const line of group.lines) {
         const item = node("span", "legend-item");
         const swatch = node("span", "legend-swatch");
         swatch.style.background = colors[line.split] || colors.other;
-        const valid = line.values.filter((value) => value !== null);
-        item.append(swatch, document.createTextNode(`${line.split} `), node("span", "legend-value", formatNumber(valid.at(-1))));
+        const value = node("span", "legend-value", formatNumber(lastFiniteValue(line.values)));
+        legendValues.set(line.name, value);
+        item.append(swatch, document.createTextNode(`${line.split} `), value);
         legend.append(item);
       }
       card.append(head, wrap, legend);
       grid.append(card);
-      state.charts.push({ canvas, group });
-      drawChart(canvas, group);
+      const chart = {
+        canvas,
+        group,
+        legendValues,
+        epochLabel,
+        hoverIndex: null,
+      };
+      canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
+      canvas.addEventListener("pointerleave", () => {
+        chart.hoverIndex = null;
+        updateChartReadout(chart);
+        drawChart(chart);
+      });
+      state.charts.push(chart);
+      updateChartReadout(chart);
+      drawChart(chart);
     }
   }
 
-  function drawChart(canvas, group) {
+  function updateChartHover(chart, event) {
+    const rect = chart.canvas.getBoundingClientRect();
+    const margin = { right: 12, left: 48 };
+    const plotWidth = rect.width - margin.left - margin.right;
+    const pointerX = event.clientX - rect.left;
+    if (pointerX < margin.left || pointerX > rect.width - margin.right) {
+      if (chart.hoverIndex !== null) {
+        chart.hoverIndex = null;
+        updateChartReadout(chart);
+        drawChart(chart);
+      }
+      return;
+    }
+    const epochs = Math.max(...chart.group.lines.map((line) => line.values.length), 1);
+    const index = epochs <= 1
+      ? 0
+      : Math.round(((pointerX - margin.left) / plotWidth) * (epochs - 1));
+    if (index !== chart.hoverIndex) {
+      chart.hoverIndex = Math.max(0, Math.min(epochs - 1, index));
+      updateChartReadout(chart);
+      drawChart(chart);
+    }
+  }
+
+  function updateChartReadout(chart) {
+    chart.epochLabel.textContent = chart.hoverIndex === null
+      ? "Latest"
+      : `Epoch ${chart.hoverIndex + 1}`;
+    for (const line of chart.group.lines) {
+      let value;
+      if (chart.hoverIndex === null) {
+        value = lastFiniteValue(line.values);
+      } else {
+        value = line.values[chart.hoverIndex];
+      }
+      chart.legendValues.get(line.name).textContent = formatNumber(value);
+    }
+  }
+
+  function lastFiniteValue(values) {
+    for (let index = values.length - 1; index >= 0; index -= 1) {
+      const value = values[index];
+      if (value !== null && Number.isFinite(value)) return value;
+    }
+    return undefined;
+  }
+
+  function createValueScale(values) {
+    if (state.scale !== "symlog") {
+      return { transform: (value) => value, invert: (value) => value };
+    }
+    let maxMagnitude = 1;
+    let minMagnitude = Infinity;
+    for (const value of values) {
+      const magnitude = Math.abs(value);
+      if (magnitude > 0) {
+        maxMagnitude = Math.max(maxMagnitude, magnitude);
+        minMagnitude = Math.min(minMagnitude, magnitude);
+      }
+    }
+    if (!Number.isFinite(minMagnitude)) minMagnitude = maxMagnitude;
+    const linearThreshold = Math.max(minMagnitude, maxMagnitude * 1e-6, 1e-12);
+    return {
+      transform: (value) => Math.sign(value) * Math.log10(1 + Math.abs(value) / linearThreshold),
+      invert: (value) => Math.sign(value) * linearThreshold * (10 ** Math.abs(value) - 1),
+    };
+  }
+
+  function drawChart(chart) {
+    const { canvas, group } = chart;
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
     const ratio = Math.min(window.devicePixelRatio || 1, 2);
@@ -452,32 +810,44 @@
     const margin = { top: 12, right: 12, bottom: 27, left: 48 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
+    const themeStyles = getComputedStyle(document.documentElement);
+    const gridColor = themeStyles.getPropertyValue("--chart-grid").trim() || "#edf0ed";
+    const labelColor = themeStyles.getPropertyValue("--chart-label").trim() || "#8a94a1";
+    const guideColor = themeStyles.getPropertyValue("--chart-guide").trim() || "#b5bec8";
+    const dotCenter = themeStyles.getPropertyValue("--panel").trim() || "#ffffff";
     const values = group.lines.flatMap((line) => line.values).filter((value) => value !== null && Number.isFinite(value));
     if (!values.length) return;
-    let min = Math.min(...values);
-    let max = Math.max(...values);
+    const valueScale = createValueScale(values);
+    let min = Infinity;
+    let max = -Infinity;
+    for (const value of values) {
+      const transformed = valueScale.transform(value);
+      min = Math.min(min, transformed);
+      max = Math.max(max, transformed);
+    }
     if (min === max) { min -= Math.abs(min || 1) * 0.05; max += Math.abs(max || 1) * 0.05; }
     const padding = (max - min) * 0.08;
     min -= padding;
     max += padding;
     const epochs = Math.max(...group.lines.map((line) => line.values.length), 1);
     const x = (index) => margin.left + (epochs <= 1 ? plotWidth / 2 : (index / (epochs - 1)) * plotWidth);
-    const y = (value) => margin.top + ((max - value) / (max - min)) * plotHeight;
+    const y = (value) => margin.top + ((max - valueScale.transform(value)) / (max - min)) * plotHeight;
 
     ctx.font = '9px Inter, -apple-system, sans-serif';
     ctx.textBaseline = "middle";
     for (let tick = 0; tick <= 4; tick += 1) {
-      const value = min + ((max - min) * tick) / 4;
-      const tickY = y(value);
+      const transformedValue = min + ((max - min) * tick) / 4;
+      const value = valueScale.invert(transformedValue);
+      const tickY = margin.top + ((max - transformedValue) / (max - min)) * plotHeight;
       ctx.beginPath(); ctx.moveTo(margin.left, tickY); ctx.lineTo(width - margin.right, tickY);
-      ctx.strokeStyle = "#edf0ed"; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = "#8a94a1"; ctx.textAlign = "right";
+      ctx.strokeStyle = gridColor; ctx.lineWidth = 1; ctx.stroke();
+      ctx.fillStyle = labelColor; ctx.textAlign = "right";
       ctx.fillText(formatNumber(value), margin.left - 7, tickY);
     }
-    ctx.fillStyle = "#8a94a1"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillStyle = labelColor; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.fillText("1", x(0), height - margin.bottom + 8);
     if (epochs > 1) ctx.fillText(String(epochs), x(epochs - 1), height - margin.bottom + 8);
-    ctx.fillStyle = "#a0a8b2"; ctx.fillText("epoch", margin.left + plotWidth / 2, height - 10);
+    ctx.fillStyle = labelColor; ctx.fillText("epoch", margin.left + plotWidth / 2, height - 10);
 
     for (const line of group.lines) {
       ctx.beginPath();
@@ -491,10 +861,29 @@
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.stroke();
-      const lastIndex = line.values.findLastIndex((value) => value !== null && Number.isFinite(value));
-      if (lastIndex >= 0) {
-        ctx.beginPath(); ctx.arc(x(lastIndex), y(line.values[lastIndex]), 2.6, 0, Math.PI * 2);
-        ctx.fillStyle = colors[line.split] || colors.other; ctx.fill();
+    }
+
+    if (chart.hoverIndex !== null) {
+      const hoverX = x(chart.hoverIndex);
+      ctx.save();
+      ctx.setLineDash([3, 4]);
+      ctx.beginPath();
+      ctx.moveTo(hoverX, margin.top);
+      ctx.lineTo(hoverX, margin.top + plotHeight);
+      ctx.strokeStyle = guideColor;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.restore();
+      for (const line of group.lines) {
+        const value = line.values[chart.hoverIndex];
+        if (value === null || !Number.isFinite(value)) continue;
+        ctx.beginPath();
+        ctx.arc(hoverX, y(value), 4.2, 0, Math.PI * 2);
+        ctx.fillStyle = dotCenter;
+        ctx.fill();
+        ctx.lineWidth = 2.4;
+        ctx.strokeStyle = colors[line.split] || colors.other;
+        ctx.stroke();
       }
     }
   }
@@ -520,10 +909,15 @@
   el("cache-limit").addEventListener("keydown", (event) => {
     if (event.key === "Enter") applyCacheLimit();
   });
-  el("tree-search").addEventListener("input", (event) => {
-    state.treeQuery = event.target.value.trim().toLowerCase();
+  el("refresh-apply").addEventListener("click", applyRefreshInterval);
+  el("refresh-interval").addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyRefreshInterval();
+  });
+  el("theme-toggle").addEventListener("click", () => {
+    state.theme = state.theme === "dark" ? "day" : "dark";
     persistState();
-    renderTree();
+    applyTheme();
+    state.charts.forEach((chart) => drawChart(chart));
   });
   el("metric-search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
@@ -543,6 +937,12 @@
       renderCharts();
     });
   });
+  el("scale-toggle").addEventListener("click", () => {
+    state.scale = state.scale === "symlog" ? "linear" : "symlog";
+    persistState();
+    syncScaleButton();
+    state.charts.forEach((chart) => drawChart(chart));
+  });
   let scrollTimer;
   treeElement.addEventListener("scroll", () => {
     state.treeScrollTop = treeElement.scrollTop;
@@ -552,14 +952,17 @@
   let resizeTimer;
   window.addEventListener("resize", () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => state.charts.forEach(({ canvas, group }) => drawChart(canvas, group)), 100);
+    resizeTimer = setTimeout(() => state.charts.forEach((chart) => drawChart(chart)), 100);
   });
 
-  el("tree-search").value = state.treeQuery;
   el("metric-search").value = state.query;
+  el("refresh-interval").value = String(state.refreshSeconds);
+  updateRefreshStatus();
+  applyTheme();
   document.querySelectorAll("[data-group]").forEach((button) => {
     button.classList.toggle("active", button.dataset.group === state.group);
   });
+  syncScaleButton();
   if (state.selectedPath) {
     detailsView.hidden = false;
     welcome.hidden = true;
@@ -570,5 +973,13 @@
 
   loadCacheStatus();
   loadTree();
-  setInterval(() => loadTree({ quiet: true }), 15000);
+  scheduleRefresh();
+
+  function syncScaleButton() {
+    const button = el("scale-toggle");
+    const active = state.scale === "symlog";
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", String(active));
+    button.textContent = active ? "± Log scale · on" : "± Log scale";
+  }
 })();

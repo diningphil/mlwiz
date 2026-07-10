@@ -232,6 +232,19 @@ configuration compares all of its child runs; selecting an individual run
 shows only that run. When `store_every_N_epochs` is configured, score and loss
 histories are refreshed while training is in progress.
 
+Hover over a chart to inspect the training, validation, and test values at one
+epoch. The `± Log scale` control uses a symmetric logarithmic transform, so it
+also supports zero and negative values. Each experiment has its own lazy-loaded
+configuration filter: choose any discovered score or loss, compare it with a
+threshold using `≥` or `≤`, choose training or validation values, and combine
+multiple conditions with AND or OR. Completed experiments use their aggregated
+results; running experiments use the latest values available in
+`metrics_data.torch`. While a filter is active, final runs are hidden and an
+experiment with no matching configuration shows only its filter controls.
+
+The header also provides a persistent refresh-interval setting and a day/dark
+theme toggle. Dark mode is the default.
+
 The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
 this artifact (metric storage is enabled by default):
 
