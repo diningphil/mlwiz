@@ -59,6 +59,7 @@ Tip: for GPU / graph workloads, install PyTorch and PyG following their official
 | 2) Run an experiment (grid search) | `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` | Add `--debug` to run sequentially and print logs |
 | 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
 | 4) Visualize in TensorBoard | `tensorboard --logdir RESULTS/mlp_MNIST` | Per-run logs are written automatically |
+| 4a) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
 | 5) Stop a running experiment | Press `Ctrl-C` | |
 
 ### 🧭 Navigating the CLI (non-debug mode)
@@ -214,6 +215,34 @@ Runs are written under `RESULTS/`:
 | Final retrains with selected hyperparams | `.../final_run*/` |
 
 Each training run also writes TensorBoard logs under `<run_dir>/tensorboard/`.
+
+### MLWiz Dashboard
+
+MLWiz includes a local, read-only experiment dashboard tailored to the result
+hierarchy above. Start it from the project that contains your results:
+
+```bash
+mlwiz-dashboard --logdir RESULTS
+```
+
+Open the URL printed by the command (by default
+`http://127.0.0.1:6006`). The run browser groups results by experiment, outer
+fold, model-selection configuration, inner fold, and final run. Selecting a
+configuration compares all of its child runs; selecting an individual run
+shows only that run. Score and loss histories are refreshed while training is
+in progress.
+
+The charts read `metrics_data.torch`. Enable this artifact in your experiment
+configuration with:
+
+```yaml
+plotter:
+  - class_name: mlwiz.training.callback.plotter.Plotter
+    args:
+      store_on_disk: True
+```
+
+Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
 
 ## 🛠️ Utilities
 ### 🗂️ Config Management (CLI)

@@ -9,6 +9,7 @@
 - added unit coverage to verify termination hooks run on both normal completion and interruption
 - training logs are now buffered and flushed to `experiment.log` every `N` epochs via `engine.args.store_log_every_N_epochs` (default: `1`), with a forced flush on termination and at training end
 - added CLI option `--detailed-gui` to toggle detailed per-run progress UI in non-debug mode; without it, MLWiz keeps the lightweight/global view (detailed GUI disabled). Use it when parallelism is low, otherwise it can spawn many threads
+- added `mlwiz-dashboard`, a local web app for browsing model-selection configurations, final runs, epoch metrics, and result metadata
 
 ## Changed
 

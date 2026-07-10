@@ -732,6 +732,25 @@ And we get:
    :width: 600
 
 
+MLWiz Dashboard
+-----------------------
+
+MLWiz also ships a result browser tailored to its model-selection and risk
+assessment hierarchy. Start it from a directory containing your ``RESULTS``
+folder:
+
+.. code-block:: bash
+
+    mlwiz-dashboard --logdir RESULTS
+
+Then open the URL printed by the command. The sidebar groups runs by experiment,
+outer fold, model-selection configuration, inner fold, and final run. Clicking
+a configuration compares the histories from all of its child runs, while
+clicking a run focuses on that run only. The dashboard reads
+``metrics_data.torch``, so configure the :class:`~mlwiz.training.callback.plotter.Plotter`
+with ``store_on_disk: True`` as described above.
+
+
 Filtering Configurations for Post-processing of Results
 ----------------------------------------------------------
 

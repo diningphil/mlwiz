@@ -14,7 +14,11 @@ packages = [
     "mlwiz.training.callback",
     "mlwiz.training.event",
     "mlwiz.ui",
+    "mlwiz.ui.web_assets",
 ]
+
+[tool.setuptools.package-data]
+"mlwiz.ui" = ["web_assets/*"]
 
 [project]
 name = "mlwiz"
@@ -55,6 +59,7 @@ dependencies = [
 mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
 mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
+mlwiz-dashboard = "mlwiz.ui.dashboard:main"
 
 [tool.setuptools.dynamic]
 version = {attr = "mlwiz.__version__"}
