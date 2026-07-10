@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Python
       uses: actions/setup-python@v6
@@ -66,7 +66,7 @@ jobs:
         password: ${{ secrets.PYPI_API_TOKEN }}
 
     - name: Checkout default branch for badge commit
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: ${{ env.DEFAULT_BRANCH }}
         fetch-depth: 0
