@@ -15,6 +15,7 @@ import math
 import mimetypes
 import pickle
 import re
+import statistics
 import sys
 import threading
 import webbrowser
@@ -40,6 +41,9 @@ _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
 _FILTER_RESULT_PATTERN = re.compile(r"^avg_(training|validation)_(.+)$")
+_ELAPSED_PATTERN = re.compile(
+    r"Total time of the experiment in seconds: (\d+(?:\.\d+)?)"
+)
 
 
 def _numbered_directories(
@@ -601,9 +605,129 @@ class ResultsRepository:
             "metrics_file_count": file_count,
             "modified_at": modified_at,
             "metadata": self._metadata_for(target),
+            "overview": self._experiment_overview(target),
             "errors": errors,
             "cache": self.cache_status(),
         }
+
+    def _experiment_overview(self, target: Path) -> Optional[dict[str, Any]]:
+        """Summarize progress and recorded run times for the selected experiment."""
+        assessment = next(
+            (
+                ancestor
+                for ancestor in self._ancestors_within_root(target)
+                if ancestor.name == MODEL_ASSESSMENT
+            ),
+            None,
+        )
+        if assessment is None:
+            return None
+        experiment = assessment.parent
+        run_folders = []
+        config_folders = []
+        for _, outer_folder in _numbered_directories(assessment, _OUTER_FOLD_PATTERN):
+            selection = outer_folder / "MODEL_SELECTION"
+            for _, config_folder in _numbered_directories(selection, _CONFIG_PATTERN):
+                config_folders.append(config_folder)
+                for _, inner_folder in _numbered_directories(
+                    config_folder, _INNER_FOLD_PATTERN
+                ):
+                    run_folders.extend(
+                        folder
+                        for _, folder in _numbered_directories(
+                            inner_folder, _RUN_PATTERN
+                        )
+                    )
+            run_folders.extend(
+                folder
+                for _, folder in _numbered_directories(outer_folder, _FINAL_RUN_PATTERN)
+            )
+
+        statuses = [self._run_status(folder) for folder in run_folders]
+        durations = [
+            status["duration_seconds"]
+            for status in statuses
+            if status["duration_seconds"] is not None
+        ]
+        completed = sum(status["state"] == "completed" for status in statuses)
+        running = sum(status["state"] == "running" for status in statuses)
+        failed = sum(status["state"] == "failed" for status in statuses)
+        queued = sum(status["state"] == "queued" for status in statuses)
+        average = statistics.fmean(durations) if durations else None
+        incomplete = max(len(statuses) - completed, 0)
+        return {
+            "experiment": self._relative(experiment),
+            "name": experiment.name,
+            "state": (
+                "completed"
+                if (assessment / "assessment_results.json").is_file()
+                else "running"
+            ),
+            "runs": {
+                "total": len(statuses),
+                "completed": completed,
+                "running": running,
+                "queued": queued,
+                "failed": failed,
+            },
+            "configurations": {
+                "total": len(config_folders),
+                "completed": sum(
+                    (folder / "config_results.json").is_file()
+                    for folder in config_folders
+                ),
+            },
+            "timing": {
+                "recorded_total_seconds": sum(durations) if durations else None,
+                "average_run_seconds": average,
+                "median_run_seconds": statistics.median(durations)
+                if durations
+                else None,
+                "fastest_run_seconds": min(durations) if durations else None,
+                "slowest_run_seconds": max(durations) if durations else None,
+                "estimated_remaining_compute_seconds": average * incomplete
+                if average is not None
+                else None,
+                "timed_runs": len(durations),
+            },
+        }
+
+    def _run_status(self, run_folder: Path) -> dict[str, Any]:
+        """Classify one run and extract completed profiler time markers."""
+        log_path = run_folder / "experiment.log"
+        duration = None
+        if log_path.is_file():
+            elapsed = 0.0
+            try:
+                with log_path.open("r", encoding="utf-8", errors="replace") as log:
+                    for line in log:
+                        match = _ELAPSED_PATTERN.search(line)
+                        if match:
+                            elapsed += float(match.group(1))
+            except OSError:
+                elapsed = 0.0
+            if elapsed > 0:
+                duration = elapsed
+
+        result_files = list(run_folder.glob("run_*_results.dill"))
+        error_path = run_folder / "experiment.err"
+        if duration is not None or result_files:
+            state = "completed"
+        elif error_path.is_file() and error_path.stat().st_size > 0:
+            state = "failed"
+        elif any(
+            (run_folder / filename).exists()
+            for filename in (
+                "metrics_data.torch",
+                "experiment.log",
+                "last_checkpoint.pth",
+                "best_checkpoint.pth",
+            )
+        ):
+            state = "running"
+        else:
+            state = "queued"
+        return {"state": state, "duration_seconds": duration}
 
     def _metrics_file_series(
         self, metrics_file: Path

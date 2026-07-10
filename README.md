@@ -245,6 +245,13 @@ experiment with no matching configuration shows only its filter controls.
 The header also provides a persistent refresh-interval setting and a day/dark
 theme toggle. Dark mode is the default.
 
+Above the selected configuration or run, a collapsible overview summarizes its
+parent experiment only: completed, running, queued, and failed runs; aggregated
+configurations; recorded compute time; average and median run duration; and an
+estimated remaining compute budget. Timing comes from the profiler markers in
+each `experiment.log`. The remaining estimate is deliberately reported as
+compute time because parallel execution may complete in less wall-clock time.
+
 The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
 this artifact (metric storage is enabled by default):
 

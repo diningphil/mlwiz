@@ -221,6 +221,59 @@ def test_running_experiment_filter_uses_last_recorded_metrics(tmp_path):
     assert config_values["training:scores:main_score"] == pytest.approx(0.8)
 
 
+def test_selected_experiment_overview_summarizes_run_times(tmp_path):
+    """Details should include timing statistics only for their parent experiment."""
+    experiment, _, selection_run, final_run = _write_fixture_results(tmp_path)
+    (selection_run / "experiment.log").write_text(
+        "Total time of the experiment in seconds: 10.0 \n"
+        "Total time of the experiment in seconds: 2.5 \n"
+    )
+    (final_run / "experiment.log").write_text(
+        "Total time of the experiment in seconds: 17.5 \n"
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    details = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )
+    overview = details["overview"]
+
+    assert overview["name"] == "mlp_MNIST"
+    assert overview["state"] == "completed"
+    assert overview["runs"] == {
+        "total": 2,
+        "completed": 2,
+        "running": 0,
+        "queued": 0,
+        "failed": 0,
+    }
+    assert overview["configurations"] == {"total": 1, "completed": 1}
+    assert overview["timing"]["recorded_total_seconds"] == pytest.approx(30.0)
+    assert overview["timing"]["average_run_seconds"] == pytest.approx(15.0)
+    assert overview["timing"]["median_run_seconds"] == pytest.approx(15.0)
+
+
+def test_running_overview_estimates_remaining_compute_time(tmp_path):
+    """Running experiments should estimate unfinished compute from timed runs."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    (experiment / "MODEL_ASSESSMENT" / "assessment_results.json").unlink()
+    (selection_run / "experiment.log").write_text(
+        "Total time of the experiment in seconds: 12.0 \n"
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    overview = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )["overview"]
+
+    assert overview["state"] == "running"
+    assert overview["runs"]["completed"] == 1
+    assert overview["runs"]["running"] == 1
+    assert overview["timing"]["estimated_remaining_compute_seconds"] == pytest.approx(
+        12.0
+    )
+
+
 def test_details_aggregates_all_runs_below_configuration(tmp_path):
     """Clicking a configuration should collect histories from its child runs."""
     experiment, config, _, _ = _write_fixture_results(tmp_path)
@@ -319,6 +372,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="scale-toggle"' in page
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
+        assert 'id="experiment-overview"' in page
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script

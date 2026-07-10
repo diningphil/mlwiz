@@ -30,6 +30,7 @@
       ? Math.round(storedRefreshSeconds)
       : 15,
     experimentFilters: storedState.experimentFilters || {},
+    overviewExpanded: storedState.overviewExpanded !== false,
     filterData: {},
     filterLoading: {},
     charts: [],
@@ -60,6 +61,7 @@
         theme: state.theme,
         refreshSeconds: state.refreshSeconds,
         experimentFilters: state.experimentFilters,
+        overviewExpanded: state.overviewExpanded,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
@@ -575,6 +577,7 @@
   function renderDetails() {
     const data = state.details;
     renderCacheStatus(data.cache);
+    renderExperimentOverview(data.overview);
     el("selection-kind").textContent = data.selection.kind;
     el("selection-name").textContent = readableName(data.selection.name);
     el("selection-path").textContent = data.selection.path;
@@ -624,6 +627,99 @@
       card.append(node("span", "", label), node("strong", "", String(value)));
       grid.append(card);
     }
+  }
+
+  function formatDuration(seconds) {
+    if (seconds === null || seconds === undefined || !Number.isFinite(Number(seconds))) return "—";
+    const total = Math.max(0, Math.round(Number(seconds)));
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    if (days) return `${days}d ${hours}h`;
+    if (hours) return `${hours}h ${minutes}m`;
+    if (minutes) return `${minutes}m ${secs}s`;
+    return `${secs}s`;
+  }
+
+  function renderExperimentOverview(overview) {
+    const host = el("experiment-overview");
+    host.replaceChildren();
+    if (!overview) return;
+
+    const box = node("details", "experiment-overview-box");
+    box.open = state.overviewExpanded;
+    const summary = node("summary", "overview-summary");
+    const identity = node("div", "overview-identity");
+    const statusDot = node("span", `overview-status-dot ${overview.state}`);
+    const nameBlock = node("div", "");
+    nameBlock.append(
+      node("span", "overview-kicker", "Main experiment"),
+      node("strong", "", overview.name)
+    );
+    identity.append(statusDot, nameBlock);
+    const summaryMeta = node("div", "overview-summary-meta");
+    const runSummary = overview.runs.total
+      ? `${overview.runs.completed} of ${overview.runs.total} runs complete`
+      : "No runs discovered";
+    summaryMeta.append(
+      node("span", `overview-state ${overview.state}`, overview.state),
+      node("span", "overview-run-summary", runSummary),
+      node("span", "overview-chevron", "⌄")
+    );
+    summary.append(identity, summaryMeta);
+    box.append(summary);
+
+    const body = node("div", "overview-body");
+    if (overview.runs.total) {
+      const progress = node("div", "overview-progress");
+      const progressFill = node("span", "");
+      progressFill.style.width = `${Math.min(100, (overview.runs.completed / overview.runs.total) * 100)}%`;
+      progress.append(progressFill);
+      body.append(progress);
+    }
+
+    const activity = node("div", "overview-activity");
+    for (const [label, value, className] of [
+      ["Completed", overview.runs.completed, "completed"],
+      ["Running", overview.runs.running, "running"],
+      ["Queued", overview.runs.queued, "queued"],
+      ["Failed", overview.runs.failed, "failed"],
+    ]) {
+      if (value || label === "Completed") {
+        const chip = node("span", `overview-chip ${className}`);
+        chip.append(node("strong", "", String(value)), document.createTextNode(` ${label}`));
+        activity.append(chip);
+      }
+    }
+    const configText = `${overview.configurations.completed} / ${overview.configurations.total} configurations aggregated`;
+    activity.append(node("span", "overview-config-count", configText));
+    body.append(activity);
+
+    const timing = overview.timing;
+    const timingGrid = node("div", "overview-timing-grid");
+    for (const [label, value] of [
+      ["Recorded compute", timing.recorded_total_seconds],
+      ["Average run", timing.average_run_seconds],
+      ["Median run", timing.median_run_seconds],
+      [overview.state === "completed" ? "Slowest run" : "Remaining compute", overview.state === "completed" ? timing.slowest_run_seconds : timing.estimated_remaining_compute_seconds],
+    ]) {
+      const card = node("div", "overview-time-card");
+      card.append(node("span", "", label), node("strong", "", formatDuration(value)));
+      timingGrid.append(card);
+    }
+    body.append(timingGrid);
+
+    const note = overview.state === "completed"
+      ? `${timing.timed_runs} completed runs include timing markers.`
+      : "Remaining compute is estimated as average completed-run time × unfinished runs; parallel execution can reduce wall time.";
+    body.append(node("p", "overview-note", note));
+    box.append(body);
+    box.addEventListener("toggle", () => {
+      state.overviewExpanded = box.open;
+      persistState();
+    });
+    host.append(box);
   }
 
   function renderSourceFilter(sources) {
