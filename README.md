@@ -27,7 +27,7 @@ MLWiz helps you run end-to-end research experiments with minimal boilerplate:
 - 🧱 Build/prepare datasets and generate splits (hold-out or nested CV)
 - 🎛️ Expand a hyperparameter search space (grid, random, or Bayesian search)
 - ⚡ Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
-- 📈 Log metrics, checkpoints, and TensorBoard traces in a consistent folder structure
+- 📈 Log dashboard-ready metric histories and checkpoints in a consistent folder structure
 
 Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil/PyDGN).
 
@@ -58,8 +58,7 @@ Tip: for GPU / graph workloads, install PyTorch and PyG following their official
 | 1) Prepare dataset + splits | `mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml` | Creates processed data + a `.splits` file |
 | 2) Run an experiment (grid search) | `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` | Add `--debug` to run sequentially and print logs |
 | 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
-| 4) Visualize in TensorBoard | `tensorboard --logdir RESULTS/mlp_MNIST` | Per-run logs are written automatically |
-| 4a) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
+| 4) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
 | 5) Stop a running experiment | Press `Ctrl-C` | |
 
 ### 🧭 Navigating the CLI (non-debug mode)
@@ -214,7 +213,8 @@ Runs are written under `RESULTS/`:
 | Model selection (inner folds + winner config) | `.../MODEL_SELECTION/...` |
 | Final retrains with selected hyperparams | `.../final_run*/` |
 
-Each training run also writes TensorBoard logs under `<run_dir>/tensorboard/`.
+When a `Plotter` callback is configured, each training run writes dashboard
+histories to `<run_dir>/metrics_data.torch`.
 
 ### MLWiz Dashboard
 
@@ -229,17 +229,14 @@ Open the URL printed by the command (by default
 `http://127.0.0.1:6006`). The run browser groups results by experiment, outer
 fold, model-selection configuration, inner fold, and final run. Selecting a
 configuration compares all of its child runs; selecting an individual run
-shows only that run. Score and loss histories are refreshed while training is
-in progress.
+shows only that run. When `store_every_N_epochs` is configured, score and loss
+histories are refreshed while training is in progress.
 
-The charts read `metrics_data.torch`. Enable this artifact in your experiment
-configuration with:
+The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
+this artifact (metric storage is enabled by default):
 
 ```yaml
-plotter:
-  - class_name: mlwiz.training.callback.plotter.Plotter
-    args:
-      store_on_disk: True
+plotter: mlwiz.training.callback.plotter.Plotter
 ```
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.

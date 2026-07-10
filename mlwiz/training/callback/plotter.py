@@ -1,36 +1,19 @@
-"""TensorBoard logging callback for training runs.
+"""Metric-history callback for MLWiz Dashboard.
 
-The :class:`~mlwiz.training.callback.plotter.Plotter` writes per-epoch metrics and optional on-disk histories.
+The :class:`~mlwiz.training.callback.plotter.Plotter` persists per-epoch losses
+and scores to ``metrics_data.torch`` for live and post-run inspection.
 """
 
 from pathlib import Path
 from typing import Optional
 
 import torch
-from torch.utils.tensorboard import SummaryWriter
 
-from mlwiz.static import (
-    LOSSES,
-    SCORES,
-    TENSORBOARD,
-    TEST,
-    TRAINING,
-    VALIDATION,
-)
+from mlwiz.static import LOSSES, SCORES
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.distributed import is_main_process
 from mlwiz.training.util import atomic_torch_save
-
-
-class _NullSummaryWriter:
-    """Drop-in writer used when TensorBoard logging is disabled."""
-
-    def add_scalars(self, *args, **kwargs):
-        """Ignore scalar logging calls."""
-
-    def close(self):
-        """No-op close for API compatibility."""
 
 
 class Plotter(EventHandler):
@@ -38,64 +21,45 @@ class Plotter(EventHandler):
     Plotter is the main event handler for plotting at training time.
 
     Args:
-        exp_path (str): path where to store the Tensorboard logs
+        exp_path (str): path where to store ``metrics_data.torch``
         store_on_disk (bool): whether to store all metrics on disk.
-            Defaults to False
+            Defaults to ``True``
         kwargs (dict): additional arguments that may depend on the plotter
     """
 
     def __init__(
         self,
         exp_path: str,
-        store_on_disk: bool = False,
+        store_on_disk: bool = True,
         store_every_N_epochs: Optional[int] = None,
-        enable_tensorboard: bool = True,
         **kwargs: dict,
     ):
         r"""
-        Initialize the plotter and tensorboard writer.
+        Initialize dashboard metric persistence.
 
         Args:
-            exp_path (str): Experiment folder where tensorboard logs are stored.
+            exp_path (str): Experiment folder where metrics are stored.
             store_on_disk (bool): If ``True``, persist raw metric histories to
-                ``metrics_data.torch`` in ``exp_path`` in addition to
-                tensorboard summaries.
+                ``metrics_data.torch`` in ``exp_path``. Defaults to ``True``.
             store_every_N_epochs (int, optional): If set, flushes metrics to
                 disk every ``N`` epochs instead of every epoch. Metrics are
                 always flushed on termination.
-            enable_tensorboard (bool): If ``False``, skip TensorBoard event
-                file creation and only keep optional ``metrics_data.torch``
-                persistence.
             **kwargs: Unused extra arguments (kept for configuration
                 compatibility).
 
         Side effects:
-            When ``enable_tensorboard`` is ``True``, creates the tensorboard
-            folder if missing and instantiates a
-            :class:`torch.utils.tensorboard.SummaryWriter`. Always loads
-            previously stored metrics if present.
+            Loads previously stored metrics when ``metrics_data.torch`` exists.
         """
         super().__init__()
         self.exp_path = exp_path
         self.store_on_disk = store_on_disk
         self.store_every_N_epochs = store_every_N_epochs
-        self.enable_tensorboard = enable_tensorboard
         self.main_process = is_main_process()
         if self.store_every_N_epochs is not None and (
             not isinstance(self.store_every_N_epochs, int)
             or self.store_every_N_epochs <= 0
         ):
-            raise ValueError(
-                "`store_every_N_epochs` must be a positive integer."
-            )
-
-        if self.enable_tensorboard and self.main_process:
-            tensorboard_dir = Path(self.exp_path, TENSORBOARD)
-            tensorboard_dir.mkdir(parents=True, exist_ok=True)
-            self.writer = SummaryWriter(log_dir=tensorboard_dir)
-        else:
-            # Keep the same writer API while preventing any TensorBoard files.
-            self.writer = _NullSummaryWriter()
+            raise ValueError("`store_every_N_epochs` must be a positive integer.")
 
         if not self.main_process:
             self.store_on_disk = False
@@ -127,46 +91,20 @@ class Plotter(EventHandler):
 
     def on_epoch_end(self, state: State):
         """
-        Writes Training, Validation and (if any) Test metrics to Tensorboard
+        Append the epoch's available loss and score metrics.
 
         Args:
             state (:class:`~training.event.state.State`):
                 object holding training information
         """
-        if not self.main_process:
+        if not self.main_process or not self.store_on_disk:
             return
 
         for k, v in state.epoch_results[LOSSES].items():
-            loss_scalars = {}
-            # Remove training/validation/test prefix (coupling with Engine)
-            loss_name = " ".join(k.split("_")[1:])
-            if TRAINING in k:
-                loss_scalars[f"{TRAINING}"] = v
-            elif VALIDATION in k:
-                loss_scalars[f"{VALIDATION}"] = v
-            elif TEST in k:
-                loss_scalars[f"{TEST}"] = v
-
-            self.writer.add_scalars(loss_name, loss_scalars, state.epoch)
-
-            if self.store_on_disk:
-                self._update_stored_metrics("losses", k, v)
+            self._update_stored_metrics("losses", k, v)
 
         for k, v in state.epoch_results[SCORES].items():
-            score_scalars = {}
-            # Remove training/validation/test prefix (coupling with Engine)
-            score_name = " ".join(k.split("_")[1:])
-            if TRAINING in k:
-                score_scalars[f"{TRAINING}"] = v
-            elif VALIDATION in k:
-                score_scalars[f"{VALIDATION}"] = v
-            elif TEST in k:
-                score_scalars[f"{TEST}"] = v
-
-            self.writer.add_scalars(score_name, score_scalars, state.epoch)
-
-            if self.store_on_disk:
-                self._update_stored_metrics("scores", k, v)
+            self._update_stored_metrics("scores", k, v)
 
         if (
             self.store_on_disk
@@ -175,19 +113,9 @@ class Plotter(EventHandler):
         ):
             self._store_metrics()
 
-    def on_fit_end(self, state: State):
-        """
-        Frees resources by closing the Tensorboard writer
-
-        Args:
-            state (:class:`~training.event.state.State`):
-                object holding training information
-        """
-        self.writer.close()
-
     def on_termination(self, state: State):
         """
-        Persist metrics at termination and free TensorBoard resources.
+        Persist metrics at termination.
 
         Args:
             state (:class:`~training.event.state.State`):
@@ -195,4 +123,3 @@ class Plotter(EventHandler):
         """
         if self.main_process and self.store_on_disk:
             self._store_metrics()
-        self.writer.close()

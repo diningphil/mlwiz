@@ -80,7 +80,6 @@ BEST_CHECKPOINT_FILENAME = "best_checkpoint.pth"
 BATCH_LOSS_EXTRA = "batch_loss_extra"
 
 # STRING FORMATTING
-TENSORBOARD = "tensorboard"
 ATOMIC_SAVE_EXTENSION = ".part"
 CLASS_NAME = "class_name"
 ARGS = "args"

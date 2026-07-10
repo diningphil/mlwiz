@@ -460,7 +460,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format: str, *args: Any) -> None:
-        """Use a concise TensorBoard-like access log."""
+        """Use a concise dashboard access log."""
         print(f"[mlwiz-dashboard] {self.address_string()} {format % args}")
 
 

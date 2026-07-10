@@ -14,6 +14,11 @@
 ## Changed
 
 - `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
+- `Plotter` now persists `metrics_data.torch` for MLWiz Dashboard by default
+
+## Removed
+
+- removed the TensorBoard integration and runtime dependency in favor of `mlwiz-dashboard`
 
 ## [1.5.3]
 

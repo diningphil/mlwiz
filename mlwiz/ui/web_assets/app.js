@@ -231,7 +231,7 @@
     } else if (!data.series.length) {
       notice.hidden = false;
       notice.className = "notice";
-      notice.textContent = "No epoch histories were found here. Enable Plotter with store_on_disk: True, or wait for the run to write metrics_data.torch.";
+      notice.textContent = "No epoch histories were found here. Configure the Plotter callback, or wait for the run to write metrics_data.torch.";
     } else {
       notice.hidden = true;
     }

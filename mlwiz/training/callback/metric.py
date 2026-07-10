@@ -89,7 +89,7 @@ class Metric(Module, EventHandler):
     def name(self) -> str:
         """
         The name of the loss to be used in configuration files and displayed
-        on Tensorboard. It is the same as the class name.
+        in metric histories. It is the same as the class name.
         """
         return self.__class__.__name__
 
