@@ -643,9 +643,10 @@ Storing logged metrics on disk
 
 The ``Plotter`` stores epoch-wise metrics for MLWiz Dashboard in a PyTorch file
 called ``metrics_data.torch``. Storage is enabled by default and the file is
-flushed when training terminates. Set ``store_every_N_epochs`` to a positive
-integer to update it periodically while training is running. Metrics are stored
-in a dictionary with separate keys for losses and scores.
+flushed after every epoch. Set ``store_every_N_epochs`` to a larger positive
+integer to reduce the write frequency, or to ``None`` to flush only when
+training terminates. Metrics are stored in a dictionary with separate keys for
+losses and scores.
 
 
 Loading and storing graphs

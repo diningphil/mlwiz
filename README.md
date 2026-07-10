@@ -229,8 +229,9 @@ Open the URL printed by the command (by default
 `http://127.0.0.1:6006`). The run browser groups results by experiment, outer
 fold, model-selection configuration, inner fold, and final run. Selecting a
 configuration compares all of its child runs; selecting an individual run
-shows only that run. When `store_every_N_epochs` is configured, score and loss
-histories are refreshed while training is in progress.
+shows only that run. Score and loss histories are refreshed after every epoch
+by default. Set `store_every_N_epochs` to a larger value to reduce the write
+frequency.
 
 Hover over a chart to inspect the training, validation, and test values at one
 epoch. The `± Log scale` control uses a symmetric logarithmic transform, so it

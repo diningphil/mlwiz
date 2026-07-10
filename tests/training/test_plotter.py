@@ -32,7 +32,6 @@ def test_plotter_stores_dashboard_metrics_by_default(tmp_path):
     state = _state()
 
     plotter.on_epoch_end(state)
-    plotter.on_termination(state)
 
     metrics_path = tmp_path / "metrics_data.torch"
     assert metrics_path.is_file()

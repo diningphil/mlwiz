@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.6.1]
+
+## Changed
+
+- `Plotter` now persists metrics every epoch by default to work with the dashboard (we abandoned tensorboard); configure `store_every_N_epochs` to change the interval or set it to `None` to write only on termination
+
 ## [1.6.0]
 
 ## Added
