@@ -31,7 +31,7 @@ class Plotter(EventHandler):
         self,
         exp_path: str,
         store_on_disk: bool = True,
-        store_every_N_epochs: Optional[int] = None,
+        store_every_N_epochs: Optional[int] = 1,
         **kwargs: dict,
     ):
         r"""
@@ -41,9 +41,9 @@ class Plotter(EventHandler):
             exp_path (str): Experiment folder where metrics are stored.
             store_on_disk (bool): If ``True``, persist raw metric histories to
                 ``metrics_data.torch`` in ``exp_path``. Defaults to ``True``.
-            store_every_N_epochs (int, optional): If set, flushes metrics to
-                disk every ``N`` epochs instead of every epoch. Metrics are
-                always flushed on termination.
+            store_every_N_epochs (int, optional): Flush metrics to disk every
+                ``N`` epochs. Defaults to ``1``. Set to ``None`` to flush only
+                when training terminates.
             **kwargs: Unused extra arguments (kept for configuration
                 compatibility).
 
