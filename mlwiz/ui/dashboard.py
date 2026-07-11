@@ -198,6 +198,18 @@ class MetricsCache:
             self._evict_to_limit()
             return self.stats()
 
+    def clear(self) -> dict[str, Any]:
+        """Remove every cached metric entry and reset lifecycle counters."""
+        with self._lock:
+            self._entries.clear()
+            self._used_bytes = 0
+            self._hits = 0
+            self._misses = 0
+            self._evictions = 0
+            self._invalidations = 0
+            self._skipped = 0
+            return self.stats()
+
     def stats(self) -> dict[str, Any]:
         """Return cache capacity, usage, and lifecycle counters."""
         with self._lock:
@@ -257,6 +269,10 @@ class ResultsRepository:
             raise ValueError("Cache limit must be finite.")
         max_bytes = int(max_mb * _MEBIBYTE)
         return self.metrics_cache.configure(max_bytes)
+
+    def reset_cache(self) -> dict[str, Any]:
+        """Clear normalized metric histories while preserving the size limit."""
+        return self.metrics_cache.clear()
 
     def experiment_filter_data(self, relative_path: str) -> dict[str, Any]:
         """Return lazy configuration-filter values for one experiment."""
@@ -940,6 +956,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         """Handle dashboard configuration requests."""
         parsed = urlparse(self.path)
+        if parsed.path == "/api/cache/reset":
+            self._send_json(self.server.repository.reset_cache())
+            return
         if parsed.path != "/api/cache":
             self._send_error(HTTPStatus.NOT_FOUND, "Page not found.")
             return

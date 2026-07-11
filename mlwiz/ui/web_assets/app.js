@@ -188,6 +188,24 @@
     }
   }
 
+  async function resetCache() {
+    const button = el("cache-reset");
+    button.disabled = true;
+    button.textContent = "Clearing…";
+    try {
+      renderCacheStatus(await postJson("/api/cache/reset", {}));
+      button.textContent = "Cleared";
+    } catch (error) {
+      button.textContent = "Error";
+      button.title = error.message;
+    } finally {
+      setTimeout(() => {
+        button.disabled = false;
+        button.textContent = "Reset";
+      }, 900);
+    }
+  }
+
   function applyRefreshInterval() {
     const input = el("refresh-interval");
     const button = el("refresh-apply");
@@ -1471,6 +1489,7 @@
 
   el("refresh-button").addEventListener("click", () => loadTree());
   el("cache-apply").addEventListener("click", applyCacheLimit);
+  el("cache-reset").addEventListener("click", resetCache);
   el("cache-limit").addEventListener("keydown", (event) => {
     if (event.key === "Enter") applyCacheLimit();
   });

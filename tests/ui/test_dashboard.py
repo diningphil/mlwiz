@@ -168,6 +168,26 @@ def test_metrics_cache_evicts_least_recently_used_entry(tmp_path):
     assert cache.get(first_path, (1, 1)) is None
 
 
+def test_metrics_cache_reset_clears_entries_and_counters(tmp_path):
+    """Resetting the cache should retain its limit but clear all cache state."""
+    cache = MetricsCache(max_bytes=1024 * 1024)
+    metrics_path = tmp_path / "metrics_data.torch"
+    assert cache.put(
+        metrics_path,
+        (1, 1),
+        [{"group": "scores", "name": "main_score", "values": [0.5]}],
+    )
+    assert cache.get(metrics_path, (1, 1)) is not None
+
+    status = cache.clear()
+
+    assert status["entries"] == 0
+    assert status["used_bytes"] == 0
+    assert status["max_mb"] == 1
+    assert status["hits"] == 0
+    assert status["misses"] == 0
+
+
 def test_completed_experiment_filter_uses_aggregated_results(tmp_path):
     """Finished experiments should filter on config-level validation results."""
     experiment, config, _, _ = _write_fixture_results(tmp_path)
@@ -395,9 +415,18 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         )
         with urlopen(cache_request, timeout=3) as response:
             updated_cache = json.loads(response.read())
+        reset_request = Request(
+            f"{base_url}/api/cache/reset",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(reset_request, timeout=3) as response:
+            reset_cache = json.loads(response.read())
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
+        assert 'id="cache-reset"' in page
         assert 'id="plot-mode-select"' in page
         assert 'id="inner-fold-aggregate"' in page
         assert 'id="plot-navigator"' in page
@@ -411,6 +440,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "localStorage.setItem(themeStorageKey" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
+        assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
@@ -442,6 +472,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert tree["experiments"][0]["name"] == "mlp_MNIST"
         assert initial_cache["max_mb"] == 256
         assert updated_cache["max_mb"] == 64
+        assert reset_cache["entries"] == 0
+        assert reset_cache["max_mb"] == 64
         assert filter_data["default_metric"] == "scores:main_score"
     finally:
         server.shutdown()

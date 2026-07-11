@@ -13,6 +13,7 @@
 - added interactive metric charts with epoch hover values and a symmetric logarithmic scale that supports positive, zero, and negative values
 - added per-experiment configuration filters for training or validation metrics, configurable comparison operators, and combined `AND`/`OR` clauses
 - added configurable dashboard metric-cache size and automatic refresh interval controls
+- added a dashboard cache-reset button that clears in-memory metric histories and cache counters while preserving the configured memory limit
 - added dark and day themes, with dark mode as the default
 - added a collapsible overview of completed, running, and failed runs plus experiment timing statistics for the selected experiment
 - added a collapsible configuration/result inspector with nested structured and raw JSON views
