@@ -16,6 +16,8 @@
 - added dark and day themes, with dark mode as the default
 - added a collapsible overview of completed, running, and failed runs plus experiment timing statistics for the selected experiment
 - added a collapsible configuration/result inspector with nested structured and raw JSON views
+- added a plot mode for grouping model-selection curves by inner fold, with an optional mean ± standard deviation checkbox, plus an all-final-runs aggregation view
+- added a sticky plot navigator with fold/run selectors, previous/next controls, focused-first defaults, and a `Show all` override for model-selection configurations
 
 ## Changed
 
@@ -24,6 +26,7 @@
 - the dashboard now loads `metrics_data.torch` files on demand and retains them in a bounded LRU memory cache; a single oversized selection is still loaded but is not retained in the cache
 - completed configuration filters use the experiment-selected best metric value, while running configurations use the latest available metric value
 - opening an object or array nested beneath `config` in the dashboard inspector now expands its complete descendant tree in one action
+- sibling final-run metrics are loaded on demand only when the all-final-runs aggregation view is selected
 
 ## Fixed
 
@@ -32,6 +35,9 @@
 - filters with no matching configurations now show an empty result instead of unfiltered configurations
 - dashboard configuration counts no longer include final runs
 - the central selection prompt is hidden after a configuration or run is opened
+- the plot navigator now remains pinned to the top of the viewport while scrolling through charts
+- changing the focused inner fold or run no longer resets the chart-page scroll position
+- the sticky plot navigator gains a higher-contrast border and shadow while detached from its original page position
 
 ## Removed
 

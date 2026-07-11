@@ -31,6 +31,14 @@
     treeScrollTop: Number(storedState.treeScrollTop) || 0,
     group: storedState.group || "all",
     source: storedState.source || "all",
+    plotMode: storedState.plotMode === "inner-fold-aggregate"
+      ? "inner-fold"
+      : (storedState.plotMode || "auto"),
+    innerFoldAggregate: storedState.innerFoldAggregate
+      ?? storedState.plotMode === "inner-fold-aggregate",
+    focusedInnerFold: storedState.focusedInnerFold || null,
+    focusedRun: storedState.focusedRun || null,
+    showAllPlots: Boolean(storedState.showAllPlots),
     query: storedState.query || "",
     scale: storedState.scale || "linear",
     theme: ["dark", "day"].includes(storedTheme)
@@ -71,6 +79,11 @@
         treeScrollTop: state.treeScrollTop,
         group: state.group,
         source: state.source,
+        plotMode: state.plotMode,
+        innerFoldAggregate: state.innerFoldAggregate,
+        focusedInnerFold: state.focusedInnerFold,
+        focusedRun: state.focusedRun,
+        showAllPlots: state.showAllPlots,
         query: state.query,
         scale: state.scale,
         theme: state.theme,
@@ -565,7 +578,13 @@
     const previousScroll = window.scrollY;
     const selectionChanged = state.selectedPath !== path;
     state.selectedPath = path;
-    if (selectionChanged) state.source = "all";
+    if (selectionChanged) {
+      state.source = "all";
+      state.plotMode = "auto";
+      state.focusedInnerFold = null;
+      state.focusedRun = null;
+      state.showAllPlots = false;
+    }
     persistState();
     detailsView.hidden = false;
     welcome.hidden = true;
@@ -577,7 +596,10 @@
       el("chart-grid").replaceChildren(chartMessage("Reading metrics_data.torch…"));
     }
     try {
-      state.details = await getJson(`/api/details?path=${encodeURIComponent(path)}`);
+      const aggregateFinalRuns = state.plotMode === "final-aggregate"
+        ? "&aggregate_final_runs=1"
+        : "";
+      state.details = await getJson(`/api/details?path=${encodeURIComponent(path)}${aggregateFinalRuns}`);
       renderDetails();
       if (!preserveScroll && window.innerWidth < 721) detailsView.scrollIntoView({ behavior: "smooth" });
       if (preserveScroll) window.scrollTo(0, previousScroll);
@@ -612,7 +634,10 @@
       ["Epochs recorded", maxEpochs || "—"],
       ["Run files", data.metrics_file_count],
     ]);
+    renderPlotMode();
+    renderInnerFoldAggregation();
     renderSourceFilter(sources);
+    renderPlotNavigator();
 
     const notice = el("notice");
     if (data.errors.length) {
@@ -744,15 +769,74 @@
     host.append(box);
   }
 
+  function plotModeOptions() {
+    const scope = state.details?.selection.plot_scope;
+    if (scope === "model_selection_configuration") {
+      return [
+        ["individual", "Individual runs"],
+        ["inner-fold", "Group by inner fold"],
+      ];
+    }
+    if (scope === "final_runs") {
+      return [
+        ["final-selected", "Selected final run"],
+        ["final-aggregate", "All final runs mean ± std"],
+      ];
+    }
+    return [];
+  }
+
+  function resolvedPlotMode() {
+    const options = plotModeOptions();
+    const allowed = options.map(([value]) => value);
+    return allowed.includes(state.plotMode) ? state.plotMode : (allowed[0] || "individual");
+  }
+
+  function renderPlotMode() {
+    const field = el("plot-mode-field");
+    const select = el("plot-mode-select");
+    const options = plotModeOptions();
+    select.replaceChildren();
+    if (!options.length) {
+      field.hidden = true;
+      return;
+    }
+    field.hidden = false;
+    const mode = resolvedPlotMode();
+    if (state.plotMode !== mode) {
+      state.plotMode = mode;
+      persistState();
+    }
+    for (const [value, label] of options) {
+      const option = node("option", "", label);
+      option.value = value;
+      select.append(option);
+    }
+    select.value = mode;
+  }
+
+  function renderInnerFoldAggregation() {
+    const field = el("inner-fold-aggregate-field");
+    const checkbox = el("inner-fold-aggregate");
+    const visible = state.details?.selection.plot_scope === "model_selection_configuration"
+      && resolvedPlotMode() === "inner-fold";
+    field.hidden = !visible;
+    checkbox.checked = Boolean(state.innerFoldAggregate);
+  }
+
   function renderSourceFilter(sources) {
     const field = el("source-field");
     const select = el("source-select");
     select.replaceChildren();
+    if (state.details?.selection.plot_scope === "model_selection_configuration") {
+      field.hidden = true;
+      return;
+    }
     if (state.source !== "all" && !sources.includes(state.source)) {
       state.source = "all";
       persistState();
     }
-    if (sources.length <= 1) {
+    if (resolvedPlotMode() !== "individual" || sources.length <= 1) {
       field.hidden = true;
       return;
     }
@@ -768,6 +852,101 @@
     select.value = state.source;
   }
 
+  function naturalSort(values) {
+    return [...values].sort((left, right) => left.localeCompare(
+      right,
+      undefined,
+      { numeric: true, sensitivity: "base" },
+    ));
+  }
+
+  function configurationRunSources() {
+    return naturalSort(new Set(
+      state.details.series
+        .map((series) => series.source)
+        .filter((source) => innerFoldName(source) !== "Ungrouped"),
+    ));
+  }
+
+  function setSelectOptions(select, values, selected, labeler = (value) => value) {
+    select.replaceChildren();
+    for (const value of values) {
+      const option = node("option", "", labeler(value));
+      option.value = value;
+      select.append(option);
+    }
+    select.value = selected;
+  }
+
+  function renderPlotNavigator() {
+    const navigator = el("plot-navigator");
+    const isConfiguration = state.details?.selection.plot_scope === "model_selection_configuration";
+    if (!isConfiguration) {
+      navigator.hidden = true;
+      return;
+    }
+
+    const sources = configurationRunSources();
+    const folds = naturalSort(new Set(sources.map(innerFoldName)));
+    if (!folds.length) {
+      navigator.hidden = true;
+      return;
+    }
+    navigator.hidden = false;
+
+    let changed = false;
+    if (!folds.includes(state.focusedInnerFold)) {
+      state.focusedInnerFold = folds[0];
+      changed = true;
+    }
+    const foldRuns = sources.filter(
+      (source) => innerFoldName(source) === state.focusedInnerFold,
+    );
+    if (!foldRuns.includes(state.focusedRun)) {
+      state.focusedRun = foldRuns[0] || null;
+      changed = true;
+    }
+    if (changed) persistState();
+
+    setSelectOptions(el("fold-select"), folds, state.focusedInnerFold);
+    setSelectOptions(el("run-select"), foldRuns, state.focusedRun, shortRunName);
+    const individual = resolvedPlotMode() === "individual";
+    el("run-navigator").hidden = !individual;
+    el("show-all-plots").checked = state.showAllPlots;
+    for (const control of [
+      el("fold-select"), el("fold-previous"), el("fold-next"),
+      el("run-select"), el("run-previous"), el("run-next"),
+    ]) control.disabled = state.showAllPlots;
+
+    el("plot-navigator-status").textContent = state.showAllPlots
+      ? (individual ? "All folds and runs" : "All inner folds")
+      : (individual
+        ? `${state.focusedInnerFold} · ${shortRunName(state.focusedRun)}`
+        : state.focusedInnerFold);
+  }
+
+  function moveNavigatorSelection(selectId, offset) {
+    const select = el(selectId);
+    if (select.disabled || select.options.length < 2) return;
+    const nextIndex = (select.selectedIndex + offset + select.options.length)
+      % select.options.length;
+    select.selectedIndex = nextIndex;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function observeStickyPlotNavigator() {
+    const navigator = el("plot-navigator");
+    const sentinel = el("plot-navigator-sentinel");
+    const observer = new IntersectionObserver(([entry]) => {
+      const passedStickyEdge = entry.boundingClientRect.top <= 10;
+      navigator.classList.toggle("is-stuck", !entry.isIntersecting && passedStickyEdge);
+    }, {
+      threshold: 0,
+      rootMargin: "-10px 0px 0px",
+    });
+    observer.observe(sentinel);
+  }
+
   function splitMetric(name) {
     for (const split of ["training", "validation", "test"]) {
       if (name.startsWith(`${split}_`)) return { split, metric: name.slice(split.length + 1) };
@@ -775,16 +954,100 @@
     return { split: "other", metric: name };
   }
 
+  function innerFoldName(source) {
+    const match = source.match(/(?:^|\/)(INNER_FOLD_\d+)(?:\/|$)/);
+    return match ? match[1] : "Ungrouped";
+  }
+
+  function shortRunName(source) {
+    return source.split("/").pop().replaceAll("_", " ");
+  }
+
+  function runDashPattern(source) {
+    const match = source.match(/run_?(\d+)$/i);
+    const index = match ? Number(match[1]) - 1 : 0;
+    return [[], [7, 3], [2, 3], [9, 3, 2, 3]][Math.abs(index) % 4];
+  }
+
+  function aggregateMetricLines(lines) {
+    const epochs = Math.max(...lines.map((line) => line.values.length), 0);
+    const values = [];
+    const lower = [];
+    const upper = [];
+    for (let index = 0; index < epochs; index += 1) {
+      const samples = lines
+        .map((line) => line.values[index])
+        .filter((value) => value !== null && Number.isFinite(value));
+      if (!samples.length) {
+        values.push(null); lower.push(null); upper.push(null);
+        continue;
+      }
+      const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
+      const variance = samples.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / samples.length;
+      const std = Math.sqrt(variance);
+      values.push(mean);
+      lower.push(mean - std);
+      upper.push(mean + std);
+    }
+    return { values, band: { lower, upper }, sampleCount: lines.length };
+  }
+
   function groupedSeries() {
-    const groups = new Map();
+    const mode = resolvedPlotMode();
+    const isConfiguration = state.details.selection.plot_scope === "model_selection_configuration";
+    const prepared = [];
     for (const series of state.details.series) {
       if (state.group !== "all" && series.group !== state.group) continue;
-      if (state.source !== "all" && series.source !== state.source) continue;
+      if (!isConfiguration && mode === "individual" && state.source !== "all" && series.source !== state.source) continue;
+      if (mode === "final-selected" && series.source !== state.details.selection.selected_source) continue;
       const { split, metric } = splitMetric(series.name);
+      const innerFold = innerFoldName(series.source);
+      if (isConfiguration && !state.showAllPlots) {
+        if (mode === "inner-fold" && innerFold !== state.focusedInnerFold) continue;
+        if (mode === "individual" && series.source !== state.focusedRun) continue;
+      }
       if (state.query && !`${series.name} ${series.source} ${series.group}`.toLowerCase().includes(state.query)) continue;
-      const key = `${series.source}\u0000${series.group}\u0000${metric}`;
-      if (!groups.has(key)) groups.set(key, { source: series.source, group: series.group, metric, lines: [] });
-      groups.get(key).lines.push({ split, name: series.name, values: series.values });
+      prepared.push({ ...series, split, metric, innerFold });
+    }
+
+    const groups = new Map();
+    const aggregateInnerFolds = mode === "inner-fold" && state.innerFoldAggregate;
+    if (aggregateInnerFolds || mode === "final-aggregate") {
+      const buckets = new Map();
+      for (const series of prepared) {
+        const scope = aggregateInnerFolds ? series.innerFold : "All final runs";
+        const key = `${scope}\u0000${series.group}\u0000${series.metric}\u0000${series.split}`;
+        if (!buckets.has(key)) buckets.set(key, { scope, group: series.group, metric: series.metric, split: series.split, lines: [] });
+        buckets.get(key).lines.push(series);
+      }
+      for (const bucket of buckets.values()) {
+        const key = `${bucket.scope}\u0000${bucket.group}\u0000${bucket.metric}`;
+        if (!groups.has(key)) {
+          const suffix = aggregateInnerFolds ? "mean ± std across runs" : "mean ± std";
+          groups.set(key, { source: `${bucket.scope} · ${suffix}`, group: bucket.group, metric: bucket.metric, lines: [] });
+        }
+        const aggregate = aggregateMetricLines(bucket.lines);
+        groups.get(key).lines.push({
+          id: `${key}\u0000${bucket.split}`,
+          split: bucket.split,
+          label: `${bucket.split} mean ± std (n=${aggregate.sampleCount})`,
+          ...aggregate,
+        });
+      }
+    } else {
+      for (const series of prepared) {
+        const scope = mode === "inner-fold" ? series.innerFold : series.source;
+        const key = `${scope}\u0000${series.group}\u0000${series.metric}`;
+        if (!groups.has(key)) groups.set(key, { source: scope, group: series.group, metric: series.metric, lines: [] });
+        groups.get(key).lines.push({
+          id: `${series.source}\u0000${series.name}`,
+          split: series.split,
+          label: mode === "inner-fold" ? `${series.split} · ${shortRunName(series.source)}` : series.split,
+          name: series.name,
+          values: series.values,
+          dash: mode === "inner-fold" ? runDashPattern(series.source) : [],
+        });
+      }
     }
     return [...groups.values()].sort((a, b) =>
       `${a.group} ${a.metric} ${a.source}`.localeCompare(`${b.group} ${b.metric} ${b.source}`)
@@ -819,10 +1082,11 @@
       for (const line of group.lines) {
         const item = node("span", "legend-item");
         const swatch = node("span", "legend-swatch");
+        if (line.band) swatch.classList.add("band");
         swatch.style.background = colors[line.split] || colors.other;
-        const value = node("span", "legend-value", formatNumber(lastFiniteValue(line.values)));
-        legendValues.set(line.name, value);
-        item.append(swatch, document.createTextNode(`${line.split} `), value);
+        const value = node("span", "legend-value", formatLineReadout(line));
+        legendValues.set(line.id, value);
+        item.append(swatch, document.createTextNode(`${line.label} `), value);
         legend.append(item);
       }
       card.append(head, wrap, legend);
@@ -844,6 +1108,14 @@
       updateChartReadout(chart);
       drawChart(chart);
     }
+  }
+
+  function renderChartsPreservingScroll() {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
+    renderCharts();
+    window.scrollTo(scrollX, scrollY);
+    requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
   }
 
   function updateChartHover(chart, event) {
@@ -875,22 +1147,27 @@
       ? "Latest"
       : `Epoch ${chart.hoverIndex + 1}`;
     for (const line of chart.group.lines) {
-      let value;
-      if (chart.hoverIndex === null) {
-        value = lastFiniteValue(line.values);
-      } else {
-        value = line.values[chart.hoverIndex];
-      }
-      chart.legendValues.get(line.name).textContent = formatNumber(value);
+      chart.legendValues.get(line.id).textContent = formatLineReadout(
+        line,
+        chart.hoverIndex,
+      );
     }
   }
 
-  function lastFiniteValue(values) {
-    for (let index = values.length - 1; index >= 0; index -= 1) {
-      const value = values[index];
-      if (value !== null && Number.isFinite(value)) return value;
+  function formatLineReadout(line, requestedIndex = null) {
+    let index = requestedIndex;
+    if (index === null) {
+      index = line.values.length - 1;
+      while (index >= 0 && (line.values[index] === null || !Number.isFinite(line.values[index]))) index -= 1;
     }
-    return undefined;
+    const value = index >= 0 ? line.values[index] : undefined;
+    if (!line.band || !Number.isFinite(value)) return formatNumber(value);
+    const lower = line.band.lower[index];
+    const upper = line.band.upper[index];
+    const std = Number.isFinite(lower) && Number.isFinite(upper)
+      ? (upper - lower) / 2
+      : undefined;
+    return `${formatNumber(value)} ± ${formatNumber(std)}`;
   }
 
   function createValueScale(values) {
@@ -914,6 +1191,34 @@
     };
   }
 
+  function drawMetricBand(ctx, line, x, y) {
+    if (!line.band) return;
+    const { lower, upper } = line.band;
+    let start = null;
+    const drawSegment = (from, to) => {
+      ctx.beginPath();
+      ctx.moveTo(x(from), y(lower[from]));
+      for (let index = from + 1; index <= to; index += 1) ctx.lineTo(x(index), y(lower[index]));
+      for (let index = to; index >= from; index -= 1) ctx.lineTo(x(index), y(upper[index]));
+      ctx.closePath();
+      ctx.save();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = colors[line.split] || colors.other;
+      ctx.fill();
+      ctx.restore();
+    };
+    for (let index = 0; index <= lower.length; index += 1) {
+      const finite = index < lower.length
+        && Number.isFinite(lower[index])
+        && Number.isFinite(upper[index]);
+      if (finite && start === null) start = index;
+      if (!finite && start !== null) {
+        drawSegment(start, index - 1);
+        start = null;
+      }
+    }
+  }
+
   function drawChart(chart) {
     const { canvas, group } = chart;
     const rect = canvas.getBoundingClientRect();
@@ -933,7 +1238,11 @@
     const labelColor = themeStyles.getPropertyValue("--chart-label").trim() || "#8a94a1";
     const guideColor = themeStyles.getPropertyValue("--chart-guide").trim() || "#b5bec8";
     const dotCenter = themeStyles.getPropertyValue("--panel").trim() || "#ffffff";
-    const values = group.lines.flatMap((line) => line.values).filter((value) => value !== null && Number.isFinite(value));
+    const values = group.lines.flatMap((line) => [
+      ...line.values,
+      ...(line.band?.lower || []),
+      ...(line.band?.upper || []),
+    ]).filter((value) => value !== null && Number.isFinite(value));
     if (!values.length) return;
     const valueScale = createValueScale(values);
     let min = Infinity;
@@ -967,6 +1276,8 @@
     if (epochs > 1) ctx.fillText(String(epochs), x(epochs - 1), height - margin.bottom + 8);
     ctx.fillStyle = labelColor; ctx.fillText("epoch", margin.left + plotWidth / 2, height - 10);
 
+    for (const line of group.lines) drawMetricBand(ctx, line, x, y);
+
     for (const line of group.lines) {
       ctx.beginPath();
       let drawing = false;
@@ -976,10 +1287,12 @@
       });
       ctx.strokeStyle = colors[line.split] || colors.other;
       ctx.lineWidth = 2;
+      ctx.setLineDash(line.dash || []);
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.stroke();
     }
+    ctx.setLineDash([]);
 
     if (chart.hoverIndex !== null) {
       const hoverX = x(chart.hoverIndex);
@@ -1181,6 +1494,47 @@
     persistState();
     renderCharts();
   });
+  el("plot-mode-select").addEventListener("change", async (event) => {
+    state.plotMode = event.target.value;
+    state.source = "all";
+    persistState();
+    if (state.details?.selection.plot_scope === "final_runs") {
+      await loadDetails(state.selectedPath, { preserveScroll: true, quiet: true });
+      return;
+    }
+    renderInnerFoldAggregation();
+    renderSourceFilter([...new Set(state.details.series.map((series) => series.source))]);
+    renderPlotNavigator();
+    renderCharts();
+  });
+  el("inner-fold-aggregate").addEventListener("change", (event) => {
+    state.innerFoldAggregate = event.target.checked;
+    persistState();
+    renderCharts();
+  });
+  el("fold-select").addEventListener("change", (event) => {
+    state.focusedInnerFold = event.target.value;
+    state.focusedRun = null;
+    persistState();
+    renderPlotNavigator();
+    renderChartsPreservingScroll();
+  });
+  el("run-select").addEventListener("change", (event) => {
+    state.focusedRun = event.target.value;
+    persistState();
+    renderPlotNavigator();
+    renderChartsPreservingScroll();
+  });
+  el("fold-previous").addEventListener("click", () => moveNavigatorSelection("fold-select", -1));
+  el("fold-next").addEventListener("click", () => moveNavigatorSelection("fold-select", 1));
+  el("run-previous").addEventListener("click", () => moveNavigatorSelection("run-select", -1));
+  el("run-next").addEventListener("click", () => moveNavigatorSelection("run-select", 1));
+  el("show-all-plots").addEventListener("change", (event) => {
+    state.showAllPlots = event.target.checked;
+    persistState();
+    renderPlotNavigator();
+    renderChartsPreservingScroll();
+  });
   document.querySelectorAll("[data-group]").forEach((button) => {
     button.addEventListener("click", () => {
       state.group = button.dataset.group;
@@ -1215,6 +1569,7 @@
     button.classList.toggle("active", button.dataset.group === state.group);
   });
   syncScaleButton();
+  observeStickyPlotNavigator();
   if (state.selectedPath) {
     detailsView.hidden = false;
     welcome.hidden = true;

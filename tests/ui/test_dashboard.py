@@ -89,6 +89,7 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     details = repository.details(relative_run)
 
     assert details["selection"]["kind"] == "Model-selection run"
+    assert details["selection"]["plot_scope"] == "single_run"
     assert details["metrics_file_count"] == 1
     assert len(details["series"]) == 4
     validation_score = next(
@@ -288,10 +289,37 @@ def test_details_aggregates_all_runs_below_configuration(tmp_path):
     details = repository.details(config.relative_to(experiment.parent).as_posix())
 
     assert details["selection"]["kind"] == "Model-selection configuration"
+    assert details["selection"]["plot_scope"] == "model_selection_configuration"
     assert details["metrics_file_count"] == 2
     assert {item["source"] for item in details["series"]} == {
         "INNER_FOLD_1/run_1",
         "INNER_FOLD_2/run_1",
+    }
+
+
+def test_final_run_siblings_are_loaded_only_for_aggregation(tmp_path):
+    """Final-run aggregation should load siblings lazily, not on first click."""
+    experiment, _, _, final_run = _write_fixture_results(tmp_path)
+    second_final = final_run.parent / "final_run2"
+    second_final.mkdir()
+    torch.save(
+        {"losses": {}, "scores": {"validation_main_score": [0.4, 0.8]}},
+        second_final / "metrics_data.torch",
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = final_run.relative_to(experiment.parent).as_posix()
+
+    selected = repository.details(relative)
+    aggregated = repository.details(relative, include_final_siblings=True)
+
+    assert selected["metrics_file_count"] == 1
+    assert selected["selection"]["plot_scope"] == "final_runs"
+    assert selected["selection"]["final_runs_included"] is False
+    assert aggregated["metrics_file_count"] == 2
+    assert aggregated["selection"]["final_runs_included"] is True
+    assert {item["source"] for item in aggregated["series"]} == {
+        "final_run1",
+        "final_run2",
     }
 
 
@@ -370,6 +398,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
+        assert 'id="plot-mode-select"' in page
+        assert 'id="inner-fold-aggregate"' in page
+        assert 'id="plot-navigator"' in page
+        assert 'id="show-all-plots"' in page
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
         assert 'id="experiment-overview"' in page
@@ -382,6 +414,14 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/api/experiment-filter" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
+        assert "aggregateMetricLines" in app_script
+        assert "renderInnerFoldAggregation" in app_script
+        assert "renderPlotNavigator" in app_script
+        assert "moveNavigatorSelection" in app_script
+        assert "renderChartsPreservingScroll" in app_script
+        assert "observeStickyPlotNavigator" in app_script
+        assert "drawMetricBand" in app_script
+        assert "aggregate_final_runs=1" in app_script
         assert "configurationPassesFilter" in app_script
         assert "scheduleRefresh" in app_script
         assert "applyTheme" in app_script
@@ -393,6 +433,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "restoreScroll" in app_script
         assert "expandJsonDescendants" in app_script
         assert ".json-inspector" in stylesheet
+        assert ".plot-navigator { position: sticky" in stylesheet
+        assert ".plot-navigator.is-stuck" in stylesheet
+        assert ".content { min-width: 0;" in stylesheet
+        assert "overflow: visible;" in stylesheet
         assert "[hidden] { display: none !important; }" in stylesheet
         assert logo.startswith(b"\x89PNG\r\n\x1a\n")
         assert tree["experiments"][0]["name"] == "mlp_MNIST"

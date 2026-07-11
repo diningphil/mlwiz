@@ -5,7 +5,7 @@
 # Dataset and Splits
 storage_folder: DATA
 dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+data_splits_file:  DATA_SPLITS/MNIST/MNIST_outer3_inner5.splits
 
 
 # Hardware
