@@ -59,6 +59,14 @@
     graphRequestId: 0,
     graphPath: null,
     graphCheckpointChoices: storedState.graphCheckpointChoices || {},
+    graphFocusedRuns: storedState.graphFocusedRuns || {},
+    graphExpandedNodes: storedState.graphExpandedNodes || {},
+    graphZooms: storedState.graphZooms || {},
+    graphNodePositions: storedState.graphNodePositions || {},
+    graphMode: storedState.graphMode === "operators" ? "operators" : "architecture",
+    graphView: storedState.graphView === "leaves" ? "leaves" : "hierarchy",
+    graphQuery: "",
+    modelGraphData: null,
   };
 
   const el = (id) => document.getElementById(id);
@@ -73,6 +81,7 @@
   };
   let refreshTimer = null;
   let metadataScrollTimer = null;
+  let graphPointerDrag = null;
 
   function persistState() {
     try {
@@ -96,6 +105,12 @@
         metadataScrolls: state.metadataScrolls,
         overviewExpanded: state.overviewExpanded,
         graphCheckpointChoices: state.graphCheckpointChoices,
+        graphFocusedRuns: state.graphFocusedRuns,
+        graphExpandedNodes: state.graphExpandedNodes,
+        graphZooms: state.graphZooms,
+        graphNodePositions: state.graphNodePositions,
+        graphMode: state.graphMode,
+        graphView: state.graphView,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
@@ -1141,11 +1156,50 @@
     requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
   }
 
+  function graphRunKey(selection) {
+    return `${selection.path}:${state.focusedInnerFold}`;
+  }
+
+  function graphRunCandidates(selection) {
+    return configurationRunSources().filter(
+      (source) => innerFoldName(source) === state.focusedInnerFold,
+    );
+  }
+
+  function renderModelGraphRunSelector() {
+    const control = el("model-graph-run-control");
+    const select = el("model-graph-run-select");
+    const selection = state.details?.selection;
+    const groupedConfiguration = selection?.plot_scope === "model_selection_configuration"
+      && resolvedPlotMode() === "inner-fold";
+    if (!groupedConfiguration) {
+      control.hidden = true;
+      return;
+    }
+    const candidates = graphRunCandidates(selection);
+    if (!candidates.length) {
+      control.hidden = true;
+      return;
+    }
+    const key = graphRunKey(selection);
+    let selected = state.graphFocusedRuns[key];
+    if (!candidates.includes(selected)) {
+      selected = candidates.includes(state.focusedRun) ? state.focusedRun : candidates[0];
+      state.graphFocusedRuns[key] = selected;
+      persistState();
+    }
+    setSelectOptions(select, candidates, selected, shortRunName);
+    control.hidden = false;
+  }
+
   function focusedModelGraphPath() {
     const selection = state.details?.selection;
     if (!selection) return null;
     if (selection.plot_scope === "model_selection_configuration") {
-      return state.focusedRun ? `${selection.path}/${state.focusedRun}` : null;
+      const graphRun = resolvedPlotMode() === "inner-fold"
+        ? state.graphFocusedRuns[graphRunKey(selection)]
+        : state.focusedRun;
+      return graphRun ? `${selection.path}/${graphRun}` : null;
     }
     if (["single_run", "final_runs"].includes(selection.plot_scope)) {
       return selection.path;
@@ -1155,6 +1209,7 @@
 
   function prepareModelGraph() {
     const section = el("model-graph-section");
+    renderModelGraphRunSelector();
     const path = focusedModelGraphPath();
     section.hidden = !path;
     if (!path) return;
@@ -1169,11 +1224,14 @@
     const status = el("model-graph-status");
     const message = el("model-graph-message");
     let checkpointChoice = state.graphCheckpointChoices[path] || "auto";
+    el("model-graph-mode-select").disabled = true;
     el("model-graph-checkpoint-select").disabled = true;
     if (pathChanged) {
       el("model-graph-canvas").replaceChildren();
       el("model-graph-stats").replaceChildren();
-      el("model-node-details").textContent = "Select a module to inspect its checkpoint tensors.";
+      el("model-node-details").textContent = state.graphMode === "operators"
+        ? "Select an operator to inspect its exported tensor metadata."
+        : "Select a module to inspect its checkpoint tensors.";
       message.hidden = true;
       status.textContent = "Loading checkpoint graph on CPU…";
     } else {
@@ -1183,6 +1241,7 @@
     try {
       const info = await getJson(`/api/model-graph-info?path=${encodeURIComponent(path)}`);
       if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
+      renderGraphModeSelect(info);
       if (checkpointChoice !== "auto" && !info.checkpoint.available.includes(checkpointChoice)) {
         checkpointChoice = "auto";
         state.graphCheckpointChoices[path] = "auto";
@@ -1203,7 +1262,7 @@
         message.textContent = `${resolvedKind[0].toUpperCase()}${resolvedKind.slice(1)} checkpoint is ${formatNumber(size)} MB, exceeding the ${formatNumber(info.cache_max_mb)} MB cache limit.`;
         return;
       }
-      const graph = await getJson(`/api/model-graph?path=${encodeURIComponent(path)}&checkpoint=${encodeURIComponent(checkpointChoice)}`);
+      const graph = await getJson(`/api/model-graph?path=${encodeURIComponent(path)}&checkpoint=${encodeURIComponent(checkpointChoice)}&mode=${encodeURIComponent(state.graphMode)}`);
       if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
       renderModelGraph(graph);
     } catch (error) {
@@ -1212,6 +1271,7 @@
       message.hidden = false;
       message.className = "model-graph-message error";
       message.textContent = error.message;
+      el("model-graph-mode-select").disabled = false;
       el("model-graph-checkpoint-select").disabled = false;
     }
   }
@@ -1225,8 +1285,16 @@
 
   function renderModelGraph(graph) {
     renderCacheStatus(graph.cache);
+    const previousMode = state.modelGraphData?.graph_mode;
+    state.modelGraphData = graph;
+    if (previousMode && previousMode !== graph.graph_mode) {
+      el("model-node-details").textContent = graph.graph_mode === "operators"
+        ? "Select an operator to inspect its exported tensor metadata."
+        : "Select a module to inspect its checkpoint tensors.";
+    }
     const epoch = graph.epoch ? ` · epoch ${graph.epoch}` : "";
-    el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${graph.graph_kind}`;
+    const modeLabel = graph.graph_mode === "operators" ? "Operators" : "Architecture";
+    el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${modeLabel}`;
     const message = el("model-graph-message");
     if (graph.warning) {
       message.hidden = false;
@@ -1235,76 +1303,795 @@
     } else {
       message.hidden = true;
     }
-
     const stats = el("model-graph-stats");
     stats.replaceChildren();
+    const nodeLabel = graph.graph_mode === "operators"
+      ? `${formatNumber(graph.summary.modules)} modules · ${formatNumber(graph.summary.operators)} operators`
+      : `${graph.summary.visible_nodes} module${graph.summary.visible_nodes === 1 ? "" : "s"}`;
     for (const text of [
       graph.summary.model_class,
       `${formatNumber(graph.summary.parameters)} parameters`,
-      `${graph.summary.visible_nodes} module${graph.summary.visible_nodes === 1 ? "" : "s"}`,
+      nodeLabel,
       graph.checkpoint.cache_hit ? "Graph cache hit" : "Loaded from checkpoint",
     ]) stats.append(node("span", "model-graph-stat", text));
     if (graph.summary.truncated) {
       stats.append(node("span", "model-graph-stat", `Showing first ${graph.summary.visible_nodes} of ${graph.summary.nodes}`));
     }
+    syncGraphExplorerControls();
+    renderModelGraphCanvas();
+  }
 
+  function syncGraphExplorerControls() {
+    const architecture = state.modelGraphData?.graph_mode !== "operators";
+    const leaves = state.graphView === "leaves";
+    const button = el("graph-view-toggle");
+    button.classList.toggle("active", leaves);
+    button.setAttribute("aria-pressed", String(leaves));
+    button.textContent = leaves ? "Show hierarchy" : "Flatten to leaves";
+    el("graph-search").value = state.graphQuery;
+    el("graph-search").placeholder = architecture ? "Find module…" : "Find module or operator…";
+    button.hidden = !architecture;
+    el("graph-expand-all").disabled = architecture && leaves;
+    el("graph-collapse-all").disabled = architecture && leaves;
+    el("graph-zoom-controls").hidden = architecture;
+    syncGraphZoomControls();
+  }
+
+  function graphExpansionKey(graph) {
+    return `${graph.run}:${graph.checkpoint.kind}:${graph.graph_mode}`;
+  }
+
+  function graphZoomKey(graph) {
+    return `${graphExpansionKey(graph)}:zoom`;
+  }
+
+  function graphPositionKey(graph) {
+    return `${graphExpansionKey(graph)}:positions`;
+  }
+
+  function applyOperatorPositionOverrides(graph, items, layout) {
+    const stored = state.graphNodePositions[graphPositionKey(graph)] || {};
+    for (const item of items) {
+      const position = stored[item.id];
+      if (Number.isFinite(position?.x) && Number.isFinite(position?.y)) {
+        layout.positions.set(item.id, {
+          x: Math.max(8, position.x),
+          y: Math.max(34, position.y),
+        });
+      }
+    }
+    const points = [...layout.positions.values()];
+    return {
+      ...layout,
+      width: Math.max(layout.width, ...points.map((point) => point.x + 222)),
+      height: Math.max(layout.height, ...points.map((point) => point.y + 90)),
+    };
+  }
+
+  function currentGraphZoom(graph = state.modelGraphData) {
+    if (!graph) return 1;
+    const zoom = Number(state.graphZooms[graphZoomKey(graph)]);
+    return Number.isFinite(zoom) ? Math.max(0.35, Math.min(2.5, zoom)) : 1;
+  }
+
+  function syncGraphZoomControls() {
+    const zoom = currentGraphZoom();
+    el("graph-zoom-reset").textContent = `${Math.round(zoom * 100)}%`;
+    el("graph-zoom-out").disabled = zoom <= 0.35;
+    el("graph-zoom-in").disabled = zoom >= 2.5;
+  }
+
+  function setGraphZoom(nextZoom, anchor = null) {
+    const graph = state.modelGraphData;
+    if (!graph || graph.graph_mode !== "operators") return;
     const host = el("model-graph-canvas");
-    host.replaceChildren();
-    if (!graph.nodes.length) {
-      host.append(node("div", "chart-empty", "The checkpoint contains no graphable tensors."));
-      return;
+    const previousZoom = currentGraphZoom(graph);
+    const anchorX = anchor?.x ?? (host.clientWidth / 2);
+    const anchorY = anchor?.y ?? (host.clientHeight / 2);
+    const graphX = (host.scrollLeft + anchorX) / previousZoom;
+    const graphY = (host.scrollTop + anchorY) / previousZoom;
+    const zoom = Math.max(0.35, Math.min(2.5, nextZoom));
+    state.graphZooms[graphZoomKey(graph)] = zoom;
+    persistState();
+    renderModelGraphCanvas();
+    requestAnimationFrame(() => {
+      host.scrollLeft = Math.max(0, (graphX * zoom) - anchorX);
+      host.scrollTop = Math.max(0, (graphY * zoom) - anchorY);
+    });
+  }
+
+  function buildGraphExplorerModel(graph) {
+    const nodes = new Map(graph.nodes.map((item) => [item.id, { ...item }]));
+    const children = new Map(graph.nodes.map((item) => [item.id, []]));
+    const parents = new Map();
+    for (const edge of graph.edges) {
+      if (!nodes.has(edge.source) || !nodes.has(edge.target)) continue;
+      children.get(edge.source).push(edge.target);
+      parents.set(edge.target, edge.source);
+    }
+    const roots = graph.nodes
+      .map((item) => item.id)
+      .filter((id) => !parents.has(id));
+    const totals = new Map();
+    const calculateTotal = (id, active = new Set()) => {
+      if (totals.has(id)) return totals.get(id);
+      if (active.has(id)) return 0;
+      const nextActive = new Set(active).add(id);
+      const total = (nodes.get(id)?.parameters || 0)
+        + (children.get(id) || []).reduce(
+          (sum, child) => sum + calculateTotal(child, nextActive),
+          0,
+        );
+      totals.set(id, total);
+      return total;
+    };
+    for (const id of nodes.keys()) calculateTotal(id);
+    const modelTotal = Math.max(Number(graph.summary.parameters) || 0, 1);
+    for (const item of nodes.values()) {
+      item.blockParameters = totals.get(item.id) || 0;
+      item.parameterShare = Math.min(1, item.blockParameters / modelTotal);
+    }
+    return { nodes, children, parents, roots };
+  }
+
+  function graphParameterColor(share) {
+    const amount = Math.max(0, Math.min(1, Number(share) || 0)) ** 0.38;
+    const low = state.theme === "dark" ? [24, 44, 55] : [236, 246, 242];
+    const high = state.theme === "dark" ? [145, 53, 39] : [226, 82, 55];
+    const channels = low.map((value, index) => Math.round(
+      value + ((high[index] - value) * amount),
+    ));
+    return {
+      color: `rgb(${channels.join(",")})`,
+      dense: amount > 0.58,
+    };
+  }
+
+  function visibleGraphItems(graph, explorer) {
+    const expanded = new Set(
+      state.graphExpandedNodes[graphExpansionKey(graph)] || [],
+    );
+    const query = state.graphQuery.trim().toLowerCase();
+    const matches = new Set();
+    if (query) {
+      const includeDescendants = (id) => {
+        matches.add(id);
+        for (const child of explorer.children.get(id) || []) {
+          includeDescendants(child);
+        }
+      };
+      for (const item of explorer.nodes.values()) {
+        if (`${item.id} ${item.label} ${item.type}`.toLowerCase().includes(query)) {
+          includeDescendants(item.id);
+          let current = item.id;
+          while (current) {
+            matches.add(current);
+            current = explorer.parents.get(current);
+          }
+        }
+      }
+    }
+    const visible = [];
+    const edges = [];
+    if (state.graphView === "leaves") {
+      for (const item of explorer.nodes.values()) {
+        if (explorer.children.get(item.id).length) continue;
+        if (query && !matches.has(item.id)) continue;
+        visible.push({ ...item, displayDepth: 0 });
+      }
+      return { visible, edges, expanded, query };
+    }
+    const visit = (id, depth) => {
+      if (query && !matches.has(id)) return;
+      const item = explorer.nodes.get(id);
+      if (!item) return;
+      visible.push({ ...item, displayDepth: depth });
+      if (!query && !expanded.has(id)) return;
+      for (const child of explorer.children.get(id)) {
+        if (!query || matches.has(child)) {
+          edges.push({ source: id, target: child });
+          visit(child, depth + 1);
+        }
+      }
+    };
+    explorer.roots.forEach((id) => visit(id, 0));
+    return { visible, edges, expanded, query };
+  }
+
+  function layoutGraphItems(items) {
+    const positions = new Map();
+    if (state.graphView === "leaves") {
+      const columnCount = Math.min(3, Math.max(1, items.length));
+      const rowCount = Math.ceil(items.length / columnCount);
+      items.forEach((item, index) => positions.set(item.id, {
+        x: 20 + ((index % columnCount) * 218),
+        y: 20 + (Math.floor(index / columnCount) * 78),
+      }));
+      return {
+        positions,
+        width: Math.max(430, 30 + (columnCount * 218)),
+        height: Math.max(330, 30 + (rowCount * 78)),
+      };
     }
     const columns = new Map();
-    for (const item of graph.nodes) {
-      if (!columns.has(item.depth)) columns.set(item.depth, []);
-      columns.get(item.depth).push(item);
+    for (const item of items) {
+      if (!columns.has(item.displayDepth)) columns.set(item.displayDepth, []);
+      columns.get(item.displayDepth).push(item);
     }
     const maxDepth = Math.max(...columns.keys());
-    const maxRows = Math.max(...[...columns.values()].map((items) => items.length));
-    const width = Math.max(420, 40 + ((maxDepth + 1) * 210));
-    const height = Math.max(330, 35 + (maxRows * 68));
-    const positions = new Map();
-    for (const [depth, items] of columns.entries()) {
-      const columnHeight = items.length * 68;
-      const offset = Math.max(24, (height - columnHeight) / 2);
-      items.forEach((item, index) => positions.set(item.id, {
-        x: 20 + (depth * 210),
-        y: offset + (index * 68),
+    const maxRows = Math.max(...[...columns.values()].map((column) => column.length));
+    const width = Math.max(430, 35 + ((maxDepth + 1) * 218));
+    const height = Math.max(330, 35 + (maxRows * 78));
+    for (const [depth, column] of columns.entries()) {
+      const offset = Math.max(20, (height - (column.length * 78)) / 2);
+      column.forEach((item, index) => positions.set(item.id, {
+        x: 20 + (depth * 218),
+        y: offset + (index * 78),
       }));
     }
-    const svg = graphSvgElement("svg", { width, height, viewBox: `0 0 ${width} ${height}` });
-    const edges = graphSvgElement("g", { class: "graph-edges" });
+    return { positions, width, height };
+  }
+
+  function operatorExpandedModules(graph) {
+    const key = graphExpansionKey(graph);
+    if (!Object.hasOwn(state.graphExpandedNodes, key)) {
+      state.graphExpandedNodes[key] = ["__root__"];
+      persistState();
+    }
+    return new Set(state.graphExpandedNodes[key]);
+  }
+
+  function operatorSearchText(item) {
+    return `${item.id} ${item.label} ${item.type} ${item.target || ""} ${item.module_path || ""}`.toLowerCase();
+  }
+
+  function buildOperatorExplorer(graph) {
+    const rawNodes = new Map(graph.nodes.map((item) => [item.id, item]));
+    const modules = new Map((graph.modules || []).map((item) => [item.id, item]));
+    if (!modules.has("__root__")) {
+      modules.set("__root__", {
+        id: "__root__",
+        path: "",
+        label: graph.summary.model_class,
+        type: graph.summary.model_class,
+        parameters: graph.summary.parameters,
+        trainable_parameters: graph.summary.parameters,
+        operator_count: graph.summary.operators,
+      });
+    }
+    const incoming = new Map(graph.nodes.map((item) => [item.id, []]));
     for (const edge of graph.edges) {
+      if (incoming.has(edge.target) && rawNodes.has(edge.source)) {
+        incoming.get(edge.target).push(edge.source);
+      }
+    }
+    const rawDepths = new Map();
+    for (const item of graph.nodes) {
+      const parentDepths = incoming.get(item.id).map((parent) => rawDepths.get(parent) || 0);
+      rawDepths.set(item.id, parentDepths.length ? Math.max(...parentDepths) + 1 : 0);
+    }
+
+    const expanded = operatorExpandedModules(graph);
+    const representatives = new Map();
+    const visibleMap = new Map();
+    const representativeFor = (item) => {
+      if (!expanded.has("__root__")) return "module:__root__";
+      for (const moduleId of item.module_stack || []) {
+        if (modules.has(moduleId) && !expanded.has(moduleId)) {
+          return `module:${moduleId}`;
+        }
+      }
+      return `operator:${item.id}`;
+    };
+
+    for (const item of graph.nodes) {
+      const representativeId = representativeFor(item);
+      representatives.set(item.id, representativeId);
+      if (!visibleMap.has(representativeId)) {
+        if (representativeId.startsWith("module:")) {
+          const moduleId = representativeId.slice("module:".length);
+          const module = modules.get(moduleId);
+          visibleMap.set(representativeId, {
+            ...module,
+            id: representativeId,
+            module_id: moduleId,
+            module_path: module.path,
+            kind: "module",
+            op: "module",
+            target: module.path || graph.summary.model_class,
+            tensors: [],
+            rawIds: [],
+            displayDepth: Number.POSITIVE_INFINITY,
+          });
+        } else {
+          visibleMap.set(representativeId, {
+            ...item,
+            id: representativeId,
+            raw_id: item.id,
+            kind: "operator",
+            rawIds: [],
+            displayDepth: rawDepths.get(item.id) || 0,
+          });
+        }
+      }
+      visibleMap.get(representativeId).rawIds.push(item.id);
+    }
+
+    for (const visibleItem of visibleMap.values()) {
+      if (visibleItem.kind !== "module") continue;
+      const operationDepths = visibleItem.rawIds
+        .map((id) => rawNodes.get(id))
+        .filter((item) => item && item.op !== "placeholder")
+        .map((item) => rawDepths.get(item.id) || 0);
+      const allDepths = visibleItem.rawIds.map((id) => rawDepths.get(id) || 0);
+      visibleItem.displayDepth = Math.min(...(operationDepths.length ? operationDepths : allDepths));
+    }
+
+    const edgeMap = new Map();
+    for (const edge of graph.edges) {
+      const source = representatives.get(edge.source);
+      const target = representatives.get(edge.target);
+      if (!source || !target || source === target) continue;
+      const key = `${source}\u0000${target}`;
+      if (!edgeMap.has(key)) edgeMap.set(key, { source, target, count: 0 });
+      edgeMap.get(key).count += 1;
+    }
+
+    const query = state.graphQuery.trim().toLowerCase();
+    let matchCount = 0;
+    for (const visibleItem of visibleMap.values()) {
+      const contributorText = visibleItem.rawIds
+        .map((id) => operatorSearchText(rawNodes.get(id)))
+        .join(" ");
+      visibleItem.queryMatch = !query
+        || operatorSearchText(visibleItem).includes(query)
+        || contributorText.includes(query);
+      if (visibleItem.queryMatch) matchCount += 1;
+    }
+    return {
+      visible: [...visibleMap.values()],
+      edges: [...edgeMap.values()],
+      expanded,
+      modules,
+      rawNodes,
+      query,
+      matchCount,
+    };
+  }
+
+  function layoutOperatorGraph(items) {
+    const positions = new Map();
+    const columns = new Map();
+    for (const item of items) {
+      if (!columns.has(item.displayDepth)) columns.set(item.displayDepth, []);
+      columns.get(item.displayDepth).push(item);
+    }
+    const depths = [...columns.keys()];
+    const maxDepth = depths.length ? Math.max(...depths) : 0;
+    const maxRows = Math.max(1, ...[...columns.values()].map((column) => column.length));
+    const width = Math.max(460, 58 + ((maxDepth + 1) * 228));
+    const height = Math.max(360, 72 + (maxRows * 88));
+    for (const [depth, column] of columns.entries()) {
+      const offset = Math.max(55, (height - (column.length * 88)) / 2);
+      column.forEach((item, index) => positions.set(item.id, {
+        x: 36 + (depth * 228),
+        y: offset + (index * 88),
+      }));
+    }
+    return { positions, width, height };
+  }
+
+  function operatorModuleFrames(explorer, positions) {
+    const frames = [];
+    for (const moduleId of explorer.expanded) {
+      if (moduleId === "__root__") continue;
+      const module = explorer.modules.get(moduleId);
+      if (!module) continue;
+      const descendants = explorer.visible.filter((item) => item.rawIds.some((rawId) =>
+        explorer.rawNodes.get(rawId)?.module_stack?.includes(moduleId)));
+      const points = descendants.map((item) => positions.get(item.id)).filter(Boolean);
+      if (!points.length) continue;
+      const minX = Math.min(...points.map((point) => point.x));
+      const minY = Math.min(...points.map((point) => point.y));
+      const maxX = Math.max(...points.map((point) => point.x + 198));
+      const maxY = Math.max(...points.map((point) => point.y + 64));
+      frames.push({
+        module,
+        x: minX - 12,
+        y: minY - 30,
+        width: (maxX - minX) + 24,
+        height: (maxY - minY) + 42,
+      });
+    }
+    return frames.sort((left, right) =>
+      left.module.path.split(".").length - right.module.path.split(".").length);
+  }
+
+  function beginOperatorNodeDrag(event, item, position, zoom, group) {
+    if (
+      event.button !== 0
+      || event.target.closest?.(".graph-expansion-control")
+    ) return;
+    event.stopPropagation();
+    const host = el("model-graph-canvas");
+    host.setPointerCapture(event.pointerId);
+    group.classList.add("dragging");
+    graphPointerDrag = {
+      kind: "node",
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: position.x,
+      startY: position.y,
+      currentX: position.x,
+      currentY: position.y,
+      itemId: item.id,
+      zoom,
+      group,
+      moved: false,
+    };
+  }
+
+  function beginGraphPan(event) {
+    if (
+      event.button !== 0
+      || event.target.closest?.(".graph-node, .operator-module-frame-header")
+    ) return;
+    const host = el("model-graph-canvas");
+    host.setPointerCapture(event.pointerId);
+    host.classList.add("is-panning");
+    graphPointerDrag = {
+      kind: "pan",
+      pointerId: event.pointerId,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startScrollLeft: host.scrollLeft,
+      startScrollTop: host.scrollTop,
+      moved: false,
+    };
+  }
+
+  function updateGraphPointerDrag(event) {
+    if (!graphPointerDrag || graphPointerDrag.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - graphPointerDrag.startClientX;
+    const deltaY = event.clientY - graphPointerDrag.startClientY;
+    graphPointerDrag.moved ||= Math.abs(deltaX) + Math.abs(deltaY) > 3;
+    const host = el("model-graph-canvas");
+    if (graphPointerDrag.kind === "pan") {
+      host.scrollLeft = graphPointerDrag.startScrollLeft - deltaX;
+      host.scrollTop = graphPointerDrag.startScrollTop - deltaY;
+    } else {
+      graphPointerDrag.currentX = Math.max(
+        8,
+        graphPointerDrag.startX + (deltaX / graphPointerDrag.zoom),
+      );
+      graphPointerDrag.currentY = Math.max(
+        34,
+        graphPointerDrag.startY + (deltaY / graphPointerDrag.zoom),
+      );
+      graphPointerDrag.group.setAttribute(
+        "transform",
+        `translate(${graphPointerDrag.currentX} ${graphPointerDrag.currentY})`,
+      );
+    }
+    event.preventDefault();
+  }
+
+  function finishGraphPointerDrag(event) {
+    if (!graphPointerDrag || graphPointerDrag.pointerId !== event.pointerId) return;
+    const drag = graphPointerDrag;
+    graphPointerDrag = null;
+    const host = el("model-graph-canvas");
+    host.classList.remove("is-panning");
+    drag.group?.classList.remove("dragging");
+    if (host.hasPointerCapture(event.pointerId)) {
+      host.releasePointerCapture(event.pointerId);
+    }
+    if (drag.kind === "node" && drag.moved) {
+      const graph = state.modelGraphData;
+      const key = graphPositionKey(graph);
+      state.graphNodePositions[key] = {
+        ...(state.graphNodePositions[key] || {}),
+        [drag.itemId]: { x: drag.currentX, y: drag.currentY },
+      };
+      persistState();
+      renderModelGraphCanvas();
+    }
+  }
+
+  function renderOperatorGraphCanvas(graph, host, previousScroll) {
+    const explorer = buildOperatorExplorer(graph);
+    if (!explorer.visible.length || (explorer.query && !explorer.matchCount)) {
+      host.append(node("div", "graph-empty", explorer.query
+        ? `No modules or operators match “${state.graphQuery}”.`
+        : "The exported program contains no operators."));
+      return;
+    }
+    const { positions, width, height } = applyOperatorPositionOverrides(
+      graph,
+      explorer.visible,
+      layoutOperatorGraph(explorer.visible),
+    );
+    const zoom = currentGraphZoom(graph);
+    const svg = graphSvgElement("svg", {
+      width: Math.ceil(width * zoom),
+      height: Math.ceil(height * zoom),
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": `Hierarchical computational graph with ${explorer.visible.length} visible nodes`,
+    });
+    const markerId = `operator-arrow-${state.graphRequestId}`;
+    const definitions = graphSvgElement("defs");
+    const marker = graphSvgElement("marker", {
+      id: markerId,
+      viewBox: "0 0 8 8",
+      refX: "7",
+      refY: "4",
+      markerWidth: "7",
+      markerHeight: "7",
+      orient: "auto-start-reverse",
+    });
+    marker.append(graphSvgElement("path", {
+      class: "graph-arrow-head",
+      d: "M 0 0 L 8 4 L 0 8 z",
+    }));
+    definitions.append(marker);
+    svg.append(definitions);
+
+    const frameLayer = graphSvgElement("g", { class: "operator-module-frames" });
+    for (const frame of operatorModuleFrames(explorer, positions)) {
+      const frameGroup = graphSvgElement("g", { class: "operator-module-frame" });
+      frameGroup.append(graphSvgElement("rect", {
+        x: frame.x,
+        y: frame.y,
+        width: frame.width,
+        height: frame.height,
+        class: "operator-module-frame-box",
+      }));
+      const header = graphSvgElement("g", {
+        class: "operator-module-frame-header",
+        tabindex: "0",
+        role: "button",
+        "aria-label": `Collapse ${frame.module.path}`,
+      });
+      header.append(
+        graphSvgElement("rect", {
+          x: frame.x + 5,
+          y: frame.y + 4,
+          width: Math.min(frame.width - 10, 178),
+          height: 19,
+          class: "operator-module-frame-title-box",
+        }),
+        graphSvgElement("text", {
+          x: frame.x + 12,
+          y: frame.y + 18,
+          class: "operator-module-frame-title",
+        }, `− ${frame.module.path}`),
+      );
+      const collapse = () => toggleOperatorModule(frame.module.id);
+      header.addEventListener("click", collapse);
+      header.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          collapse();
+        }
+      });
+      frameGroup.append(header);
+      frameLayer.append(frameGroup);
+    }
+    svg.append(frameLayer);
+
+    const edgeLayer = graphSvgElement("g", { class: "graph-edges" });
+    for (const edge of explorer.edges) {
       const source = positions.get(edge.source);
       const target = positions.get(edge.target);
       if (!source || !target) continue;
-      const startX = source.x + 174;
-      const startY = source.y + 23;
-      const endX = target.x;
-      const endY = target.y + 23;
-      const middle = (startX + endX) / 2;
-      edges.append(graphSvgElement("path", {
-        class: "graph-edge",
-        d: `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`,
+      const forward = source.x < target.x;
+      const startX = forward ? source.x + 198 : source.x + 99;
+      const startY = forward ? source.y + 32 : source.y + 64;
+      const endX = forward ? target.x : target.x + 99;
+      const endY = forward ? target.y + 32 : target.y;
+      const middle = forward ? (startX + endX) / 2 : Math.max(startY, endY) + 26;
+      const path = forward
+        ? `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`
+        : `M ${startX} ${startY} C ${startX} ${middle}, ${endX} ${middle}, ${endX} ${endY}`;
+      edgeLayer.append(graphSvgElement("path", {
+        class: "graph-edge operator-edge",
+        d: path,
+        "marker-end": `url(#${markerId})`,
       }));
     }
-    svg.append(edges);
+    svg.append(edgeLayer);
+
     const nodeLayer = graphSvgElement("g", { class: "graph-nodes" });
-    for (const item of graph.nodes) {
+    const modelTotal = Math.max(Number(graph.summary.parameters) || 0, 1);
+    for (const item of explorer.visible) {
       const position = positions.get(item.id);
+      const parameterShare = Math.min(1, (Number(item.parameters) || 0) / modelTotal);
+      const parameterColor = graphParameterColor(parameterShare);
+      const searchClass = explorer.query
+        ? (item.queryMatch ? " search-match" : " search-muted")
+        : "";
       const group = graphSvgElement("g", {
-        class: `graph-node${item.id === "__root__" ? " root" : ""}`,
+        class: `graph-node operator-node${item.kind === "module" ? " module-node" : ""}${parameterColor.dense ? " dense" : ""}${searchClass}`,
         transform: `translate(${position.x} ${position.y})`,
         tabindex: "0",
         role: "button",
       });
+      group.addEventListener("pointerdown", (event) => {
+        beginOperatorNodeDrag(event, item, position, zoom, group);
+      });
+      const label = item.label.length > 28 ? `${item.label.slice(0, 26)}…` : item.label;
+      const origin = item.kind === "module" ? item.type : (item.module_path || item.type);
+      const detail = item.kind === "module"
+        ? `${formatNumber(item.operator_count)} ops · ${formatParameterShare(parameterShare)} params`
+        : (item.parameters
+          ? `${formatParameterShare(parameterShare)} · ${formatNumber(item.parameters)} params`
+          : (item.tensors?.[0]?.shape ? `[${item.tensors[0].shape.join(", ")}]` : item.op));
+      const labelX = item.kind === "module" ? 29 : 10;
       group.append(
-        graphSvgElement("rect", { width: 174, height: 46 }),
-        graphSvgElement("text", { x: 10, y: 19, class: "graph-node-label" }, item.label.length > 24 ? `${item.label.slice(0, 22)}…` : item.label),
-        graphSvgElement("text", { x: 10, y: 34, class: "graph-node-type" }, item.type),
+        graphSvgElement("rect", {
+          width: 198,
+          height: 64,
+          class: "graph-node-card operator-node-card",
+          fill: parameterColor.color,
+        }),
+        graphSvgElement("text", { x: labelX, y: 19, class: "graph-node-label" }, label),
+        graphSvgElement("text", { x: 10, y: 38, class: "graph-node-type" }, origin.length > 30 ? `${origin.slice(0, 28)}…` : origin),
+        graphSvgElement("text", { x: 10, y: 54, class: "graph-node-share" }, detail),
       );
+      if (item.kind === "module") {
+        const expansion = graphSvgElement("g", { class: "graph-expansion-control" });
+        expansion.append(
+          graphSvgElement("rect", {
+            x: 8,
+            y: 8,
+            width: 14,
+            height: 14,
+            class: "graph-node-expand",
+          }),
+          graphSvgElement("text", {
+            x: 12,
+            y: 19,
+            class: "graph-node-expand-symbol",
+          }, "+"),
+        );
+        expansion.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleOperatorModule(item.module_id);
+        });
+        group.append(expansion);
+      }
       const select = () => {
-        svg.querySelectorAll(".graph-node.selected").forEach((candidate) => candidate.classList.remove("selected"));
+        svg.querySelectorAll(".graph-node.selected").forEach(
+          (candidate) => candidate.classList.remove("selected"),
+        );
+        group.classList.add("selected");
+        renderModelNodeDetails({ ...item, parameterShare });
+      };
+      group.addEventListener("click", select);
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      });
+      nodeLayer.append(group);
+    }
+    svg.append(nodeLayer);
+    host.append(svg);
+    host.scrollLeft = previousScroll.left;
+    host.scrollTop = previousScroll.top;
+    syncGraphZoomControls();
+  }
+
+  function renderModelGraphCanvas() {
+    const graph = state.modelGraphData;
+    const host = el("model-graph-canvas");
+    const previousScroll = { left: host.scrollLeft, top: host.scrollTop };
+    host.replaceChildren();
+    if (!graph?.nodes.length) {
+      host.append(node("div", "graph-empty", "The checkpoint contains no graphable modules."));
+      return;
+    }
+    if (graph.graph_mode === "operators") {
+      renderOperatorGraphCanvas(graph, host, previousScroll);
+      return;
+    }
+    const explorer = buildGraphExplorerModel(graph);
+    const { visible, edges, expanded, query } = visibleGraphItems(graph, explorer);
+    if (!visible.length) {
+      host.append(node("div", "graph-empty", query
+        ? `No model blocks match “${state.graphQuery}”.`
+        : "No leaf modules are available."));
+      return;
+    }
+    const { positions, width, height } = layoutGraphItems(visible);
+    const svg = graphSvgElement("svg", {
+      width,
+      height,
+      viewBox: `0 0 ${width} ${height}`,
+    });
+    const edgeLayer = graphSvgElement("g", { class: "graph-edges" });
+    for (const edge of edges) {
+      const source = positions.get(edge.source);
+      const target = positions.get(edge.target);
+      if (!source || !target) continue;
+      const startX = source.x + 190;
+      const startY = source.y + 29;
+      const endX = target.x;
+      const endY = target.y + 29;
+      const middle = (startX + endX) / 2;
+      edgeLayer.append(graphSvgElement("path", {
+        class: "graph-edge",
+        d: `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`,
+      }));
+    }
+    svg.append(edgeLayer);
+    const nodeLayer = graphSvgElement("g", { class: "graph-nodes" });
+    for (const item of visible) {
+      const position = positions.get(item.id);
+      const parameterColor = graphParameterColor(item.parameterShare);
+      const hasChildren = explorer.children.get(item.id).length > 0;
+      const isExpanded = expanded.has(item.id) || Boolean(query);
+      const group = graphSvgElement("g", {
+        class: `graph-node${parameterColor.dense ? " dense" : ""}`,
+        transform: `translate(${position.x} ${position.y})`,
+        tabindex: "0",
+        role: "button",
+      });
+      const labelX = hasChildren && state.graphView === "hierarchy" ? 29 : 10;
+      group.append(
+        graphSvgElement("rect", {
+          width: 190,
+          height: 58,
+          class: "graph-node-card",
+          fill: parameterColor.color,
+        }),
+        graphSvgElement("text", {
+          x: labelX,
+          y: 19,
+          class: "graph-node-label",
+        }, item.label.length > 24 ? `${item.label.slice(0, 22)}…` : item.label),
+        graphSvgElement("text", {
+          x: 10,
+          y: 36,
+          class: "graph-node-type",
+        }, item.type),
+        graphSvgElement("text", {
+          x: 10,
+          y: 50,
+          class: "graph-node-share",
+        }, `${formatParameterShare(item.parameterShare)} · ${formatNumber(item.blockParameters)} params`),
+      );
+      if (hasChildren && state.graphView === "hierarchy") {
+        const expansion = graphSvgElement("g", {
+          class: "graph-expansion-control",
+        });
+        expansion.append(
+          graphSvgElement("rect", {
+            x: 8,
+            y: 8,
+            width: 14,
+            height: 14,
+            class: "graph-node-expand",
+          }),
+          graphSvgElement("text", {
+            x: 12,
+            y: 19,
+            class: "graph-node-expand-symbol",
+          }, isExpanded ? "−" : "+"),
+        );
+        expansion.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleGraphBlock(item.id);
+        });
+        group.append(expansion);
+      }
+      const select = () => {
+        svg.querySelectorAll(".graph-node.selected").forEach(
+          (candidate) => candidate.classList.remove("selected"),
+        );
         group.classList.add("selected");
         renderModelNodeDetails(item);
       };
@@ -1316,6 +2103,80 @@
     }
     svg.append(nodeLayer);
     host.append(svg);
+    host.scrollLeft = previousScroll.left;
+    host.scrollTop = previousScroll.top;
+  }
+
+  function formatParameterShare(share) {
+    const percentage = Math.max(0, Number(share) || 0) * 100;
+    return `${percentage.toFixed(percentage < 0.1 ? 3 : 1)}%`;
+  }
+
+  function toggleGraphBlock(nodeId) {
+    const graph = state.modelGraphData;
+    if (!graph) return;
+    const key = graphExpansionKey(graph);
+    const expanded = new Set(state.graphExpandedNodes[key] || []);
+    if (expanded.has(nodeId)) expanded.delete(nodeId); else expanded.add(nodeId);
+    state.graphExpandedNodes[key] = [...expanded];
+    persistState();
+    renderModelGraphCanvas();
+  }
+
+  function toggleOperatorModule(moduleId) {
+    const graph = state.modelGraphData;
+    if (!graph || graph.graph_mode !== "operators") return;
+    const key = graphExpansionKey(graph);
+    const expanded = operatorExpandedModules(graph);
+    if (expanded.has(moduleId)) {
+      const modulePath = (graph.modules || []).find((item) => item.id === moduleId)?.path || "";
+      for (const candidate of [...expanded]) {
+        const candidatePath = (graph.modules || []).find((item) => item.id === candidate)?.path || "";
+        if (candidate === moduleId || !modulePath || candidatePath.startsWith(`${modulePath}.`)) {
+          expanded.delete(candidate);
+        }
+      }
+    } else {
+      expanded.add(moduleId);
+    }
+    state.graphExpandedNodes[key] = [...expanded];
+    persistState();
+    renderModelGraphCanvas();
+  }
+
+  function setAllGraphBlocks(expand) {
+    const graph = state.modelGraphData;
+    if (!graph) return;
+    const key = graphExpansionKey(graph);
+    if (graph.graph_mode === "operators") {
+      state.graphExpandedNodes[key] = expand
+        ? (graph.modules || []).map((item) => item.id)
+        : [];
+    } else {
+      const explorer = buildGraphExplorerModel(graph);
+      state.graphExpandedNodes[key] = expand
+        ? [...explorer.nodes.keys()].filter(
+          (id) => explorer.children.get(id).length,
+        )
+        : [];
+    }
+    persistState();
+    renderModelGraphCanvas();
+  }
+
+  function renderGraphModeSelect(info) {
+    const select = el("model-graph-mode-select");
+    const operatorOption = [...select.options].find((option) => option.value === "operators");
+    const operatorMode = info.modes?.operators || { available: false, reason: "Operators view is unavailable for this run." };
+    operatorOption.disabled = !operatorMode.available;
+    operatorOption.textContent = operatorMode.available ? "Operators" : "Operators · unavailable";
+    select.title = operatorMode.available ? "" : operatorMode.reason;
+    if (state.graphMode === "operators" && !operatorMode.available) {
+      state.graphMode = "architecture";
+      persistState();
+    }
+    select.value = state.graphMode;
+    select.disabled = false;
   }
 
   function renderGraphCheckpointSelect(graph) {
@@ -1342,17 +2203,38 @@
     panel.replaceChildren();
     panel.append(node("h4", "", item.label), node("code", "", item.id));
     const values = node("dl", "");
-    for (const [label, value] of [
+    const operator = state.modelGraphData?.graph_mode === "operators";
+    const fields = operator && item.kind === "module" ? [
       ["Module type", item.type],
-      ["Parameters", formatNumber(item.parameters)],
+      ["Module path", item.module_path || "Model root"],
+      ["Contained operators", formatNumber(item.operator_count)],
+      ["Block parameters", formatNumber(item.parameters)],
+      ["Share of model", formatParameterShare(item.parameterShare)],
       ["Trainable", formatNumber(item.trainable_parameters)],
-    ]) values.append(node("dt", "", label), node("dd", "", value));
+    ] : operator ? [
+      ["Node type", item.type],
+      ["Operation", item.op],
+      ["Target", item.target],
+      ["Origin module", item.module_path || "—"],
+      ["Parameters represented", formatNumber(item.parameters)],
+      ["Share of model", formatParameterShare(item.parameterShare)],
+    ] : [
+      ["Module type", item.type],
+      ["Block parameters", formatNumber(item.blockParameters ?? item.parameters)],
+      ["Share of model", formatParameterShare(item.parameterShare)],
+      ["Direct parameters", formatNumber(item.parameters)],
+      ["Trainable", formatNumber(item.trainable_parameters)],
+    ];
+    for (const [label, value] of fields) {
+      values.append(node("dt", "", label), node("dd", "", value));
+    }
     panel.append(values);
-    if (item.tensors.length) {
-      panel.append(node("strong", "", "Checkpoint tensors"));
+    if (item.tensors?.length) {
+      panel.append(node("strong", "", operator ? "Exported tensors" : "Checkpoint tensors"));
       const list = node("ul", "");
       for (const tensor of item.tensors) {
-        list.append(node("li", "", `${tensor.name} · [${tensor.shape.join(", ")}]`));
+        const dtype = tensor.dtype ? ` · ${tensor.dtype}` : "";
+        list.append(node("li", "", `${tensor.name} · [${tensor.shape.join(", ")}]${dtype}`));
       }
       panel.append(list);
     }
@@ -1724,6 +2606,7 @@
     persistState();
     applyTheme();
     state.charts.forEach((chart) => drawChart(chart));
+    if (state.modelGraphData) renderModelGraphCanvas();
   });
   el("metric-search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
@@ -1747,6 +2630,7 @@
     renderSourceFilter([...new Set(state.details.series.map((series) => series.source))]);
     renderPlotNavigator();
     renderCharts();
+    prepareModelGraph();
   });
   el("inner-fold-aggregate").addEventListener("change", (event) => {
     state.innerFoldAggregate = event.target.checked;
@@ -1817,12 +2701,57 @@
   el("model-graph-section").addEventListener("toggle", () => {
     if (el("model-graph-section").open) prepareModelGraph();
   });
+  el("model-graph-mode-select").addEventListener("change", (event) => {
+    state.graphMode = event.target.value;
+    persistState();
+    const path = focusedModelGraphPath();
+    if (path) loadModelGraph(path);
+  });
   el("model-graph-checkpoint-select").addEventListener("change", (event) => {
     const path = focusedModelGraphPath();
     if (!path) return;
     state.graphCheckpointChoices[path] = event.target.value;
     persistState();
     loadModelGraph(path);
+  });
+  el("model-graph-run-select").addEventListener("change", (event) => {
+    const selection = state.details?.selection;
+    if (!selection) return;
+    state.graphFocusedRuns[graphRunKey(selection)] = event.target.value;
+    persistState();
+    prepareModelGraph();
+  });
+  el("graph-expand-all").addEventListener("click", () => setAllGraphBlocks(true));
+  el("graph-collapse-all").addEventListener("click", () => setAllGraphBlocks(false));
+  el("graph-zoom-out").addEventListener("click", () => {
+    setGraphZoom(currentGraphZoom() / 1.2);
+  });
+  el("graph-zoom-reset").addEventListener("click", () => setGraphZoom(1));
+  el("graph-zoom-in").addEventListener("click", () => {
+    setGraphZoom(currentGraphZoom() * 1.2);
+  });
+  el("model-graph-canvas").addEventListener("pointerdown", beginGraphPan);
+  el("model-graph-canvas").addEventListener("pointermove", updateGraphPointerDrag);
+  el("model-graph-canvas").addEventListener("pointerup", finishGraphPointerDrag);
+  el("model-graph-canvas").addEventListener("pointercancel", finishGraphPointerDrag);
+  el("model-graph-canvas").addEventListener("wheel", (event) => {
+    if (state.modelGraphData?.graph_mode !== "operators") return;
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    setGraphZoom(
+      currentGraphZoom() * (event.deltaY < 0 ? 1.1 : (1 / 1.1)),
+      { x: event.clientX - bounds.left, y: event.clientY - bounds.top },
+    );
+  }, { passive: false });
+  el("graph-view-toggle").addEventListener("click", () => {
+    state.graphView = state.graphView === "hierarchy" ? "leaves" : "hierarchy";
+    persistState();
+    syncGraphExplorerControls();
+    renderModelGraphCanvas();
+  });
+  el("graph-search").addEventListener("input", (event) => {
+    state.graphQuery = event.target.value;
+    renderModelGraphCanvas();
   });
   if (state.selectedPath) {
     detailsView.hidden = false;

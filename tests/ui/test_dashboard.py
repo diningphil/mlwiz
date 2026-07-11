@@ -9,6 +9,7 @@ from urllib.request import Request, urlopen
 import pytest
 import torch
 
+from mlwiz.static import MODEL_GRAPH_INPUT_SPEC_FILENAME
 from mlwiz.ui.dashboard import (
     MetricsCache,
     ResultsRepository,
@@ -381,12 +382,26 @@ def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
             }
         )
     )
+    (selection_run / MODEL_GRAPH_INPUT_SPEC_FILENAME).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "kind": "tensor",
+                "shape": [2, 2],
+                "dtype": "float32",
+            }
+        )
+    )
     repository = ResultsRepository(experiment.parent)
     relative = selection_run.relative_to(experiment.parent).as_posix()
 
     graph = repository.model_graph(relative)
     cached = repository.model_graph(relative)
     explicit_best = repository.model_graph(relative, checkpoint_kind="best")
+    operators = repository.model_graph(relative, graph_mode="operators")
+    cached_operators = repository.model_graph(
+        relative, graph_mode="operators"
+    )
     info = repository.model_graph_info(relative)
 
     assert graph["checkpoint"]["kind"] == "last"
@@ -404,8 +419,64 @@ def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
     assert cached["checkpoint"]["cache_hit"] is True
     assert explicit_best["checkpoint"]["kind"] == "best"
     assert explicit_best["epoch"] == 1
+    assert operators["graph_mode"] == "operators"
+    assert operators["graph_kind"] == "torch.export ATen operators"
+    assert operators["summary"]["operators"] >= 3
+    assert operators["summary"]["modules"] >= 3
+    assert operators["edges"]
+    assert {module["id"] for module in operators["modules"]} >= {
+        "__root__",
+        "encoder",
+        "encoder.0",
+        "encoder.1",
+        "output",
+    }
+    assert any(
+        "aten." in node["target"]
+        for node in operators["nodes"]
+        if node["op"] == "call_function"
+    )
+    assert any(
+        node["module_stack"] == ["encoder", "encoder.0"]
+        for node in operators["nodes"]
+        if "aten.linear" in node["target"]
+    )
+    assert cached_operators["checkpoint"]["cache_hit"] is True
     assert info["checkpoint"]["kind"] == "last"
     assert set(info["checkpoint"]["loadable"]) == {"best", "last"}
+    assert info["modes"]["operators"]["available"] is True
+
+
+def test_operator_graph_requires_a_recorded_tensor_input(tmp_path):
+    """Old and custom-input runs should retain Architecture with a clear reason."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    model = _TinyGraphModel(2, 1, {})
+    torch.save(
+        {"epoch": 0, "model_state": model.state_dict()},
+        selection_run / "last_checkpoint.pth",
+    )
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "model": f"{__name__}._TinyGraphModel",
+                "config": {},
+                "dim_input_features": 2,
+                "dim_target": 1,
+            }
+        )
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+
+    architecture = repository.model_graph(relative)
+    info = repository.model_graph_info(relative)
+
+    assert architecture["graph_mode"] == "architecture"
+    assert info["modes"]["operators"]["available"] is False
+    assert "input shape" in info["modes"]["operators"]["reason"]
+    with pytest.raises(ValueError, match="input shape"):
+        repository.model_graph(relative, graph_mode="operators")
 
 
 def test_completed_model_graph_prefers_best_checkpoint_with_fallback(tmp_path):
@@ -510,9 +581,31 @@ def test_cli_parses_dashboard_options(tmp_path):
 def test_http_server_serves_frontend_and_api(tmp_path):
     """A startable server should expose both the page and tree API."""
     experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    model = _TinyGraphModel(2, 1, {})
     torch.save(
-        {"epoch": 1, "model_state": {"layer.weight": torch.ones(2, 2)}},
+        {"epoch": 1, "model_state": model.state_dict()},
         selection_run / "last_checkpoint.pth",
+    )
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "model": f"{__name__}._TinyGraphModel",
+                "config": {},
+                "dim_input_features": 2,
+                "dim_target": 1,
+            }
+        )
+    )
+    (selection_run / MODEL_GRAPH_INPUT_SPEC_FILENAME).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "kind": "tensor",
+                "shape": [2, 2],
+                "dtype": "float32",
+            }
+        )
     )
     server = create_server(experiment.parent, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -544,6 +637,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             f"{base_url}/api/model-graph-info?path={graph_path}", timeout=3
         ) as response:
             graph_info = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/model-graph?path={graph_path}&mode=operators",
+            timeout=3,
+        ) as response:
+            operator_graph = json.loads(response.read())
         cache_request = Request(
             f"{base_url}/api/cache",
             data=json.dumps({"max_mb": 64}).encode("utf-8"),
@@ -573,6 +671,15 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="experiment-overview"' in page
         assert 'id="model-graph-section"' in page
         assert 'id="model-graph-checkpoint-select"' in page
+        assert 'id="model-graph-run-select"' in page
+        assert 'id="model-graph-mode-select"' in page
+        assert 'id="graph-zoom-controls"' in page
+        assert 'id="graph-zoom-out"' in page
+        assert 'id="graph-zoom-in"' in page
+        assert 'id="graph-expand-all"' in page
+        assert 'id="graph-collapse-all"' in page
+        assert 'id="graph-view-toggle"' in page
+        assert 'id="graph-search"' in page
         assert page.index('id="summary-grid"') < page.index(
             'id="model-graph-section"'
         ) < page.index('id="chart-toolbar"')
@@ -588,6 +695,23 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/api/model-graph-info" in app_script
         assert "renderModelGraph" in app_script
         assert "graphCheckpointChoices" in app_script
+        assert "graphFocusedRuns" in app_script
+        assert "renderModelGraphRunSelector" in app_script
+        assert "renderOperatorGraphCanvas" in app_script
+        assert "renderGraphModeSelect" in app_script
+        assert "buildOperatorExplorer" in app_script
+        assert "operatorModuleFrames" in app_script
+        assert "toggleOperatorModule" in app_script
+        assert "setGraphZoom" in app_script
+        assert "graphZooms" in app_script
+        assert "graphNodePositions" in app_script
+        assert "beginGraphPan" in app_script
+        assert "beginOperatorNodeDrag" in app_script
+        assert "updateGraphPointerDrag" in app_script
+        assert "buildGraphExplorerModel" in app_script
+        assert "graphParameterColor" in app_script
+        assert "toggleGraphBlock" in app_script
+        assert "setAllGraphBlocks" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
         assert "aggregateMetricLines" in app_script
@@ -610,6 +734,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "expandJsonDescendants" in app_script
         assert ".json-inspector" in stylesheet
         assert ".model-graph-section" in stylesheet
+        assert ".parameter-legend" in stylesheet
+        assert ".graph-node-card" in stylesheet
+        assert ".operator-edge" in stylesheet
+        assert ".graph-arrow-head" in stylesheet
+        assert ".operator-module-frame-box" in stylesheet
         assert ".plot-navigator { position: sticky" in stylesheet
         assert ".plot-navigator.is-stuck" in stylesheet
         assert ".content { min-width: 0;" in stylesheet
@@ -625,6 +754,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert graph_data["epoch"] == 2
         assert graph_info["checkpoint"]["kind"] == "last"
         assert graph_info["checkpoint"]["loadable"] == ["last"]
+        assert graph_info["modes"]["operators"]["available"] is True
+        assert operator_graph["graph_mode"] == "operators"
+        assert operator_graph["summary"]["operators"] >= 3
         assert filter_data["default_metric"] == "scores:main_score"
     finally:
         server.shutdown()

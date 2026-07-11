@@ -34,6 +34,7 @@ from mlwiz.static import (
     BEST_EPOCH,
     EPOCH,
     LAST_CHECKPOINT_FILENAME,
+    MODEL_GRAPH_INPUT_SPEC_FILENAME,
     MODEL_ASSESSMENT,
     MODEL_MANIFEST_FILENAME,
     MODEL_STATE,
@@ -48,13 +49,33 @@ _FINAL_RUN_PATTERN = re.compile(r"final_run_?(\d+)$")
 _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
 _MAX_GRAPH_NODES = 600
+_MAX_GRAPH_INPUT_SPEC_BYTES = 64 * 1024
+_MODEL_GRAPH_SCHEMA_VERSION = 2
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
+_GRAPH_MODES = {"architecture", "operators"}
 _FILTER_RESULT_PATTERN = re.compile(r"^avg_(training|validation)_(.+)$")
 _ELAPSED_PATTERN = re.compile(
     r"Total time of the experiment in seconds: (\d+(?:\.\d+)?)"
 )
+_EXPORT_DTYPES = {
+    name: dtype
+    for name, dtype in (
+        ("bool", torch.bool),
+        ("uint8", torch.uint8),
+        ("int8", torch.int8),
+        ("int16", torch.int16),
+        ("int32", torch.int32),
+        ("int64", torch.int64),
+        ("float16", torch.float16),
+        ("bfloat16", torch.bfloat16),
+        ("float32", torch.float32),
+        ("float64", torch.float64),
+        ("complex64", torch.complex64),
+        ("complex128", torch.complex128),
+    )
+}
 
 
 def _numbered_directories(
@@ -78,6 +99,15 @@ def _read_json(path: Path) -> Optional[Any]:
             return _json_safe(json.load(stream))
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+
+
+def _file_signature(path: Path) -> Optional[tuple[int, int]]:
+    """Return the change signature of an optional dashboard artifact."""
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    return stat.st_mtime_ns, stat.st_size
 
 
 def _json_safe(value: Any) -> Any:
@@ -286,9 +316,12 @@ class ResultsRepository:
         return self.metrics_cache.clear()
 
     def model_graph(
-        self, relative_path: str, checkpoint_kind: str = "auto"
+        self,
+        relative_path: str,
+        checkpoint_kind: str = "auto",
+        graph_mode: str = "architecture",
     ) -> dict[str, Any]:
-        """Lazily reconstruct a run's module graph from its active checkpoint."""
+        """Lazily build an architecture or operator graph from a checkpoint."""
         (
             run_folder,
             status,
@@ -299,6 +332,8 @@ class ResultsRepository:
         ) = self._model_graph_context(relative_path)
         if checkpoint_kind not in {"auto", "best", "last"}:
             raise ValueError("Checkpoint must be 'auto', 'best', or 'last'.")
+        if graph_mode not in _GRAPH_MODES:
+            raise ValueError("Graph mode must be 'architecture' or 'operators'.")
         preferred = (
             [BEST_CHECKPOINT_FILENAME, LAST_CHECKPOINT_FILENAME]
             if status == "completed"
@@ -331,23 +366,33 @@ class ResultsRepository:
                 f"Checkpoint is {checkpoint_mb:.2f} MB, exceeding the "
                 f"{limit_mb:.2f} MB cache limit; model graph loading was skipped."
             )
-        manifest_signature = None
-        if manifest_path.is_file():
-            manifest_stat = manifest_path.stat()
-            manifest_signature = (
-                manifest_stat.st_mtime_ns,
-                manifest_stat.st_size,
-            )
+        input_spec_path = run_folder / MODEL_GRAPH_INPUT_SPEC_FILENAME
+        manifest_signature = _file_signature(manifest_path)
+        input_spec_signature = (
+            _file_signature(input_spec_path)
+            if graph_mode == "operators"
+            else None
+        )
         signature = (
+            _MODEL_GRAPH_SCHEMA_VERSION,
+            graph_mode,
             checkpoint_stat.st_mtime_ns,
             checkpoint_stat.st_size,
             manifest_signature,
+            input_spec_signature,
         )
-        graph = self.metrics_cache.get(checkpoint, signature)
+        cache_key = self._model_graph_cache_key(checkpoint, graph_mode)
+        graph = self.metrics_cache.get(cache_key, signature)
         cache_hit = graph is not None
         if graph is None:
             try:
-                graph = self._load_checkpoint_graph(checkpoint, manifest_path)
+                graph = self._load_checkpoint_graph(
+                    checkpoint,
+                    manifest_path,
+                    input_spec_path,
+                    graph_mode,
+                    cache_limit,
+                )
             except (
                 RuntimeError,
                 TypeError,
@@ -357,14 +402,22 @@ class ResultsRepository:
                 raise ValueError(f"Could not load checkpoint: {error}") from error
             final_stat = checkpoint.stat()
             if (
+                _MODEL_GRAPH_SCHEMA_VERSION,
+                graph_mode,
                 final_stat.st_mtime_ns,
                 final_stat.st_size,
-                manifest_signature,
+                _file_signature(manifest_path),
+                (
+                    _file_signature(input_spec_path)
+                    if graph_mode == "operators"
+                    else None
+                ),
             ) == signature:
-                self.metrics_cache.put(checkpoint, signature, graph)
+                self.metrics_cache.put(cache_key, signature, graph)
 
         return {
             **graph,
+            "graph_mode": graph_mode,
             "run": self._relative(run_folder),
             "run_state": status,
             "checkpoint": {
@@ -393,6 +446,9 @@ class ResultsRepository:
         ) = self._model_graph_context(relative_path)
         preference = ["best", "last"] if status == "completed" else ["last", "best"]
         default_kind = next((kind for kind in preference if kind in available), None)
+        operators_available, operators_reason = self._operator_graph_available(
+            run_folder, cache_limit
+        )
         return {
             "run": self._relative(run_folder),
             "run_state": status,
@@ -406,8 +462,37 @@ class ResultsRepository:
                     for kind in available
                 },
             },
+            "modes": {
+                "architecture": {"available": True},
+                "operators": {
+                    "available": operators_available,
+                    "reason": operators_reason,
+                },
+            },
             "cache_max_mb": round(cache_limit / _MEBIBYTE, 2),
         }
+
+    @staticmethod
+    def _model_graph_cache_key(checkpoint: Path, graph_mode: str) -> Path:
+        """Keep architecture and exported-operator cache entries independent."""
+        return checkpoint.with_name(
+            f".{checkpoint.name}.{graph_mode}.model-graph-cache"
+        )
+
+    def _operator_graph_available(
+        self, run_folder: Path, cache_limit: int
+    ) -> tuple[bool, Optional[str]]:
+        """Check whether a run has the safe artifacts needed for export."""
+        manifest_path = run_folder / MODEL_MANIFEST_FILENAME
+        if not isinstance(_read_json(manifest_path), dict):
+            return False, "Operators view needs the run's model manifest."
+        try:
+            self._export_input_spec_details(
+                run_folder / MODEL_GRAPH_INPUT_SPEC_FILENAME, cache_limit
+            )
+        except ValueError as error:
+            return False, str(error)
+        return True, None
 
     def _model_graph_context(
         self, relative_path: str
@@ -449,9 +534,14 @@ class ResultsRepository:
         )
 
     def _load_checkpoint_graph(
-        self, checkpoint: Path, manifest_path: Path
+        self,
+        checkpoint: Path,
+        manifest_path: Path,
+        input_spec_path: Path,
+        graph_mode: str,
+        cache_limit: int,
     ) -> dict[str, Any]:
-        """Load one checkpoint on CPU and normalize its current module graph."""
+        """Load one checkpoint and build the requested graph on CPU."""
         payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
         if not isinstance(payload, dict) or not isinstance(
             payload.get(MODEL_STATE), dict
@@ -460,11 +550,34 @@ class ResultsRepository:
         model_state = payload[MODEL_STATE]
         manifest = _read_json(manifest_path)
         warning = None
-        if isinstance(manifest, dict):
+        if graph_mode == "operators":
+            if not isinstance(manifest, dict):
+                raise ValueError(
+                    "Operators view needs a model manifest; use Architecture "
+                    "for runs created before model manifests were recorded."
+                )
+            try:
+                model = self._reconstruct_model(manifest, model_state)
+            except Exception as error:
+                raise ValueError(
+                    "Operators view could not reconstruct the checkpoint model: "
+                    f"{error}"
+                ) from error
+            example_input, input_summary = self._export_example_input(
+                input_spec_path, cache_limit
+            )
+            try:
+                graph = self._operator_graph(model, example_input, input_summary)
+            except Exception as error:
+                raise ValueError(
+                    "torch.export could not capture this model with the recorded "
+                    f"input shape: {error}"
+                ) from error
+        elif isinstance(manifest, dict):
             try:
                 model = self._reconstruct_model(manifest, model_state)
                 graph = self._module_graph(model)
-            except Exception as error:  # custom model reconstruction is best-effort
+            except Exception as error:  # custom reconstruction is best-effort
                 graph = self._state_dict_graph(model_state, manifest)
                 warning = (
                     "The model class could not be reconstructed; showing the "
@@ -491,6 +604,307 @@ class ResultsRepository:
             }
         )
         return graph
+
+    @staticmethod
+    def _export_input_spec_details(
+        input_spec_path: Path, cache_limit: int
+    ) -> tuple[tuple[int, ...], torch.dtype, int]:
+        """Validate a data-free input specification without allocating it."""
+        try:
+            spec_size = input_spec_path.stat().st_size
+        except FileNotFoundError as error:
+            raise ValueError(
+                "Operators view needs an input shape recorded by a new MLWiz run."
+            ) from error
+        if spec_size > _MAX_GRAPH_INPUT_SPEC_BYTES:
+            raise ValueError("The recorded operator-input specification is invalid.")
+        specification = _read_json(input_spec_path)
+        if not isinstance(specification, dict):
+            raise ValueError("The recorded operator-input specification is invalid.")
+        if specification.get("kind") != "tensor":
+            input_type = specification.get("type")
+            suffix = f" ({input_type})" if isinstance(input_type, str) else ""
+            raise ValueError(
+                "Operators view currently requires a tensor model input"
+                f"{suffix}; this run needs a custom export adapter."
+            )
+
+        shape_payload = specification.get("shape")
+        if not isinstance(shape_payload, list) or len(shape_payload) > 32:
+            raise ValueError("The recorded operator-input shape is invalid.")
+        shape = []
+        number_elements = 1
+        for dimension in shape_payload:
+            if (
+                isinstance(dimension, bool)
+                or not isinstance(dimension, int)
+                or dimension < 0
+            ):
+                raise ValueError("The recorded operator-input shape is invalid.")
+            shape.append(dimension)
+            number_elements *= dimension
+
+        dtype_name = specification.get("dtype")
+        if isinstance(dtype_name, str):
+            dtype_name = dtype_name.removeprefix("torch.")
+        dtype = _EXPORT_DTYPES.get(dtype_name)
+        if dtype is None:
+            raise ValueError("The recorded operator-input dtype is unsupported.")
+        byte_count = number_elements * torch.empty((), dtype=dtype).element_size()
+        if byte_count > cache_limit:
+            size_mb = byte_count / _MEBIBYTE
+            limit_mb = cache_limit / _MEBIBYTE
+            raise ValueError(
+                f"The synthetic export input is {size_mb:.2f} MB, exceeding "
+                f"the {limit_mb:.2f} MB cache limit."
+            )
+        return tuple(shape), dtype, byte_count
+
+    def _export_example_input(
+        self, input_spec_path: Path, cache_limit: int
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Create a CPU example tensor from safe shape and dtype metadata."""
+        shape, dtype, byte_count = self._export_input_spec_details(
+            input_spec_path, cache_limit
+        )
+        return torch.zeros(shape, dtype=dtype, device="cpu"), {
+            "shape": list(shape),
+            "dtype": str(dtype),
+            "bytes": byte_count,
+        }
+
+    def _operator_graph(
+        self,
+        model: torch.nn.Module,
+        example_input: torch.Tensor,
+        input_summary: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Trace one model execution into a low-level ``torch.export`` DAG."""
+        model.eval()
+        with torch.no_grad():
+            exported = torch.export.export(
+                model, (example_input,), strict=False
+            )
+        graph_nodes = list(exported.graph_module.graph.nodes)
+        visible_graph_nodes = graph_nodes[:_MAX_GRAPH_NODES]
+        visible_ids = {item.name for item in visible_graph_nodes}
+        input_metadata = self._export_graph_input_metadata(exported)
+        parameters = {
+            name: (value.numel(), value.requires_grad)
+            for name, value in model.named_parameters()
+        }
+        nodes = []
+        for item in visible_graph_nodes:
+            target = str(item.target)
+            metadata = input_metadata.get(item.name, {})
+            parameter_name = metadata.get("target")
+            parameter_count, trainable = parameters.get(
+                parameter_name, (0, False)
+            )
+            module_stack = self._operator_module_stack(item.meta)
+            if not module_stack and metadata.get("kind") in {
+                "parameter",
+                "buffer",
+                "constant_tensor",
+            }:
+                module_stack = self._parameter_module_stack(parameter_name)
+            nodes.append(
+                {
+                    "id": item.name,
+                    "label": self._operator_node_label(item.op, target),
+                    "type": self._operator_node_type(
+                        item.op, target, metadata.get("kind")
+                    ),
+                    "op": item.op,
+                    "target": target,
+                    "module_path": module_stack[-1] if module_stack else None,
+                    "module_stack": module_stack,
+                    "parameters": parameter_count,
+                    "trainable_parameters": (
+                        parameter_count if trainable else 0
+                    ),
+                    "tensors": self._operator_tensor_records(
+                        item.meta.get("val")
+                    ),
+                }
+            )
+        edges = [
+            {"source": dependency.name, "target": item.name}
+            for item in visible_graph_nodes
+            for dependency in getattr(item, "all_input_nodes", ())
+            if dependency.name in visible_ids
+        ]
+        total_parameters = sum(value.numel() for value in model.parameters())
+        modules = self._operator_modules(model, nodes)
+        return {
+            "graph_kind": "torch.export ATen operators",
+            "nodes": nodes,
+            "edges": edges,
+            "modules": modules,
+            "summary": {
+                "model_class": type(model).__name__,
+                "parameters": total_parameters,
+                "nodes": len(graph_nodes),
+                "visible_nodes": len(nodes),
+                "operators": sum(
+                    item.op in {"call_function", "call_method", "call_module"}
+                    for item in graph_nodes
+                ),
+                "modules": max(0, len(modules) - 1),
+                "truncated": len(graph_nodes) > len(nodes),
+                "input": input_summary,
+            },
+        }
+
+    @staticmethod
+    def _export_graph_input_metadata(exported: Any) -> dict[str, dict[str, str]]:
+        """Map exported placeholder names to parameter/user-input metadata."""
+        metadata = {}
+        signature = getattr(exported, "graph_signature", None)
+        for specification in getattr(signature, "input_specs", ()):
+            argument = getattr(specification, "arg", None)
+            name = getattr(argument, "name", None)
+            if not isinstance(name, str):
+                continue
+            kind = str(getattr(specification, "kind", "")).rsplit(".", 1)[-1]
+            target = getattr(specification, "target", None)
+            metadata[name] = {
+                "kind": kind.lower(),
+                "target": str(target) if target is not None else "",
+            }
+        return metadata
+
+    @staticmethod
+    def _operator_node_label(operation: str, target: str) -> str:
+        """Create a compact, stable label for an exported graph node."""
+        if operation == "placeholder":
+            return target.removeprefix("p_").removeprefix("b_")
+        if operation == "output":
+            return "output"
+        return target.removeprefix("torch.ops.")
+
+    @staticmethod
+    def _operator_node_type(
+        operation: str, target: str, input_kind: Optional[str]
+    ) -> str:
+        """Describe the role of an exported node for the inspector."""
+        if input_kind:
+            return input_kind.replace("_", " ").title()
+        if operation == "output":
+            return "Graph output"
+        if target.startswith("aten.") or target.startswith("torch.ops.aten."):
+            return "ATen operator"
+        return operation.replace("_", " ").title()
+
+    @staticmethod
+    def _operator_module_stack(metadata: dict[str, Any]) -> list[str]:
+        """Return the ordered module ancestry recorded by ``torch.export``."""
+        module_stack = metadata.get("nn_module_stack")
+        if not isinstance(module_stack, dict):
+            return []
+        paths = []
+        for value in module_stack.values():
+            if not isinstance(value, (tuple, list)) or not value or not value[0]:
+                continue
+            path = str(value[0])
+            if path not in paths:
+                paths.append(path)
+        return paths
+
+    @staticmethod
+    def _parameter_module_stack(parameter_name: Optional[str]) -> list[str]:
+        """Infer module ancestry for parameter placeholders from state keys."""
+        if not parameter_name or "." not in parameter_name:
+            return []
+        parts = parameter_name.rsplit(".", 1)[0].split(".")
+        return [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
+
+    @staticmethod
+    def _operator_modules(
+        model: torch.nn.Module, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Describe only modules that participate in the exported execution."""
+        executed_paths = {
+            path for node in nodes for path in node.get("module_stack", [])
+        }
+        module_lookup = dict(model.named_modules())
+        records = []
+        for path in [""] + sorted(
+            executed_paths, key=lambda value: (value.count("."), value)
+        ):
+            module = module_lookup.get(path)
+            if module is None:
+                continue
+            direct_parameters = list(module.parameters(recurse=False))
+            subtree_parameters = list(module.parameters(recurse=True))
+            records.append(
+                {
+                    "id": path or "__root__",
+                    "path": path,
+                    "label": (
+                        path.rsplit(".", 1)[-1]
+                        if path
+                        else type(model).__name__
+                    ),
+                    "type": type(module).__name__,
+                    "parent": (
+                        path.rpartition(".")[0] or "__root__"
+                        if path
+                        else None
+                    ),
+                    "parameters": sum(
+                        parameter.numel() for parameter in subtree_parameters
+                    ),
+                    "direct_parameters": sum(
+                        parameter.numel() for parameter in direct_parameters
+                    ),
+                    "trainable_parameters": sum(
+                        parameter.numel()
+                        for parameter in subtree_parameters
+                        if parameter.requires_grad
+                    ),
+                    "operator_count": sum(
+                        node.get("op")
+                        in {"call_function", "call_method", "call_module"}
+                        and (
+                            not path
+                            or path in node.get("module_stack", [])
+                        )
+                        for node in nodes
+                    ),
+                }
+            )
+        return records
+
+    @staticmethod
+    def _operator_tensor_records(value: Any) -> list[dict[str, Any]]:
+        """Normalize exported fake-tensor metadata without tensor allocation."""
+        records = []
+
+        def visit(item: Any, name: str) -> None:
+            if len(records) >= 16:
+                return
+            if isinstance(item, (tuple, list)):
+                for index, nested in enumerate(item):
+                    visit(nested, f"{name}.{index}")
+                return
+            shape = getattr(item, "shape", None)
+            if shape is None:
+                return
+            try:
+                normalized_shape = [int(dimension) for dimension in shape]
+            except (TypeError, ValueError):
+                return
+            records.append(
+                {
+                    "name": name,
+                    "shape": normalized_shape,
+                    "dtype": str(getattr(item, "dtype", "")),
+                }
+            )
+
+        visit(value, "output")
+        return records
 
     def _reconstruct_model(
         self, manifest: dict[str, Any], model_state: dict[str, Any]
@@ -1303,9 +1717,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     )
                     return
                 checkpoint_kind = query.get("checkpoint", ["auto"])[0]
+                graph_mode = query.get("mode", ["architecture"])[0]
                 self._send_json(
                     self.server.repository.model_graph(
-                        relative_path, checkpoint_kind=checkpoint_kind
+                        relative_path,
+                        checkpoint_kind=checkpoint_kind,
+                        graph_mode=graph_mode,
                     )
                 )
                 return

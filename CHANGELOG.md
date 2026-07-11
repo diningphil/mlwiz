@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.3]
+
+## Added
+
+- added Architecture and Operators views to the Model graph panel; Operators lazily traces the selected checkpoint with `torch.export` and displays its ATen computational graph
+- new runs persist a data-free first-forward tensor shape/dtype specification so operator graphs can be generated without storing training examples
+
+## Changed
+
+- Architecture view uses a Model Explorer-style collapsible hierarchy with expand/collapse-all, module search, a flattened leaf view, and block colors based on subtree parameters relative to total model parameters
+- Operators view presents a directed module-level execution graph with arrowheads, recursively expandable module boundaries, persisted expansion/zoom/node placement, mouse-wheel zoom, background drag-to-pan, and freely draggable module/operator boxes instead of a flat operator list
+- architecture and operator graphs use separate bounded cache entries, so switching views never returns a graph generated for the other mode
+
+## Fixed
+
+- the Model graph panel keeps an independent run selector while metric plots are grouped by inner fold
+
 ## [1.6.2]
 
 ## Added

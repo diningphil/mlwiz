@@ -253,19 +253,46 @@ estimated remaining compute budget. Timing comes from the profiler markers in
 each `experiment.log`. The remaining estimate is deliberately reported as
 compute time because parallel execution may complete in less wall-clock time.
 
-The collapsible **Model graph** panel loads architecture information only when
-opened. For a running job it reads `last_checkpoint.pth`; for a completed job
-it prefers `best_checkpoint.pth`, falling back to the other checkpoint when
-necessary. A checkpoint selector can explicitly display Best or Last whenever
-that file exists, while Auto retains the status-based policy. New runs store a
-small `model_manifest.json`, allowing the dashboard
-to reconstruct the current CPU module hierarchy after loading checkpoint
-weights. Older runs remain inspectable through their checkpoint parameter
-hierarchy. Enable `checkpoint: true` to produce last checkpoints; best
-checkpoints are available when the configured early stopper stores them.
+The collapsible **Model graph** panel loads graph information only when opened.
+For a running job it reads `last_checkpoint.pth`; for a completed job it prefers
+`best_checkpoint.pth`, falling back to the other checkpoint when necessary. A
+checkpoint selector can explicitly display Best or Last whenever that file
+exists, while Auto retains the status-based policy. When metric plots are
+grouped by inner fold, the panel has its own Run selector so any run in the
+focused fold can be inspected independently of the plots.
+
+The View selector offers two representations. **Architecture** reconstructs the
+CPU module hierarchy from `model_manifest.json`, with a checkpoint-parameter
+hierarchy fallback for older runs. **Operators** uses `torch.export` to trace the
+selected checkpoint and displays the resulting dataflow as individual ATen
+operations, including output shapes and originating module paths when export
+provides them. The initial view collapses those operations into top-level module
+nodes connected by directional arrows, making the actual forward-pass DAG
+visible. Expand a module to reveal its child modules, then expand again to reach
+the ATen operations inside it; expanded module boundaries remain on the canvas
+and can be collapsed in place. Use the `−`, percentage, and `+` controls (or
+the mouse wheel anywhere inside the graph) to zoom around the pointer. Drag the
+empty canvas to pan horizontally or vertically, and drag any module/operator box
+to place it manually; custom zoom, expansion, and box positions persist for that
+run and checkpoint view.
+
+New runs record only the first forward input's tensor shape and dtype in
+`model_graph_input_spec.json`; no training values are stored. Operators currently
+supports a single tensor model input. PyG/custom input objects remain available
+in Architecture and need a model-specific export adapter for the Operators view.
+
+Enable `checkpoint: true` to produce last checkpoints; best checkpoints are
+available when the configured early stopper stores them.
 To bound temporary memory pressure, the graph is not loaded when the checkpoint
 file itself is larger than the cache ceiling configured in the dashboard.
 Oversized Best/Last choices remain visible but disabled in the selector.
+The graph explorer groups modules into a collapsible hierarchy, supports
+expand/collapse-all, search, and a flattened leaf-module view. Block color
+represents the parameters contained by that block and its descendants relative
+to the model's total parameter count; the inspector shows the exact count and
+percentage for the selected block. Operator parameter placeholders use the same
+relative parameter coloring, while ordinary operations remain at the zero-share
+end of the scale.
 
 The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
 this artifact (metric storage is enabled by default):
