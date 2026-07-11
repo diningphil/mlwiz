@@ -28,6 +28,7 @@
             <span>MB</span>
           </label>
           <button id="cache-apply" type="button">Apply</button>
+          <button id="cache-reset" type="button" title="Clear cached metric histories">Reset</button>
         </div>
         <div class="refresh-control" title="How often the dashboard reloads experiment data">
           <label>
@@ -109,6 +110,14 @@
               aria-pressed="false"
               title="Use a symmetric logarithmic scale that supports zero and negative values"
             >± Log scale</button>
+            <label class="select-field plot-mode-field" id="plot-mode-field" hidden>
+              <span>Plot view</span>
+              <select id="plot-mode-select"></select>
+            </label>
+            <label class="aggregation-toggle" id="inner-fold-aggregate-field" hidden>
+              <input id="inner-fold-aggregate" type="checkbox" />
+              <span>Mean ± std</span>
+            </label>
             <label class="select-field" id="source-field" hidden>
               <span>Run</span>
               <select id="source-select"></select>
@@ -118,6 +127,36 @@
               <span class="sr-only">Filter metrics</span>
               <input id="metric-search" type="search" placeholder="Find metric…" />
             </label>
+          </div>
+
+          <div class="plot-navigator-sentinel" id="plot-navigator-sentinel" aria-hidden="true"></div>
+          <div class="plot-navigator" id="plot-navigator" hidden>
+            <div class="plot-navigator-title">
+              <span>Plot navigator</span>
+              <strong id="plot-navigator-status">Focused view</strong>
+            </div>
+            <div class="plot-navigator-controls">
+              <div class="navigator-stepper" id="fold-navigator">
+                <button id="fold-previous" type="button" aria-label="Previous inner fold">‹</button>
+                <label>
+                  <span>Inner fold</span>
+                  <select id="fold-select"></select>
+                </label>
+                <button id="fold-next" type="button" aria-label="Next inner fold">›</button>
+              </div>
+              <div class="navigator-stepper" id="run-navigator">
+                <button id="run-previous" type="button" aria-label="Previous run">‹</button>
+                <label>
+                  <span>Run</span>
+                  <select id="run-select"></select>
+                </label>
+                <button id="run-next" type="button" aria-label="Next run">›</button>
+              </div>
+              <label class="navigator-show-all">
+                <input id="show-all-plots" type="checkbox" />
+                <span>Show all</span>
+              </label>
+            </div>
           </div>
 
           <div class="notice" id="notice" hidden></div>

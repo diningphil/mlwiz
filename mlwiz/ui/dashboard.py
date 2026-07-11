@@ -198,6 +198,18 @@ class MetricsCache:
             self._evict_to_limit()
             return self.stats()
 
+    def clear(self) -> dict[str, Any]:
+        """Remove every cached metric entry and reset lifecycle counters."""
+        with self._lock:
+            self._entries.clear()
+            self._used_bytes = 0
+            self._hits = 0
+            self._misses = 0
+            self._evictions = 0
+            self._invalidations = 0
+            self._skipped = 0
+            return self.stats()
+
     def stats(self) -> dict[str, Any]:
         """Return cache capacity, usage, and lifecycle counters."""
         with self._lock:
@@ -257,6 +269,10 @@ class ResultsRepository:
             raise ValueError("Cache limit must be finite.")
         max_bytes = int(max_mb * _MEBIBYTE)
         return self.metrics_cache.configure(max_bytes)
+
+    def reset_cache(self) -> dict[str, Any]:
+        """Clear normalized metric histories while preserving the size limit."""
+        return self.metrics_cache.clear()
 
     def experiment_filter_data(self, relative_path: str) -> dict[str, Any]:
         """Return lazy configuration-filter values for one experiment."""
@@ -553,15 +569,29 @@ class ResultsRepository:
             "modified_at": metrics.stat().st_mtime if metrics.is_file() else None,
         }
 
-    def details(self, relative_path: str) -> dict[str, Any]:
+    def details(
+        self, relative_path: str, include_final_siblings: bool = False
+    ) -> dict[str, Any]:
         """Load metric histories and relevant JSON metadata for a selection."""
         target = self.resolve(relative_path)
         if not target.is_dir():
             raise ValueError("Select a run or configuration directory.")
 
+        selection_kind = self._selection_kind(target)
+        metrics_root = target
+        metrics_files: Iterable[Path]
         direct_metrics = target / "metrics_data.torch"
-        if direct_metrics.is_file():
-            metrics_files: Iterable[Path] = [direct_metrics]
+        if selection_kind == "Final run" and include_final_siblings:
+            metrics_root = target.parent
+            metrics_files = [
+                folder / "metrics_data.torch"
+                for _, folder in _numbered_directories(
+                    target.parent, _FINAL_RUN_PATTERN
+                )
+                if (folder / "metrics_data.torch").is_file()
+            ][:_MAX_METRICS_FILES_PER_SELECTION]
+        elif direct_metrics.is_file():
+            metrics_files = [direct_metrics]
         else:
             metrics_files = sorted(target.rglob("metrics_data.torch"))[
                 :_MAX_METRICS_FILES_PER_SELECTION
@@ -575,7 +605,7 @@ class ResultsRepository:
             file_count += 1
             try:
                 file_series, file_stat = self._metrics_file_series(metrics_file)
-                source = metrics_file.parent.relative_to(target).as_posix()
+                source = metrics_file.parent.relative_to(metrics_root).as_posix()
                 source = source if source != "." else target.name
                 series.extend({**item, "source": source} for item in file_series)
                 timestamp = file_stat.st_mtime
@@ -595,11 +625,23 @@ class ResultsRepository:
                     }
                 )
 
+        if selection_kind == "Model-selection configuration":
+            plot_scope = "model_selection_configuration"
+        elif selection_kind == "Final run":
+            plot_scope = "final_runs"
+        else:
+            plot_scope = "single_run"
+
         return {
             "selection": {
                 "name": target.name,
                 "path": self._relative(target),
-                "kind": self._selection_kind(target),
+                "kind": selection_kind,
+                "plot_scope": plot_scope,
+                "selected_source": target.name,
+                "final_runs_included": (
+                    selection_kind == "Final run" and include_final_siblings
+                ),
             },
             "series": series,
             "metrics_file_count": file_count,
@@ -864,7 +906,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
                     )
                     return
-                self._send_json(self.server.repository.details(relative_path))
+                include_final_siblings = query.get("aggregate_final_runs", ["0"])[
+                    0
+                ] in {"1", "true", "yes"}
+                self._send_json(
+                    self.server.repository.details(
+                        relative_path,
+                        include_final_siblings=include_final_siblings,
+                    )
+                )
                 return
             if parsed.path == "/api/cache":
                 self._send_json(self.server.repository.cache_status())
@@ -906,6 +956,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         """Handle dashboard configuration requests."""
         parsed = urlparse(self.path)
+        if parsed.path == "/api/cache/reset":
+            self._send_json(self.server.repository.reset_cache())
+            return
         if parsed.path != "/api/cache":
             self._send_error(HTTPStatus.NOT_FOUND, "Page not found.")
             return

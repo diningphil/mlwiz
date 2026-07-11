@@ -89,6 +89,7 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     details = repository.details(relative_run)
 
     assert details["selection"]["kind"] == "Model-selection run"
+    assert details["selection"]["plot_scope"] == "single_run"
     assert details["metrics_file_count"] == 1
     assert len(details["series"]) == 4
     validation_score = next(
@@ -165,6 +166,26 @@ def test_metrics_cache_evicts_least_recently_used_entry(tmp_path):
     assert status["entries"] == 1
     assert status["evictions"] == 1
     assert cache.get(first_path, (1, 1)) is None
+
+
+def test_metrics_cache_reset_clears_entries_and_counters(tmp_path):
+    """Resetting the cache should retain its limit but clear all cache state."""
+    cache = MetricsCache(max_bytes=1024 * 1024)
+    metrics_path = tmp_path / "metrics_data.torch"
+    assert cache.put(
+        metrics_path,
+        (1, 1),
+        [{"group": "scores", "name": "main_score", "values": [0.5]}],
+    )
+    assert cache.get(metrics_path, (1, 1)) is not None
+
+    status = cache.clear()
+
+    assert status["entries"] == 0
+    assert status["used_bytes"] == 0
+    assert status["max_mb"] == 1
+    assert status["hits"] == 0
+    assert status["misses"] == 0
 
 
 def test_completed_experiment_filter_uses_aggregated_results(tmp_path):
@@ -288,10 +309,37 @@ def test_details_aggregates_all_runs_below_configuration(tmp_path):
     details = repository.details(config.relative_to(experiment.parent).as_posix())
 
     assert details["selection"]["kind"] == "Model-selection configuration"
+    assert details["selection"]["plot_scope"] == "model_selection_configuration"
     assert details["metrics_file_count"] == 2
     assert {item["source"] for item in details["series"]} == {
         "INNER_FOLD_1/run_1",
         "INNER_FOLD_2/run_1",
+    }
+
+
+def test_final_run_siblings_are_loaded_only_for_aggregation(tmp_path):
+    """Final-run aggregation should load siblings lazily, not on first click."""
+    experiment, _, _, final_run = _write_fixture_results(tmp_path)
+    second_final = final_run.parent / "final_run2"
+    second_final.mkdir()
+    torch.save(
+        {"losses": {}, "scores": {"validation_main_score": [0.4, 0.8]}},
+        second_final / "metrics_data.torch",
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = final_run.relative_to(experiment.parent).as_posix()
+
+    selected = repository.details(relative)
+    aggregated = repository.details(relative, include_final_siblings=True)
+
+    assert selected["metrics_file_count"] == 1
+    assert selected["selection"]["plot_scope"] == "final_runs"
+    assert selected["selection"]["final_runs_included"] is False
+    assert aggregated["metrics_file_count"] == 2
+    assert aggregated["selection"]["final_runs_included"] is True
+    assert {item["source"] for item in aggregated["series"]} == {
+        "final_run1",
+        "final_run2",
     }
 
 
@@ -367,28 +415,65 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         )
         with urlopen(cache_request, timeout=3) as response:
             updated_cache = json.loads(response.read())
+        reset_request = Request(
+            f"{base_url}/api/cache/reset",
+            data=b"{}",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(reset_request, timeout=3) as response:
+            reset_cache = json.loads(response.read())
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
+        assert 'id="cache-reset"' in page
+        assert 'id="plot-mode-select"' in page
+        assert 'id="inner-fold-aggregate"' in page
+        assert 'id="plot-navigator"' in page
+        assert 'id="show-all-plots"' in page
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
         assert 'id="experiment-overview"' in page
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
+        assert "localStorage.setItem(themeStorageKey" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
+        assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
+        assert "aggregateMetricLines" in app_script
+        assert "renderInnerFoldAggregation" in app_script
+        assert "renderPlotNavigator" in app_script
+        assert "moveNavigatorSelection" in app_script
+        assert "renderChartsPreservingScroll" in app_script
+        assert "observeStickyPlotNavigator" in app_script
+        assert "drawMetricBand" in app_script
+        assert "aggregate_final_runs=1" in app_script
         assert "configurationPassesFilter" in app_script
         assert "scheduleRefresh" in app_script
         assert "applyTheme" in app_script
+        assert "metadataViewer" in app_script
+        assert '"Raw JSON"' in app_script
+        assert "metadata-json:" in app_script
+        assert "metadataModes" in app_script
+        assert "metadataScrolls" in app_script
+        assert "restoreScroll" in app_script
+        assert "expandJsonDescendants" in app_script
+        assert ".json-inspector" in stylesheet
+        assert ".plot-navigator { position: sticky" in stylesheet
+        assert ".plot-navigator.is-stuck" in stylesheet
+        assert ".content { min-width: 0;" in stylesheet
+        assert "overflow: visible;" in stylesheet
         assert "[hidden] { display: none !important; }" in stylesheet
         assert logo.startswith(b"\x89PNG\r\n\x1a\n")
         assert tree["experiments"][0]["name"] == "mlp_MNIST"
         assert initial_cache["max_mb"] == 256
         assert updated_cache["max_mb"] == 64
+        assert reset_cache["entries"] == 0
+        assert reset_cache["max_mb"] == 64
         assert filter_data["default_metric"] == "scores:main_score"
     finally:
         server.shutdown()
