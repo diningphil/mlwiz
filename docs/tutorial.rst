@@ -222,8 +222,110 @@ explanation of each field as a comment:
       plotter: mlwiz.training.callback.plotter.Plotter
 
 
+<<<<<<< Updated upstream
 Data Information
 -----------------
+=======
+Modular configuration groups
+----------------------------
+
+Experiment YAML files have five required global sections: ``dataset``,
+``resources``, ``reproducibility``, ``data_loading``, and ``experiment``. They
+also have exactly one search section: ``grid``, ``random``, or ``bayes``. Flat
+pre-1.7.0 experiment files are rejected; MLWiz deliberately has no legacy
+fallback for the old schema.
+
+The configuration files shipped in ``examples/MODEL_CONFIGS`` are examples,
+not mandatory templates. You can organize and customize your configuration as
+needed. An experiment has the required top-level structure as long as it
+contains all five global keys -- ``dataset``, ``resources``,
+``reproducibility``, ``data_loading``, and ``experiment`` -- and exactly one of
+the search keys ``grid``, ``random``, or ``bayes``. The experiment will then run
+provided that the values in those sections, such as referenced classes and
+file paths, are valid.
+
+Reusable files are selected through ordered ``defaults`` lists. Root defaults
+compose global settings, while a defaults list inside a search section composes
+only model-selection settings::
+
+    # MODEL_CONFIGS/config_MLP.yml
+    defaults:
+      - dataset: mnist
+      - resources: cpu
+      - reproducibility: default
+      - data_loading: torch
+      - experiment: default
+      - _self_
+
+    experiment:
+      exp_name: mlp
+
+    grid:
+      defaults:
+        - optimizer:
+            - adam
+            - adagrad
+        - search/mlp@_here_
+        - _self_
+      model: mlwiz.model.MLP
+      epochs: 100
+
+Terms and composition rules
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``defaults``
+  An ordered list of configuration selections. It instructs MLWiz how to build
+  the final dictionary and is removed from that dictionary after composition.
+
+Config group
+  A directory containing named alternatives. ``dataset: mnist`` selects
+  ``dataset/mnist.yml`` and, by default, packages its contents under
+  ``dataset``. ``optimizer: [adam, adagrad]`` selects two files from the same
+  group.
+
+``_self_``
+  The current file at that exact location in the ordered defaults list. Later
+  scalar/list values replace earlier ones and dictionaries merge recursively.
+  If omitted, MLWiz implicitly composes ``_self_`` last.
+
+Nested defaults
+  A selected config file may have its own root defaults, so reusable fragments
+  can be built from smaller fragments. MLWiz resolves these recursively and
+  reports cycles. MLWiz also supports a local defaults list directly inside
+  ``grid``, ``random``, or ``bayes``; its output stays in that search section.
+
+Package override
+  The ``group@package: option`` syntax changes the destination path. For
+  example, ``optimizer@training.optimizer: adam`` writes the selected value to
+  ``training.optimizer`` instead of ``optimizer``.
+
+``_here_``
+  A package used in search-local defaults to merge a selected mapping directly
+  into the current search section. In the example, ``search/mlp@_here_`` adds
+  sibling ``loss``, ``scorer``, and ``engine`` keys directly to ``grid``.
+
+``_global_``
+  A package used from the root defaults list to suppress the normal group
+  wrapper and merge a mapping at the root. It is useful when one reusable file
+  already contains several complete top-level sections.
+
+Relative and absolute config paths
+  Paths are relative to the YAML file containing the defaults list. A leading
+  ``/`` resolves from the main configuration directory.
+
+Multiple search configurations
+  Each selected optimizer/model/etc. file can contain one mapping or a list of
+  alternatives. MLWiz concatenates alternatives from all selected files. Grid
+  search expands them all; random and Bayesian search use a categorical choice
+  and still resolve samplers nested inside the chosen alternative.
+
+See ``examples/MODEL_CONFIGS/config_MLP.yml`` and the sibling config-group
+directories for a complete example.
+
+
+Data Information
+-----------------
+>>>>>>> Stashed changes
 
 Here we can specify some information about the dataset:
 

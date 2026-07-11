@@ -39,6 +39,7 @@ Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil
 | Automatic Split Generation | Dataset preparation + `.splits` generation for hold-out / (nested) CV |
 | Automatic and Robust Evaluation | Nested model selection (inner folds) + risk assessment (outer folds) |
 | Parallelism | Ray-based execution across CPU/GPU (or a Ray cluster) |
+| Visualization Dashboard | Explore experiment progress, metric histories, configurations, and model graphs in a local web UI |
 
 
 ## 🚀 Getting Started
@@ -60,6 +61,24 @@ Tip: for GPU / graph workloads, install PyTorch and PyG following their official
 | 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
 | 4) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
 | 5) Stop a running experiment | Press `Ctrl-C` | |
+
+### 📊 Visualization Dashboard
+
+MLWiz includes a local, read-only visualization dashboard for exploring running
+and completed experiments. It mirrors the model-selection and risk-assessment
+hierarchy, plots score and loss histories, summarizes run progress and timing,
+and provides checkpoint-based model graph views. Start it with:
+
+```bash
+mlwiz-dashboard --logdir RESULTS
+```
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/diningphil/mlwiz/main/docs/_static/dashboard.png" width="960" alt="MLWiz visualization dashboard showing an experiment summary and selected final run"/>
+</p>
+
+See the [dashboard section](#mlwiz-dashboard) for its filtering, comparison,
+caching, and model-inspection features.
 
 ### 🧭 Navigating the CLI (non-debug mode)
 Example of the global view CLI:
