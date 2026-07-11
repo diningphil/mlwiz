@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.3]
+
+## Added
+
+- added Architecture and Operators views to the Model graph panel; Operators lazily traces the selected checkpoint with `torch.export` and displays its ATen computational graph
+- new runs persist a data-free first-forward tensor shape/dtype specification so operator graphs can be generated without storing training examples
+
+## Changed
+
+- Architecture view uses a Model Explorer-style collapsible hierarchy with expand/collapse-all, module search, a flattened leaf view, and block colors based on subtree parameters relative to total model parameters
+- Operators view presents a directed module-level execution graph with arrowheads, recursively expandable module boundaries, persisted expansion/zoom/node placement, mouse-wheel zoom, background drag-to-pan, and freely draggable module/operator boxes instead of a flat operator list
+- architecture and operator graphs use separate bounded cache entries, so switching views never returns a graph generated for the other mode
+
+## Fixed
+
+- the Model graph panel keeps an independent run selector while metric plots are grouped by inner fold
+
 ## [1.6.2]
 
 ## Added
@@ -16,8 +33,6 @@
 - added a lazy checkpoint-backed Model graph panel with module details, parameter shapes, dynamic run selection, and compatibility fallback for runs created before model manifests
 - added per-run Auto/Best/Last checkpoint selection to the collapsed Model graph panel, which now appears directly below configuration statistics
 - new runs persist `model_manifest.json` with resolved model reconstruction inputs for checkpoint architecture inspection
-- added Architecture and Operators views to the Model graph panel; Operators lazily traces the selected checkpoint with `torch.export` and displays its ATen computational graph
-- new runs persist a data-free first-forward tensor shape/dtype specification so operator graphs can be generated without storing training examples
 
 ## Changed
 
@@ -27,9 +42,6 @@
 - sibling final-run metrics are loaded on demand only when the all-final-runs aggregation view is selected
 - running model graphs prefer `last_checkpoint.pth`, completed graphs prefer `best_checkpoint.pth`, and both fall back to the other existing checkpoint without introducing separate checkpoint files
 - model graph loading is skipped when the selected checkpoint file exceeds the user-configured dashboard cache ceiling
-- model graphs now use a Model Explorer-style collapsible hierarchy with expand/collapse-all, module search, a flattened leaf view, and block colors based on subtree parameters relative to total model parameters
-- architecture and operator graphs use separate bounded cache entries, so switching views never returns a graph generated for the other mode
-- Operators view now presents a directed module-level execution graph with arrowheads, recursively expandable module boundaries, persisted expansion/zoom/node placement, mouse-wheel zoom, background drag-to-pan, and freely draggable module/operator boxes instead of a flat operator list
 
 ## Fixed
 
@@ -41,7 +53,6 @@
 - the plot navigator now remains pinned to the top of the viewport while scrolling through charts
 - changing the focused inner fold or run no longer resets the chart-page scroll position
 - the sticky plot navigator gains a higher-contrast border and shadow while detached from its original page position
-- the Model graph panel keeps an independent run selector while metric plots are grouped by inner fold
 
 ## [1.6.1]
 
