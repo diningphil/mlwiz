@@ -7,8 +7,7 @@ import argparse
 import os
 import sys
 
-import yaml
-
+from mlwiz.config_loader import load_config
 from mlwiz.data.util import preprocess_data
 from mlwiz.static import (
     CONFIG_FILE_CLI_ARGUMENT,
@@ -52,7 +51,7 @@ def main():
 
     args = get_args_dict()
 
-    options = yaml.load(open(args[CONFIG_FILE], "r"), Loader=yaml.FullLoader)
+    options = load_config(args[CONFIG_FILE])
     options.update({SKIP_SPLITS_CHECK: args[SKIP_SPLITS_CHECK]})
 
     preprocess_data(options)

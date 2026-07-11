@@ -1,0 +1,37 @@
+scheduler: null
+loss:
+  - class_name: mlwiz.training.callback.metric.AdditiveLoss
+    args:
+      loss_1: mlwiz.training.callback.metric.MulticlassClassification
+      loss_2: mlwiz.training.callback.metric.MulticlassClassification
+      losses_weights:
+        MulticlassClassification:
+          - 1.0
+      accumulate_over_epoch:
+        - true
+        - false
+scorer:
+  - class_name: mlwiz.training.callback.metric.MultiScore
+    args:
+      main_scorer: mlwiz.training.callback.metric.MulticlassAccuracy
+      my_second_metric: mlwiz.training.callback.metric.ToyMetric
+engine:
+  - class_name: mlwiz.training.engine.TrainingEngine
+    args:
+      eval_training:
+        - false
+        - true
+gradient_clipper: null
+early_stopper:
+  - class_name:
+      - mlwiz.training.callback.early_stopping.PatienceEarlyStopper
+    args:
+      patience:
+        - 10
+      monitor: validation_main_score
+      mode: max
+      checkpoint: true
+plotter:
+  - class_name: mlwiz.training.callback.plotter.Plotter
+    args:
+      store_on_disk: true

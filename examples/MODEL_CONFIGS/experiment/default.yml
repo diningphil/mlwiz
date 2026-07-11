@@ -1,0 +1,8 @@
+result_folder: RESULTS
+experiment: mlwiz.experiment.Experiment
+model_selection_criteria:
+  - metric: main_score
+    direction: max
+evaluate_every: 1
+risk_assessment_training_runs: 3
+model_selection_training_runs: 1

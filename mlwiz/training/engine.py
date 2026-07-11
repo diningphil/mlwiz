@@ -21,9 +21,11 @@ from mlwiz.static import (
     BATCH_PROGRESS,
     BEST_CHECKPOINT_FILENAME,
     BEST_EPOCH,
+    BEST_OPTIMIZER_CHECKPOINT_FILENAME,
     CUMULATIVE_UNSENT_DELTA,
     EPOCH,
     LAST_CHECKPOINT_FILENAME,
+    LAST_OPTIMIZER_CHECKPOINT_FILENAME,
     LAST_RUN_ELAPSED_TIME,
     LOSSES,
     MAIN_LOSS,
@@ -1013,9 +1015,37 @@ class TrainingEngine(EventDispatcher):
         _unwrap_model(self.model).load_state_dict(model_state)
 
         if not zero_epoch:
-            optimizer_state = ckpt_dict[OPTIMIZER_STATE]
+            optimizer_ckpt_filename = Path(ckpt_filename).with_name(
+                LAST_OPTIMIZER_CHECKPOINT_FILENAME
+            )
+            if optimizer_ckpt_filename.is_file():
+                optimizer_ckpt_dict = torch.load(
+                    optimizer_ckpt_filename,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+                if (
+                    EPOCH in optimizer_ckpt_dict
+                    and int(optimizer_ckpt_dict[EPOCH])
+                    != int(ckpt_dict[EPOCH])
+                ):
+                    raise RuntimeError(
+                        "Model and optimizer checkpoints refer to different epochs."
+                    )
+            else:
+                # Release <=1.6 stored optimizer-related state in the model
+                # checkpoint.  Keep those runs resumable without migration.
+                optimizer_ckpt_dict = ckpt_dict
+            if OPTIMIZER_STATE not in optimizer_ckpt_dict:
+                raise RuntimeError(
+                    "Optimizer state is missing from both the optimizer-state "
+                    "checkpoint and the legacy model checkpoint."
+                )
+            optimizer_state = optimizer_ckpt_dict[OPTIMIZER_STATE]
             self.state.update(optimizer_state=optimizer_state)
-            self.state.update(scaler_state=ckpt_dict.get(SCALER_STATE, None))
+            self.state.update(
+                scaler_state=optimizer_ckpt_dict.get(SCALER_STATE, None)
+            )
 
         if os.path.exists(best_ckpt_filename):
             best_ckpt_dict = torch.load(
@@ -1023,10 +1053,31 @@ class TrainingEngine(EventDispatcher):
                 map_location="cpu",
                 weights_only=True,
             )
+            best_optimizer_ckpt_filename = Path(best_ckpt_filename).with_name(
+                BEST_OPTIMIZER_CHECKPOINT_FILENAME
+            )
+            if best_optimizer_ckpt_filename.is_file():
+                best_optimizer_ckpt = torch.load(
+                    best_optimizer_ckpt_filename,
+                    map_location="cpu",
+                    weights_only=True,
+                )
+                if (
+                    BEST_EPOCH in best_optimizer_ckpt
+                    and BEST_EPOCH in best_ckpt_dict
+                    and int(best_optimizer_ckpt[BEST_EPOCH])
+                    != int(best_ckpt_dict[BEST_EPOCH])
+                ):
+                    raise RuntimeError(
+                        "Best model and optimizer checkpoints refer to different epochs."
+                    )
+                best_ckpt_dict.update(best_optimizer_ckpt)
+            # If no optimizer file exists, ``best_ckpt_dict`` is deliberately
+            # left untouched: legacy checkpoints already contain those keys.
             self.state.update(best_epoch_results=best_ckpt_dict)
 
         if self.scheduler is not None and not zero_epoch:
-            scheduler_state = ckpt_dict[SCHEDULER_STATE]
+            scheduler_state = optimizer_ckpt_dict.get(SCHEDULER_STATE)
             if scheduler_state is None:
                 raise RuntimeError(
                     "Checkpoint is missing scheduler state, but a scheduler is configured."

@@ -8,6 +8,8 @@ import sys
 import yaml
 from copy import deepcopy
 
+from mlwiz.config_loader import load_config, load_experiment_config
+
 
 def main():
     """
@@ -36,17 +38,15 @@ def main():
         base_exp_config = sys.argv[2]
         data_config_files = sys.argv[4:]
 
-        # Load YAML base_exp_config file
-        with open(base_exp_config, "r") as f:
-            base_exp_config_data = yaml.safe_load(f)
+        # Resolve modular defaults before applying dataset-specific values.
+        base_exp_config_data = load_experiment_config(base_exp_config)
 
-        exp_name = base_exp_config_data["exp_name"]
+        exp_name = base_exp_config_data["experiment"]["exp_name"]
 
-        # Load YAML data_config_files
-        data_config_files_data = []
-        for file in data_config_files:
-            with open(file, "r") as f:
-                data_config_files_data.append(yaml.safe_load(f))
+        # Data configs can use the same modular defaults system.
+        data_config_files_data = [
+            load_config(file) for file in data_config_files
+        ]
 
         # Extract dataset class name and storage folder from each data config file
         for data_config in data_config_files_data:
@@ -59,9 +59,9 @@ def main():
 
             # Create a new config file for each dataset
             new_config = deepcopy(base_exp_config_data)
-            new_config["storage_folder"] = storage_folder
-            new_config["dataset_class"] = dataset_class_name
-            new_config["data_splits_file"] = os.path.join(
+            new_config["dataset"]["storage_folder"] = storage_folder
+            new_config["dataset"]["dataset_class"] = dataset_class_name
+            new_config["dataset"]["data_splits_file"] = os.path.join(
                 splits_folder,
                 dataset_name,
                 f"{dataset_name}_outer{outer_folds}_inner{inner_folds}.splits",

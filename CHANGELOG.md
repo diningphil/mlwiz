@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.7.0]
+
+## Added
+
+- added Hydra-style modular YAML composition through ordered `defaults` lists, config-group directories, `_self_` ordering, recursive nested defaults, and package overrides (`@package`, `@_here_`, and `@_global_`)
+- experiment configs now require structured `dataset`, `resources`, `reproducibility`, `data_loading`, and `experiment` sections plus exactly one `grid`, `random`, or `bayes` section
+- `grid`, `random`, and `bayes` support their own local `defaults` lists, keeping model/optimizer/training choices separate from global runtime settings
+- config-group files may contain multiple search alternatives; selecting multiple files concatenates all alternatives for grid search and exposes all of them as a categorical dimension for random and Bayesian search
+- added modular optimizer examples under `examples/MODEL_CONFIGS/optimizer/`
+
+## Changed
+
+- last and best model checkpoints retain their existing names (`last_checkpoint.pth` and `best_checkpoint.pth`) but no longer contain optimizer, scheduler, or AMP scaler state
+- optimizer-related state is now stored in `last_optimizer_checkpoint.pth` and `best_optimizer_checkpoint.pth`, preventing the dashboard and inference-only consumers from loading unnecessary optimizer tensors
+- experiment, data-building, and config-duplication entrypoints now resolve modular configurations before use
+- random-search and Bayesian-search budgets and Bayesian acquisition controls now live inside their corresponding search sections
+- bumped the package version to 1.7.0
+
+## Compatibility
+
+- when a separate optimizer checkpoint is absent during resume, MLWiz reads optimizer, scheduler, and scaler state from the model checkpoint, preserving compatibility with checkpoints created by releases up to 1.6.x
+- flat pre-1.7.0 experiment configurations are intentionally unsupported and fail with an explicit schema-migration error; data-building configuration files are unaffected
+
 ## [1.6.3]
 
 ## Added

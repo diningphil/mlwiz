@@ -9,6 +9,7 @@ from pathlib import Path
 from mlwiz.static import (
     EPOCH,
     LAST_CHECKPOINT_FILENAME,
+    LAST_OPTIMIZER_CHECKPOINT_FILENAME,
     LAST_RUN_ELAPSED_TIME,
     MODEL_STATE,
     OPTIMIZER_STATE,
@@ -22,7 +23,7 @@ from mlwiz.training.distributed import (
 )
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_torch_save, clone_to_cpu
+from mlwiz.training.util import atomic_save_split_checkpoint, clone_to_cpu
 
 
 class EngineCallback(EventHandler):
@@ -78,7 +79,8 @@ class EngineCallback(EventHandler):
 
     def on_epoch_end(self, state: State):
         """
-        Stores the checkpoint in a dictionary with the following fields:
+        Stores a model checkpoint and a separate optimizer-state checkpoint
+        with the following fields:
 
         * ``EPOCH`` (as defined in ``mlwiz.static``)
         * ``MODEL_STATE`` (as defined in ``mlwiz.static``)
@@ -116,8 +118,10 @@ class EngineCallback(EventHandler):
                 LAST_RUN_ELAPSED_TIME: state.current_elapsed_time,
             }
             last_ckpt.update(state.epoch_results)
-            atomic_torch_save(
-                last_ckpt, Path(state.exp_path, LAST_CHECKPOINT_FILENAME)
+            atomic_save_split_checkpoint(
+                last_ckpt,
+                Path(state.exp_path, LAST_CHECKPOINT_FILENAME),
+                Path(state.exp_path, LAST_OPTIMIZER_CHECKPOINT_FILENAME),
             )
 
 

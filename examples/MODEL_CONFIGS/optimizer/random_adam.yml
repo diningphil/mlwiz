@@ -1,0 +1,5 @@
+class_name: mlwiz.training.callback.optimizer.Optimizer
+args:
+  optimizer_class_name: torch.optim.Adam
+  lr: 0.01
+  weight_decay: 0.0

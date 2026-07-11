@@ -104,48 +104,44 @@ explanation of each field as a comment:
 
 .. code-block:: yaml
 
-    # Dataset and Splits
-    storage_folder:  # path to DATA root folder (same as in data config file)
-    dataset_class:  # dotted path to dataset class
-    data_splits_file:  # path to data splits file
+    dataset:
+      storage_folder:  # path to DATA root folder (same as in data config file)
+      dataset_class:  # dotted path to dataset class
+      data_splits_file:  # path to data splits file
 
 
-    # Hardware
-    device:  # cpu | cuda
-    max_cpus:  # > 1 for parallelism
-    max_gpus: # > 0 for gpu usage (device must be cuda though)
-    gpus_per_task:  # Ray GPUs per task: fraction (<=1) or integer (>1 enables DDP)
-    gpus_subset: # optional, comma-separated list of gpu indices, e.g. 0,2. Used to force a particular subset of GPUs being used.
+    resources:
+      device:  # cpu | cuda
+      max_cpus:  # > 1 for parallelism
+      max_gpus: # > 0 for gpu usage (device must be cuda though)
+      gpus_per_task:  # Ray GPUs per task: fraction (<=1) or integer (>1 enables DDP)
+      gpus_subset: # optional comma-separated GPU indices, e.g. 0,2
 
 
-    # Data Loading
-    dataset_getter:  # dotted path to dataset provider class
-    data_loader:
-      class_name:  # dotted path to data loader class
-      args:
-        num_workers :
-        pin_memory:
-        # possibly other arguments (we set `worker_init_fn`, `sampler` and `shuffle`, so do not override)
+    data_loading:
+      dataset_getter:  # dotted path to dataset provider class
+      data_loader:
+        class_name:  # dotted path to data loader class
+        args:
+          num_workers:
+          pin_memory:
 
 
-    # Reproducibility
-    seed: 42
+    reproducibility:
+      seed: 42
 
 
-    # Experiment
-    result_folder:  # path of the folder where to store results
-    exp_name:  # name of the experiment
-    experiment:  # dotted path to experiment class
-    model_selection_criteria:  # ordered model-selection criteria (lexicographic tie-break)
-      - metric: main_score
-        direction: max
-      # - metric: ToyMetric  # for non-main metrics, also specify source: score|loss
-      #   source: score
-      #   direction: max
-    evaluate_every:  # evaluate on train/val/test every `n` epochs and log results
-    risk_assessment_training_runs:  # how many final (model assessment) training runs to perform to mitigate bad initializations
-    model_selection_training_runs:  # how many training runs to perform for each hyper-parameter configuration in a specific inner fold
-    training_timeout_seconds:  # optional max time (in seconds) for a single training run (-1 disables the timeout)
+    experiment:
+      result_folder:  # folder where results are stored
+      exp_name:  # experiment name
+      experiment:  # dotted path to experiment class
+      model_selection_criteria:
+        - metric: main_score
+          direction: max
+      evaluate_every:  # evaluate every n epochs
+      risk_assessment_training_runs:
+      model_selection_training_runs:
+      training_timeout_seconds:  # optional; -1 disables
 
     # Grid Search
     # if only 1 configuration is selected, any inner model selection will be skipped
@@ -222,9 +218,97 @@ explanation of each field as a comment:
       plotter: mlwiz.training.callback.plotter.Plotter
 
 
-<<<<<<< Updated upstream
+Modular configuration groups
+----------------------------
+
+Experiment YAML files have five required global sections: ``dataset``,
+``resources``, ``reproducibility``, ``data_loading``, and ``experiment``. They
+also have exactly one search section: ``grid``, ``random``, or ``bayes``. Flat
+pre-1.7.0 experiment files are rejected; MLWiz deliberately has no legacy
+fallback for the old schema.
+
+Reusable files are selected through ordered ``defaults`` lists. Root defaults
+compose global settings, while a defaults list inside a search section composes
+only model-selection settings::
+
+    # MODEL_CONFIGS/config_MLP.yml
+    defaults:
+      - dataset: mnist
+      - resources: cpu
+      - reproducibility: default
+      - data_loading: torch
+      - experiment: default
+      - _self_
+
+    experiment:
+      exp_name: mlp
+
+    grid:
+      defaults:
+        - optimizer:
+            - adam
+            - adagrad
+        - search/mlp@_here_
+        - _self_
+      model: mlwiz.model.MLP
+      epochs: 100
+
+Terms and composition rules
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``defaults``
+  An ordered list of configuration selections. It instructs MLWiz how to build
+  the final dictionary and is removed from that dictionary after composition.
+
+Config group
+  A directory containing named alternatives. ``dataset: mnist`` selects
+  ``dataset/mnist.yml`` and, by default, packages its contents under
+  ``dataset``. ``optimizer: [adam, adagrad]`` selects two files from the same
+  group.
+
+``_self_``
+  The current file at that exact location in the ordered defaults list. Later
+  scalar/list values replace earlier ones and dictionaries merge recursively.
+  If omitted, MLWiz implicitly composes ``_self_`` last.
+
+Nested defaults
+  A selected config file may have its own root defaults, so reusable fragments
+  can be built from smaller fragments. MLWiz resolves these recursively and
+  reports cycles. MLWiz also supports a local defaults list directly inside
+  ``grid``, ``random``, or ``bayes``; its output stays in that search section.
+
+Package override
+  The ``group@package: option`` syntax changes the destination path. For
+  example, ``optimizer@training.optimizer: adam`` writes the selected value to
+  ``training.optimizer`` instead of ``optimizer``.
+
+``_here_``
+  A package used in search-local defaults to merge a selected mapping directly
+  into the current search section. In the example, ``search/mlp@_here_`` adds
+  sibling ``loss``, ``scorer``, and ``engine`` keys directly to ``grid``.
+
+``_global_``
+  A package used from the root defaults list to suppress the normal group
+  wrapper and merge a mapping at the root. It is useful when one reusable file
+  already contains several complete top-level sections.
+
+Relative and absolute config paths
+  Paths are relative to the YAML file containing the defaults list. A leading
+  ``/`` resolves from the main configuration directory.
+
+Multiple search configurations
+  Each selected optimizer/model/etc. file can contain one mapping or a list of
+  alternatives. MLWiz concatenates alternatives from all selected files. Grid
+  search expands them all; random and Bayesian search use a categorical choice
+  and still resolve samplers nested inside the chosen alternative.
+
+See ``examples/MODEL_CONFIGS/config_MLP.yml`` and the sibling config-group
+directories for a complete example.
+
+
 Data Information
 -----------------
+=======
 =======
 Modular configuration groups
 ----------------------------
@@ -325,15 +409,16 @@ directories for a complete example.
 
 Data Information
 -----------------
->>>>>>> Stashed changes
+=======
 
 Here we can specify some information about the dataset:
 
 .. code-block:: yaml
 
-    storage_folder: DATA
-    dataset_class: mlwiz.data.dataset.MNIST
-    data_splits_file:  examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+    dataset:
+      storage_folder: DATA
+      dataset_class: mlwiz.data.dataset.MNIST
+      data_splits_file: examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
 
 Hardware
@@ -345,10 +430,11 @@ Here we can define how many resources to allocate to parallelize different exper
 
     # this will run a maximum of 4 experiments to allocate all of the 2 gpus we have.
     # We use some more cpu resources to take into account potential `data loader workers <https://pytorch.org/docs/stable/data.html#multi-process-data-loading>`_.
-    device:  cuda
-    max_cpus:  8
-    max_gpus: 2
-    gpus_per_task:  0.5
+    resources:
+      device: cuda
+      max_cpus: 8
+      max_gpus: 2
+      gpus_per_task: 0.5
 
 Practical rule for ``gpus_per_task``:
 
@@ -360,19 +446,21 @@ If you need to force a specific subset of GPUs on a shared machine, use ``gpus_s
 
 .. code-block:: yaml
 
-    device: cuda
-    max_gpus: 2
-    gpus_subset: 0,2
-    gpus_per_task: 1
+    resources:
+      device: cuda
+      max_gpus: 2
+      gpus_subset: 0,2
+      gpus_per_task: 1
 
 .. code-block:: yaml
 
     # one experiment uses 2 GPUs with DDP
     # with max_gpus: 4, Ray can run up to 2 such experiments in parallel
-    device: cuda
-    max_cpus: 24
-    max_gpus: 4
-    gpus_per_task: 2
+    resources:
+      device: cuda
+      max_cpus: 24
+      max_gpus: 4
+      gpus_per_task: 2
 
 In DDP mode, MLWiz shards train/validation/test data per rank and then averages scalar evaluation metrics across ranks.
 It keeps a single set of experiment artifacts (rank 0 writes logs/checkpoints/plots). If a rank fails, check
@@ -408,13 +496,13 @@ given splits, and the :class:`DataLoader` that needs to handle such data:
 
 .. code-block:: yaml
 
-    # Data Loading
-    dataset_getter: mlwiz.data.provider.DataProvider
-    data_loader:
-      class_name: torch_geometric.loader.DataLoader
-      args:
-        num_workers : 2
-        pin_memory: True  # should be True when device is set to `cuda`
+    data_loading:
+      dataset_getter: mlwiz.data.provider.DataProvider
+      data_loader:
+        class_name: torch_geometric.loader.DataLoader
+        args:
+          num_workers: 2
+          pin_memory: True  # should be True when device is set to `cuda`
 
 
 Experiment Details
@@ -425,16 +513,17 @@ our results:
 
 .. code-block:: yaml
 
-    result_folder: RESULTS
-    exp_name: mlp
-    experiment: mlwiz.experiment.MLP
-    model_selection_criteria:
-      - metric: main_score
-        direction: max
-    evaluate_every: 3
-    risk_assessment_training_runs: 3
-    model_selection_training_runs: 2
-    training_timeout_seconds: -1  # set to a positive value to enforce a per-run time budget
+    experiment:
+      result_folder: RESULTS
+      exp_name: mlp
+      experiment: mlwiz.experiment.Experiment
+      model_selection_criteria:
+        - metric: main_score
+          direction: max
+      evaluate_every: 3
+      risk_assessment_training_runs: 3
+      model_selection_training_runs: 2
+      training_timeout_seconds: -1
 
 ``higher_results_are_better`` is still supported as a legacy shortcut for a
 single ``main_score`` criterion, but it cannot be used together with
@@ -483,8 +572,8 @@ For a multi-GPU DDP setup, refer to ``examples/MODEL_CONFIGS/config_MLP_ddp.yml`
 Random Search
 --------------
 
-Random search, on the other hand, is identified by the keyword ``random`` after the experimental details. One line above
-we have to specify the number of random trials, using the keyword ``budget``.
+Random search is identified by ``random``. Its ``budget`` belongs inside the
+``random`` section together with the sampled model settings.
 
 We provide different sampling methods:
  * choice --> pick at random from a list of arguments
@@ -497,8 +586,8 @@ Example (one usage per method):
 
 .. code-block:: yaml
 
-    budget: 20
     random:
+      budget: 20
       batch_size:  # choice
         sample_method: mlwiz.evaluation.util.choice
         args:
@@ -544,11 +633,11 @@ Minimal skeleton:
 
 .. code-block:: yaml
 
-    budget: 10
-    random_starts: 2
-    candidate_pool_size: 64
-    ei_xi: 0.001
     bayes:
+      budget: 10
+      random_starts: 2
+      candidate_pool_size: 64
+      ei_xi: 0.001
       batch_size:
         sample_method: mlwiz.evaluation.util.choice
         args:
@@ -707,8 +796,8 @@ This is now the default MLWiz behavior; however, if you want to log test split m
 in the ``TrainingEngine`` (in the experiment configuration file) by setting the argument ``eval_test_every_epoch`` to True.
 
 
-Name-based optimizer state restore
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Split checkpoint files and optimizer restore
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Optimizer checkpoints now include parameter-name metadata (``param_names``) and MLWiz restores optimizer state by
 matching parameter names whenever possible, instead of relying only on parameter order.
@@ -718,6 +807,14 @@ This is particularly useful in dynamic settings where the module declaration ord
 names remain stable. In those cases, momentum/Adam moments are remapped to the correct tensors when resuming from a checkpoint.
 
 For older checkpoints that do not contain ``param_names``, MLWiz falls back to the legacy order-based loading behavior.
+
+Starting with MLWiz 1.7, ``last_checkpoint.pth`` and ``best_checkpoint.pth``
+contain the model and run metadata only. Optimizer, scheduler, and AMP scaler
+state is saved separately in ``last_optimizer_checkpoint.pth`` and
+``best_optimizer_checkpoint.pth``. This lets inference utilities and the
+dashboard inspect model weights without deserializing large optimizer tensors.
+When a separate optimizer file is absent, resume automatically falls back to
+the state embedded in a pre-1.7 model checkpoint.
 
 
 Executing a specific configuration only (debug only!)

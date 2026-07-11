@@ -1,97 +1,24 @@
-# Dataset and Splits
-storage_folder: DATA
-dataset_class: mlwiz.data.dataset.ToyIterableDataset
-data_splits_file:  DATA_SPLITS/ToyIterableDataset/ToyIterableDataset_outer3_inner2.splits
+defaults:
+  - dataset: toy_iterable
+  - resources: cpu
+  - reproducibility: default
+  - data_loading: torch
+  - experiment: default
+  - _self_
 
-
-# Hardware
-device:  cpu
-max_cpus:  4
-max_gpus: 0
-gpus_per_task:  1
-
-
-# Data Loading
-dataset_getter: mlwiz.data.provider.IterableDataProvider
-data_loader:
-  class_name: torch.utils.data.DataLoader
-  args:
-    num_workers : 2
-    pin_memory: False
-
-
-# Reproducibility
-seed: 42
-
-
-# Experiment
-result_folder: RESULTS
-exp_name: mlp_iterable_dataset
-experiment: mlwiz.experiment.Experiment
-model_selection_criteria:
-  - metric: main_score
-    direction: max
-evaluate_every: 3
-risk_assessment_training_runs: 3
-model_selection_training_runs: 1
-
+experiment:
+  exp_name: mlp_iterable_dataset
 
 grid:
+  defaults:
+    - optimizer: adam_001
+    - search/iterable@_here_
+    - _self_
   model: mlwiz.model.MLP
-  checkpoint: True
-  shuffle: True
+  checkpoint: true
+  shuffle: true
   batch_size: 32
   epochs: 3
-
-  # Model specific arguments #
-
   dim_embedding:
     - 5
     - 10
-
-  # ------------------------ #
-
-  # Optimizer (with an example - 3 possible alternatives)
-  optimizer:
-    - class_name: mlwiz.training.callback.optimizer.Optimizer
-      args:
-        optimizer_class_name: torch.optim.Adam
-        lr:
-          - 0.01
-        weight_decay: 0.
-
-  # Scheduler (optional)
-  scheduler: null
-
-  # Loss metric (with an example of Additive Loss)
-  loss: mlwiz.training.callback.metric.MeanSquareError
-
-  # Score metric (with an example of Multi Score)
-  scorer:
-    - class_name: mlwiz.training.callback.metric.MultiScore
-      args:
-        main_scorer: mlwiz.training.callback.metric.MeanSquareError
-
-  # Training engine
-  engine:
-    - class_name: mlwiz.training.engine.DataStreamTrainingEngine
-      args:
-        engine_callback: mlwiz.training.callback.engine_callback.IterableEngineCallback
-
-  # Gradient clipper (optional)
-  gradient_clipper: null
-
-  # Early stopper (optional, with an example of "patience" early stopping on the validation score)
-  early_stopper:
-    - class_name:
-        - mlwiz.training.callback.early_stopping.PatienceEarlyStopper
-      args:
-        patience:
-          - 10
-        # SYNTAX: (train_,validation_)[name_of_the_scorer_or_loss_to_monitor] -> we can use MAIN_LOSS or MAIN_SCORE
-        monitor: validation_main_score
-        mode: max  # is best the `max` or the `min` value we are monitoring?
-        checkpoint: True  # store the best checkpoint
-
-  # Plotter of metrics
-  plotter: null

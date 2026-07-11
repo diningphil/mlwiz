@@ -1,0 +1,22 @@
+scheduler: null
+loss: mlwiz.training.callback.metric.SingleGraphMulticlassClassification
+scorer:
+  - class_name: mlwiz.training.callback.metric.MultiScore
+    args:
+      main_scorer: mlwiz.training.callback.metric.SingleGraphMulticlassAccuracy
+engine:
+  - class_name: mlwiz.training.engine.TrainingEngine
+    args:
+      eval_training:
+        - false
+gradient_clipper: null
+early_stopper:
+  - class_name:
+      - mlwiz.training.callback.early_stopping.PatienceEarlyStopper
+    args:
+      patience:
+        - 10
+      monitor: validation_main_score
+      mode: max
+      checkpoint: true
+plotter: null

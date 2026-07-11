@@ -1,0 +1,6 @@
+dataset_getter: mlwiz.data.provider.DataProvider
+data_loader:
+  class_name: torch.utils.data.DataLoader
+  args:
+    num_workers: 0
+    pin_memory: false
