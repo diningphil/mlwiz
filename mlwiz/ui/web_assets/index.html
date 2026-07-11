@@ -100,7 +100,7 @@
           <details class="model-graph-section" id="model-graph-section" hidden>
             <summary>
               <div>
-                <p class="eyebrow">Checkpoint architecture</p>
+                <p class="eyebrow">Checkpoint graph</p>
                 <h3>Model graph</h3>
               </div>
               <div class="model-graph-summary-meta">
@@ -111,6 +111,17 @@
             <div class="model-graph-body">
               <div class="model-graph-toolbar">
                 <div class="model-graph-status" id="model-graph-status">Open to load the checkpoint graph.</div>
+                <label class="model-graph-checkpoint-control" id="model-graph-run-control" hidden>
+                  <span>Run</span>
+                  <select id="model-graph-run-select"></select>
+                </label>
+                <label class="model-graph-checkpoint-control">
+                  <span>View</span>
+                  <select id="model-graph-mode-select">
+                    <option value="architecture">Architecture</option>
+                    <option value="operators">Operators</option>
+                  </select>
+                </label>
                 <label class="model-graph-checkpoint-control">
                   <span>Checkpoint</span>
                   <select id="model-graph-checkpoint-select">
@@ -121,7 +132,7 @@
               <div class="model-graph-message" id="model-graph-message" hidden></div>
               <div class="model-graph-stats" id="model-graph-stats"></div>
               <div class="graph-explorer-toolbar">
-                <div class="graph-explorer-actions">
+                <div class="graph-explorer-actions" id="graph-architecture-actions">
                   <button id="graph-expand-all" type="button" title="Expand every module block">⊞ Expand all</button>
                   <button id="graph-collapse-all" type="button" title="Collapse to the model root">⊟ Collapse all</button>
                   <button id="graph-view-toggle" type="button" aria-pressed="false" title="Show only leaf modules">Flatten to leaves</button>
@@ -131,7 +142,7 @@
                   <span class="sr-only">Find a model block</span>
                   <input id="graph-search" type="search" placeholder="Find module…" />
                 </label>
-                <div class="parameter-legend" title="Block parameters divided by total model parameters">
+                <div class="parameter-legend" id="parameter-legend" title="Block parameters divided by total model parameters">
                   <span>Parameter share</span>
                   <i></i>
                   <small>0%</small>

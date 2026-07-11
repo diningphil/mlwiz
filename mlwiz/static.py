@@ -78,6 +78,7 @@ STOP_TRAINING = "stop_training"
 LAST_CHECKPOINT_FILENAME = "last_checkpoint.pth"
 BEST_CHECKPOINT_FILENAME = "best_checkpoint.pth"
 MODEL_MANIFEST_FILENAME = "model_manifest.json"
+MODEL_GRAPH_INPUT_SPEC_FILENAME = "model_graph_input_spec.json"
 BATCH_LOSS_EXTRA = "batch_loss_extra"
 
 # STRING FORMATTING

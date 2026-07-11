@@ -59,7 +59,9 @@
     graphRequestId: 0,
     graphPath: null,
     graphCheckpointChoices: storedState.graphCheckpointChoices || {},
+    graphFocusedRuns: storedState.graphFocusedRuns || {},
     graphExpandedNodes: storedState.graphExpandedNodes || {},
+    graphMode: storedState.graphMode === "operators" ? "operators" : "architecture",
     graphView: storedState.graphView === "leaves" ? "leaves" : "hierarchy",
     graphQuery: "",
     modelGraphData: null,
@@ -100,7 +102,9 @@
         metadataScrolls: state.metadataScrolls,
         overviewExpanded: state.overviewExpanded,
         graphCheckpointChoices: state.graphCheckpointChoices,
+        graphFocusedRuns: state.graphFocusedRuns,
         graphExpandedNodes: state.graphExpandedNodes,
+        graphMode: state.graphMode,
         graphView: state.graphView,
       }));
     } catch (_error) {
@@ -1147,11 +1151,50 @@
     requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
   }
 
+  function graphRunKey(selection) {
+    return `${selection.path}:${state.focusedInnerFold}`;
+  }
+
+  function graphRunCandidates(selection) {
+    return configurationRunSources().filter(
+      (source) => innerFoldName(source) === state.focusedInnerFold,
+    );
+  }
+
+  function renderModelGraphRunSelector() {
+    const control = el("model-graph-run-control");
+    const select = el("model-graph-run-select");
+    const selection = state.details?.selection;
+    const groupedConfiguration = selection?.plot_scope === "model_selection_configuration"
+      && resolvedPlotMode() === "inner-fold";
+    if (!groupedConfiguration) {
+      control.hidden = true;
+      return;
+    }
+    const candidates = graphRunCandidates(selection);
+    if (!candidates.length) {
+      control.hidden = true;
+      return;
+    }
+    const key = graphRunKey(selection);
+    let selected = state.graphFocusedRuns[key];
+    if (!candidates.includes(selected)) {
+      selected = candidates.includes(state.focusedRun) ? state.focusedRun : candidates[0];
+      state.graphFocusedRuns[key] = selected;
+      persistState();
+    }
+    setSelectOptions(select, candidates, selected, shortRunName);
+    control.hidden = false;
+  }
+
   function focusedModelGraphPath() {
     const selection = state.details?.selection;
     if (!selection) return null;
     if (selection.plot_scope === "model_selection_configuration") {
-      return state.focusedRun ? `${selection.path}/${state.focusedRun}` : null;
+      const graphRun = resolvedPlotMode() === "inner-fold"
+        ? state.graphFocusedRuns[graphRunKey(selection)]
+        : state.focusedRun;
+      return graphRun ? `${selection.path}/${graphRun}` : null;
     }
     if (["single_run", "final_runs"].includes(selection.plot_scope)) {
       return selection.path;
@@ -1161,6 +1204,7 @@
 
   function prepareModelGraph() {
     const section = el("model-graph-section");
+    renderModelGraphRunSelector();
     const path = focusedModelGraphPath();
     section.hidden = !path;
     if (!path) return;
@@ -1175,11 +1219,14 @@
     const status = el("model-graph-status");
     const message = el("model-graph-message");
     let checkpointChoice = state.graphCheckpointChoices[path] || "auto";
+    el("model-graph-mode-select").disabled = true;
     el("model-graph-checkpoint-select").disabled = true;
     if (pathChanged) {
       el("model-graph-canvas").replaceChildren();
       el("model-graph-stats").replaceChildren();
-      el("model-node-details").textContent = "Select a module to inspect its checkpoint tensors.";
+      el("model-node-details").textContent = state.graphMode === "operators"
+        ? "Select an operator to inspect its exported tensor metadata."
+        : "Select a module to inspect its checkpoint tensors.";
       message.hidden = true;
       status.textContent = "Loading checkpoint graph on CPU…";
     } else {
@@ -1189,6 +1236,7 @@
     try {
       const info = await getJson(`/api/model-graph-info?path=${encodeURIComponent(path)}`);
       if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
+      renderGraphModeSelect(info);
       if (checkpointChoice !== "auto" && !info.checkpoint.available.includes(checkpointChoice)) {
         checkpointChoice = "auto";
         state.graphCheckpointChoices[path] = "auto";
@@ -1209,7 +1257,7 @@
         message.textContent = `${resolvedKind[0].toUpperCase()}${resolvedKind.slice(1)} checkpoint is ${formatNumber(size)} MB, exceeding the ${formatNumber(info.cache_max_mb)} MB cache limit.`;
         return;
       }
-      const graph = await getJson(`/api/model-graph?path=${encodeURIComponent(path)}&checkpoint=${encodeURIComponent(checkpointChoice)}`);
+      const graph = await getJson(`/api/model-graph?path=${encodeURIComponent(path)}&checkpoint=${encodeURIComponent(checkpointChoice)}&mode=${encodeURIComponent(state.graphMode)}`);
       if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
       renderModelGraph(graph);
     } catch (error) {
@@ -1218,6 +1266,7 @@
       message.hidden = false;
       message.className = "model-graph-message error";
       message.textContent = error.message;
+      el("model-graph-mode-select").disabled = false;
       el("model-graph-checkpoint-select").disabled = false;
     }
   }
@@ -1231,9 +1280,16 @@
 
   function renderModelGraph(graph) {
     renderCacheStatus(graph.cache);
+    const previousMode = state.modelGraphData?.graph_mode;
     state.modelGraphData = graph;
+    if (previousMode && previousMode !== graph.graph_mode) {
+      el("model-node-details").textContent = graph.graph_mode === "operators"
+        ? "Select an operator to inspect its exported tensor metadata."
+        : "Select a module to inspect its checkpoint tensors.";
+    }
     const epoch = graph.epoch ? ` · epoch ${graph.epoch}` : "";
-    el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${graph.graph_kind}`;
+    const modeLabel = graph.graph_mode === "operators" ? "Operators" : "Architecture";
+    el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${modeLabel}`;
     const message = el("model-graph-message");
     if (graph.warning) {
       message.hidden = false;
@@ -1244,10 +1300,13 @@
     }
     const stats = el("model-graph-stats");
     stats.replaceChildren();
+    const nodeLabel = graph.graph_mode === "operators"
+      ? `${formatNumber(graph.summary.operators)} operators`
+      : `${graph.summary.visible_nodes} module${graph.summary.visible_nodes === 1 ? "" : "s"}`;
     for (const text of [
       graph.summary.model_class,
       `${formatNumber(graph.summary.parameters)} parameters`,
-      `${graph.summary.visible_nodes} module${graph.summary.visible_nodes === 1 ? "" : "s"}`,
+      nodeLabel,
       graph.checkpoint.cache_hit ? "Graph cache hit" : "Loaded from checkpoint",
     ]) stats.append(node("span", "model-graph-stat", text));
     if (graph.summary.truncated) {
@@ -1258,18 +1317,21 @@
   }
 
   function syncGraphExplorerControls() {
+    const architecture = state.modelGraphData?.graph_mode !== "operators";
     const leaves = state.graphView === "leaves";
     const button = el("graph-view-toggle");
     button.classList.toggle("active", leaves);
     button.setAttribute("aria-pressed", String(leaves));
     button.textContent = leaves ? "Show hierarchy" : "Flatten to leaves";
     el("graph-search").value = state.graphQuery;
-    el("graph-expand-all").disabled = leaves;
-    el("graph-collapse-all").disabled = leaves;
+    el("graph-search").placeholder = architecture ? "Find module…" : "Find operator…";
+    el("graph-architecture-actions").hidden = !architecture;
+    el("graph-expand-all").disabled = !architecture || leaves;
+    el("graph-collapse-all").disabled = !architecture || leaves;
   }
 
   function graphExpansionKey(graph) {
-    return `${graph.run}:${graph.checkpoint.kind}`;
+    return `${graph.run}:${graph.checkpoint.kind}:${graph.graph_mode}`;
   }
 
   function buildGraphExplorerModel(graph) {
@@ -1404,6 +1466,135 @@
     return { positions, width, height };
   }
 
+  function operatorGraphItems(graph) {
+    const query = state.graphQuery.trim().toLowerCase();
+    const allNodes = new Map(graph.nodes.map((item) => [item.id, item]));
+    const incoming = new Map(graph.nodes.map((item) => [item.id, []]));
+    for (const edge of graph.edges) {
+      if (incoming.has(edge.target) && allNodes.has(edge.source)) {
+        incoming.get(edge.target).push(edge.source);
+      }
+    }
+    const depths = new Map();
+    for (const item of graph.nodes) {
+      const parentDepths = incoming.get(item.id).map((parent) => depths.get(parent) || 0);
+      depths.set(item.id, parentDepths.length ? Math.max(...parentDepths) + 1 : 0);
+    }
+    const visible = graph.nodes.filter((item) => !query
+      || `${item.id} ${item.label} ${item.type} ${item.target || ""} ${item.module_path || ""}`.toLowerCase().includes(query));
+    const visibleIds = new Set(visible.map((item) => item.id));
+    const edges = graph.edges.filter((edge) => visibleIds.has(edge.source) && visibleIds.has(edge.target));
+    return {
+      visible: visible.map((item) => ({ ...item, displayDepth: depths.get(item.id) || 0 })),
+      edges,
+      query,
+    };
+  }
+
+  function layoutOperatorGraph(items) {
+    const positions = new Map();
+    const columns = new Map();
+    for (const item of items) {
+      if (!columns.has(item.displayDepth)) columns.set(item.displayDepth, []);
+      columns.get(item.displayDepth).push(item);
+    }
+    const depths = [...columns.keys()];
+    const maxDepth = depths.length ? Math.max(...depths) : 0;
+    const maxRows = Math.max(1, ...[...columns.values()].map((column) => column.length));
+    const width = Math.max(440, 30 + ((maxDepth + 1) * 228));
+    const height = Math.max(340, 30 + (maxRows * 84));
+    for (const [depth, column] of columns.entries()) {
+      const offset = Math.max(20, (height - (column.length * 84)) / 2);
+      column.forEach((item, index) => positions.set(item.id, {
+        x: 18 + (depth * 228),
+        y: offset + (index * 84),
+      }));
+    }
+    return { positions, width, height };
+  }
+
+  function renderOperatorGraphCanvas(graph, host, previousScroll) {
+    const { visible, edges, query } = operatorGraphItems(graph);
+    if (!visible.length) {
+      host.append(node("div", "graph-empty", query
+        ? `No operators match “${state.graphQuery}”.`
+        : "The exported program contains no operators."));
+      return;
+    }
+    const { positions, width, height } = layoutOperatorGraph(visible);
+    const svg = graphSvgElement("svg", {
+      width,
+      height,
+      viewBox: `0 0 ${width} ${height}`,
+      role: "img",
+      "aria-label": `Computational graph with ${visible.length} visible nodes`,
+    });
+    const edgeLayer = graphSvgElement("g", { class: "graph-edges" });
+    for (const edge of edges) {
+      const source = positions.get(edge.source);
+      const target = positions.get(edge.target);
+      if (!source || !target) continue;
+      const startX = source.x + 198;
+      const startY = source.y + 32;
+      const endX = target.x;
+      const endY = target.y + 32;
+      const middle = (startX + endX) / 2;
+      edgeLayer.append(graphSvgElement("path", {
+        class: "graph-edge operator-edge",
+        d: `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`,
+      }));
+    }
+    svg.append(edgeLayer);
+    const nodeLayer = graphSvgElement("g", { class: "graph-nodes" });
+    const modelTotal = Math.max(Number(graph.summary.parameters) || 0, 1);
+    for (const item of visible) {
+      const position = positions.get(item.id);
+      const parameterShare = Math.min(1, (Number(item.parameters) || 0) / modelTotal);
+      const parameterColor = graphParameterColor(parameterShare);
+      const group = graphSvgElement("g", {
+        class: `graph-node operator-node${parameterColor.dense ? " dense" : ""}`,
+        transform: `translate(${position.x} ${position.y})`,
+        tabindex: "0",
+        role: "button",
+      });
+      const label = item.label.length > 28 ? `${item.label.slice(0, 26)}…` : item.label;
+      const origin = item.module_path || item.type;
+      const detail = item.parameters
+        ? `${formatParameterShare(parameterShare)} · ${formatNumber(item.parameters)} params`
+        : (item.tensors?.[0]?.shape ? `[${item.tensors[0].shape.join(", ")}]` : item.op);
+      group.append(
+        graphSvgElement("rect", {
+          width: 198,
+          height: 64,
+          class: "graph-node-card operator-node-card",
+          fill: parameterColor.color,
+        }),
+        graphSvgElement("text", { x: 10, y: 19, class: "graph-node-label" }, label),
+        graphSvgElement("text", { x: 10, y: 38, class: "graph-node-type" }, origin.length > 30 ? `${origin.slice(0, 28)}…` : origin),
+        graphSvgElement("text", { x: 10, y: 54, class: "graph-node-share" }, detail),
+      );
+      const select = () => {
+        svg.querySelectorAll(".graph-node.selected").forEach(
+          (candidate) => candidate.classList.remove("selected"),
+        );
+        group.classList.add("selected");
+        renderModelNodeDetails({ ...item, parameterShare });
+      };
+      group.addEventListener("click", select);
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          select();
+        }
+      });
+      nodeLayer.append(group);
+    }
+    svg.append(nodeLayer);
+    host.append(svg);
+    host.scrollLeft = previousScroll.left;
+    host.scrollTop = previousScroll.top;
+  }
+
   function renderModelGraphCanvas() {
     const graph = state.modelGraphData;
     const host = el("model-graph-canvas");
@@ -1411,6 +1602,10 @@
     host.replaceChildren();
     if (!graph?.nodes.length) {
       host.append(node("div", "graph-empty", "The checkpoint contains no graphable modules."));
+      return;
+    }
+    if (graph.graph_mode === "operators") {
+      renderOperatorGraphCanvas(graph, host, previousScroll);
       return;
     }
     const explorer = buildGraphExplorerModel(graph);
@@ -1552,6 +1747,21 @@
     renderModelGraphCanvas();
   }
 
+  function renderGraphModeSelect(info) {
+    const select = el("model-graph-mode-select");
+    const operatorOption = [...select.options].find((option) => option.value === "operators");
+    const operatorMode = info.modes?.operators || { available: false, reason: "Operators view is unavailable for this run." };
+    operatorOption.disabled = !operatorMode.available;
+    operatorOption.textContent = operatorMode.available ? "Operators" : "Operators · unavailable";
+    select.title = operatorMode.available ? "" : operatorMode.reason;
+    if (state.graphMode === "operators" && !operatorMode.available) {
+      state.graphMode = "architecture";
+      persistState();
+    }
+    select.value = state.graphMode;
+    select.disabled = false;
+  }
+
   function renderGraphCheckpointSelect(graph) {
     const select = el("model-graph-checkpoint-select");
     select.replaceChildren();
@@ -1576,19 +1786,31 @@
     panel.replaceChildren();
     panel.append(node("h4", "", item.label), node("code", "", item.id));
     const values = node("dl", "");
-    for (const [label, value] of [
+    const operator = state.modelGraphData?.graph_mode === "operators";
+    const fields = operator ? [
+      ["Node type", item.type],
+      ["Operation", item.op],
+      ["Target", item.target],
+      ["Origin module", item.module_path || "—"],
+      ["Parameters represented", formatNumber(item.parameters)],
+      ["Share of model", formatParameterShare(item.parameterShare)],
+    ] : [
       ["Module type", item.type],
       ["Block parameters", formatNumber(item.blockParameters ?? item.parameters)],
       ["Share of model", formatParameterShare(item.parameterShare)],
       ["Direct parameters", formatNumber(item.parameters)],
       ["Trainable", formatNumber(item.trainable_parameters)],
-    ]) values.append(node("dt", "", label), node("dd", "", value));
+    ];
+    for (const [label, value] of fields) {
+      values.append(node("dt", "", label), node("dd", "", value));
+    }
     panel.append(values);
-    if (item.tensors.length) {
-      panel.append(node("strong", "", "Checkpoint tensors"));
+    if (item.tensors?.length) {
+      panel.append(node("strong", "", operator ? "Exported tensors" : "Checkpoint tensors"));
       const list = node("ul", "");
       for (const tensor of item.tensors) {
-        list.append(node("li", "", `${tensor.name} · [${tensor.shape.join(", ")}]`));
+        const dtype = tensor.dtype ? ` · ${tensor.dtype}` : "";
+        list.append(node("li", "", `${tensor.name} · [${tensor.shape.join(", ")}]${dtype}`));
       }
       panel.append(list);
     }
@@ -1984,6 +2206,7 @@
     renderSourceFilter([...new Set(state.details.series.map((series) => series.source))]);
     renderPlotNavigator();
     renderCharts();
+    prepareModelGraph();
   });
   el("inner-fold-aggregate").addEventListener("change", (event) => {
     state.innerFoldAggregate = event.target.checked;
@@ -2054,12 +2277,25 @@
   el("model-graph-section").addEventListener("toggle", () => {
     if (el("model-graph-section").open) prepareModelGraph();
   });
+  el("model-graph-mode-select").addEventListener("change", (event) => {
+    state.graphMode = event.target.value;
+    persistState();
+    const path = focusedModelGraphPath();
+    if (path) loadModelGraph(path);
+  });
   el("model-graph-checkpoint-select").addEventListener("change", (event) => {
     const path = focusedModelGraphPath();
     if (!path) return;
     state.graphCheckpointChoices[path] = event.target.value;
     persistState();
     loadModelGraph(path);
+  });
+  el("model-graph-run-select").addEventListener("change", (event) => {
+    const selection = state.details?.selection;
+    if (!selection) return;
+    state.graphFocusedRuns[graphRunKey(selection)] = event.target.value;
+    persistState();
+    prepareModelGraph();
   });
   el("graph-expand-all").addEventListener("click", () => setAllGraphBlocks(true));
   el("graph-collapse-all").addEventListener("click", () => setAllGraphBlocks(false));

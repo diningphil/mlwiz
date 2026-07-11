@@ -56,6 +56,7 @@ from mlwiz.training.event.dispatcher import EventDispatcher
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.profiler import Profiler
+from mlwiz.training.util import record_model_graph_input_spec
 from mlwiz.training.distributed import (
     dist_is_initialized as _dist_is_initialized,
     is_main_process as _is_main_process,
@@ -249,6 +250,7 @@ class TrainingEngine(EventDispatcher):
 
         self._total_batches = None
         self._should_terminate = None
+        self._model_graph_input_spec_recorded = False
 
         self.profiler = Profiler(threshold=1e-5)
         self._pending_log_lines = []
@@ -389,6 +391,16 @@ class TrainingEngine(EventDispatcher):
             else nullcontext()
         )
         with autocast_cm:
+            # Save only data-free tensor metadata for the optional dashboard
+            # operator graph.  Capture before custom forward callbacks can
+            # mutate the input, and let only rank zero write the run folder.
+            if _is_main_process() and not getattr(
+                self, "_model_graph_input_spec_recorded", False
+            ):
+                record_model_graph_input_spec(
+                    self.state.exp_path, self.state.batch_input
+                )
+                self._model_graph_input_spec_recorded = True
             self._dispatch(EventHandler.ON_FORWARD, self.state)
 
             self._dispatch(EventHandler.ON_COMPUTE_METRICS, self.state)
