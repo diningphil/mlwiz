@@ -132,10 +132,15 @@
               <div class="model-graph-message" id="model-graph-message" hidden></div>
               <div class="model-graph-stats" id="model-graph-stats"></div>
               <div class="graph-explorer-toolbar">
-                <div class="graph-explorer-actions" id="graph-architecture-actions">
+                <div class="graph-explorer-actions" id="graph-expansion-actions">
                   <button id="graph-expand-all" type="button" title="Expand every module block">⊞ Expand all</button>
                   <button id="graph-collapse-all" type="button" title="Collapse to the model root">⊟ Collapse all</button>
                   <button id="graph-view-toggle" type="button" aria-pressed="false" title="Show only leaf modules">Flatten to leaves</button>
+                </div>
+                <div class="graph-zoom-controls" id="graph-zoom-controls" hidden>
+                  <button id="graph-zoom-out" type="button" aria-label="Zoom out">−</button>
+                  <button id="graph-zoom-reset" type="button" title="Reset zoom">100%</button>
+                  <button id="graph-zoom-in" type="button" aria-label="Zoom in">+</button>
                 </div>
                 <label class="graph-search">
                   <span aria-hidden="true">⌕</span>

@@ -29,6 +29,7 @@
 - model graph loading is skipped when the selected checkpoint file exceeds the user-configured dashboard cache ceiling
 - model graphs now use a Model Explorer-style collapsible hierarchy with expand/collapse-all, module search, a flattened leaf view, and block colors based on subtree parameters relative to total model parameters
 - architecture and operator graphs use separate bounded cache entries, so switching views never returns a graph generated for the other mode
+- Operators view now presents a directed module-level execution graph with arrowheads, recursively expandable module boundaries, persisted expansion/zoom/node placement, mouse-wheel zoom, background drag-to-pan, and freely draggable module/operator boxes instead of a flat operator list
 
 ## Fixed
 

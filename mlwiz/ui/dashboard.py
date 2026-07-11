@@ -50,6 +50,7 @@ _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
 _MAX_GRAPH_NODES = 600
 _MAX_GRAPH_INPUT_SPEC_BYTES = 64 * 1024
+_MODEL_GRAPH_SCHEMA_VERSION = 2
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
@@ -373,6 +374,7 @@ class ResultsRepository:
             else None
         )
         signature = (
+            _MODEL_GRAPH_SCHEMA_VERSION,
             graph_mode,
             checkpoint_stat.st_mtime_ns,
             checkpoint_stat.st_size,
@@ -400,6 +402,7 @@ class ResultsRepository:
                 raise ValueError(f"Could not load checkpoint: {error}") from error
             final_stat = checkpoint.stat()
             if (
+                _MODEL_GRAPH_SCHEMA_VERSION,
                 graph_mode,
                 final_stat.st_mtime_ns,
                 final_stat.st_size,
@@ -698,6 +701,13 @@ class ResultsRepository:
             parameter_count, trainable = parameters.get(
                 parameter_name, (0, False)
             )
+            module_stack = self._operator_module_stack(item.meta)
+            if not module_stack and metadata.get("kind") in {
+                "parameter",
+                "buffer",
+                "constant_tensor",
+            }:
+                module_stack = self._parameter_module_stack(parameter_name)
             nodes.append(
                 {
                     "id": item.name,
@@ -707,7 +717,8 @@ class ResultsRepository:
                     ),
                     "op": item.op,
                     "target": target,
-                    "module_path": self._operator_module_path(item.meta),
+                    "module_path": module_stack[-1] if module_stack else None,
+                    "module_stack": module_stack,
                     "parameters": parameter_count,
                     "trainable_parameters": (
                         parameter_count if trainable else 0
@@ -724,10 +735,12 @@ class ResultsRepository:
             if dependency.name in visible_ids
         ]
         total_parameters = sum(value.numel() for value in model.parameters())
+        modules = self._operator_modules(model, nodes)
         return {
             "graph_kind": "torch.export ATen operators",
             "nodes": nodes,
             "edges": edges,
+            "modules": modules,
             "summary": {
                 "model_class": type(model).__name__,
                 "parameters": total_parameters,
@@ -737,6 +750,7 @@ class ResultsRepository:
                     item.op in {"call_function", "call_method", "call_module"}
                     for item in graph_nodes
                 ),
+                "modules": max(0, len(modules) - 1),
                 "truncated": len(graph_nodes) > len(nodes),
                 "input": input_summary,
             },
@@ -783,15 +797,84 @@ class ResultsRepository:
         return operation.replace("_", " ").title()
 
     @staticmethod
-    def _operator_module_path(metadata: dict[str, Any]) -> Optional[str]:
-        """Return the most specific originating module recorded by export."""
+    def _operator_module_stack(metadata: dict[str, Any]) -> list[str]:
+        """Return the ordered module ancestry recorded by ``torch.export``."""
         module_stack = metadata.get("nn_module_stack")
         if not isinstance(module_stack, dict):
-            return None
-        for value in reversed(list(module_stack.values())):
-            if isinstance(value, (tuple, list)) and value and value[0]:
-                return str(value[0])
-        return None
+            return []
+        paths = []
+        for value in module_stack.values():
+            if not isinstance(value, (tuple, list)) or not value or not value[0]:
+                continue
+            path = str(value[0])
+            if path not in paths:
+                paths.append(path)
+        return paths
+
+    @staticmethod
+    def _parameter_module_stack(parameter_name: Optional[str]) -> list[str]:
+        """Infer module ancestry for parameter placeholders from state keys."""
+        if not parameter_name or "." not in parameter_name:
+            return []
+        parts = parameter_name.rsplit(".", 1)[0].split(".")
+        return [".".join(parts[:index]) for index in range(1, len(parts) + 1)]
+
+    @staticmethod
+    def _operator_modules(
+        model: torch.nn.Module, nodes: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Describe only modules that participate in the exported execution."""
+        executed_paths = {
+            path for node in nodes for path in node.get("module_stack", [])
+        }
+        module_lookup = dict(model.named_modules())
+        records = []
+        for path in [""] + sorted(
+            executed_paths, key=lambda value: (value.count("."), value)
+        ):
+            module = module_lookup.get(path)
+            if module is None:
+                continue
+            direct_parameters = list(module.parameters(recurse=False))
+            subtree_parameters = list(module.parameters(recurse=True))
+            records.append(
+                {
+                    "id": path or "__root__",
+                    "path": path,
+                    "label": (
+                        path.rsplit(".", 1)[-1]
+                        if path
+                        else type(model).__name__
+                    ),
+                    "type": type(module).__name__,
+                    "parent": (
+                        path.rpartition(".")[0] or "__root__"
+                        if path
+                        else None
+                    ),
+                    "parameters": sum(
+                        parameter.numel() for parameter in subtree_parameters
+                    ),
+                    "direct_parameters": sum(
+                        parameter.numel() for parameter in direct_parameters
+                    ),
+                    "trainable_parameters": sum(
+                        parameter.numel()
+                        for parameter in subtree_parameters
+                        if parameter.requires_grad
+                    ),
+                    "operator_count": sum(
+                        node.get("op")
+                        in {"call_function", "call_method", "call_module"}
+                        and (
+                            not path
+                            or path in node.get("module_stack", [])
+                        )
+                        for node in nodes
+                    ),
+                }
+            )
+        return records
 
     @staticmethod
     def _operator_tensor_records(value: Any) -> list[dict[str, Any]]:

@@ -422,11 +422,24 @@ def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
     assert operators["graph_mode"] == "operators"
     assert operators["graph_kind"] == "torch.export ATen operators"
     assert operators["summary"]["operators"] >= 3
+    assert operators["summary"]["modules"] >= 3
     assert operators["edges"]
+    assert {module["id"] for module in operators["modules"]} >= {
+        "__root__",
+        "encoder",
+        "encoder.0",
+        "encoder.1",
+        "output",
+    }
     assert any(
         "aten." in node["target"]
         for node in operators["nodes"]
         if node["op"] == "call_function"
+    )
+    assert any(
+        node["module_stack"] == ["encoder", "encoder.0"]
+        for node in operators["nodes"]
+        if "aten.linear" in node["target"]
     )
     assert cached_operators["checkpoint"]["cache_hit"] is True
     assert info["checkpoint"]["kind"] == "last"
@@ -660,6 +673,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="model-graph-checkpoint-select"' in page
         assert 'id="model-graph-run-select"' in page
         assert 'id="model-graph-mode-select"' in page
+        assert 'id="graph-zoom-controls"' in page
+        assert 'id="graph-zoom-out"' in page
+        assert 'id="graph-zoom-in"' in page
         assert 'id="graph-expand-all"' in page
         assert 'id="graph-collapse-all"' in page
         assert 'id="graph-view-toggle"' in page
@@ -683,6 +699,15 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "renderModelGraphRunSelector" in app_script
         assert "renderOperatorGraphCanvas" in app_script
         assert "renderGraphModeSelect" in app_script
+        assert "buildOperatorExplorer" in app_script
+        assert "operatorModuleFrames" in app_script
+        assert "toggleOperatorModule" in app_script
+        assert "setGraphZoom" in app_script
+        assert "graphZooms" in app_script
+        assert "graphNodePositions" in app_script
+        assert "beginGraphPan" in app_script
+        assert "beginOperatorNodeDrag" in app_script
+        assert "updateGraphPointerDrag" in app_script
         assert "buildGraphExplorerModel" in app_script
         assert "graphParameterColor" in app_script
         assert "toggleGraphBlock" in app_script
@@ -711,6 +736,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert ".model-graph-section" in stylesheet
         assert ".parameter-legend" in stylesheet
         assert ".graph-node-card" in stylesheet
+        assert ".operator-edge" in stylesheet
+        assert ".graph-arrow-head" in stylesheet
+        assert ".operator-module-frame-box" in stylesheet
         assert ".plot-navigator { position: sticky" in stylesheet
         assert ".plot-navigator.is-stuck" in stylesheet
         assert ".content { min-width: 0;" in stylesheet

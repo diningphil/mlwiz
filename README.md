@@ -266,11 +266,20 @@ CPU module hierarchy from `model_manifest.json`, with a checkpoint-parameter
 hierarchy fallback for older runs. **Operators** uses `torch.export` to trace the
 selected checkpoint and displays the resulting dataflow as individual ATen
 operations, including output shapes and originating module paths when export
-provides them. New runs record only the first forward input's tensor shape and
-dtype in `model_graph_input_spec.json`; no training values are stored. Operators
-currently supports a single tensor model input. PyG/custom input objects remain
-available in Architecture and need a model-specific export adapter for the
-Operators view.
+provides them. The initial view collapses those operations into top-level module
+nodes connected by directional arrows, making the actual forward-pass DAG
+visible. Expand a module to reveal its child modules, then expand again to reach
+the ATen operations inside it; expanded module boundaries remain on the canvas
+and can be collapsed in place. Use the `−`, percentage, and `+` controls (or
+the mouse wheel anywhere inside the graph) to zoom around the pointer. Drag the
+empty canvas to pan horizontally or vertically, and drag any module/operator box
+to place it manually; custom zoom, expansion, and box positions persist for that
+run and checkpoint view.
+
+New runs record only the first forward input's tensor shape and dtype in
+`model_graph_input_spec.json`; no training values are stored. Operators currently
+supports a single tensor model input. PyG/custom input objects remain available
+in Architecture and need a model-specific export adapter for the Operators view.
 
 Enable `checkpoint: true` to produce last checkpoints; best checkpoints are
 available when the configured early stopper stores them.
