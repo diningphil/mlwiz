@@ -25,6 +25,7 @@
 - sibling final-run metrics are loaded on demand only when the all-final-runs aggregation view is selected
 - running model graphs prefer `last_checkpoint.pth`, completed graphs prefer `best_checkpoint.pth`, and both fall back to the other existing checkpoint without introducing separate checkpoint files
 - model graph loading is skipped when the selected checkpoint file exceeds the user-configured dashboard cache ceiling
+- model graphs now use a Model Explorer-style collapsible hierarchy with expand/collapse-all, module search, a flattened leaf view, and block colors based on subtree parameters relative to total model parameters
 
 ## Fixed
 

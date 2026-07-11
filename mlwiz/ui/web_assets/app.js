@@ -59,6 +59,10 @@
     graphRequestId: 0,
     graphPath: null,
     graphCheckpointChoices: storedState.graphCheckpointChoices || {},
+    graphExpandedNodes: storedState.graphExpandedNodes || {},
+    graphView: storedState.graphView === "leaves" ? "leaves" : "hierarchy",
+    graphQuery: "",
+    modelGraphData: null,
   };
 
   const el = (id) => document.getElementById(id);
@@ -96,6 +100,8 @@
         metadataScrolls: state.metadataScrolls,
         overviewExpanded: state.overviewExpanded,
         graphCheckpointChoices: state.graphCheckpointChoices,
+        graphExpandedNodes: state.graphExpandedNodes,
+        graphView: state.graphView,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
@@ -1225,6 +1231,7 @@
 
   function renderModelGraph(graph) {
     renderCacheStatus(graph.cache);
+    state.modelGraphData = graph;
     const epoch = graph.epoch ? ` · epoch ${graph.epoch}` : "";
     el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${graph.graph_kind}`;
     const message = el("model-graph-message");
@@ -1235,7 +1242,6 @@
     } else {
       message.hidden = true;
     }
-
     const stats = el("model-graph-stats");
     stats.replaceChildren();
     for (const text of [
@@ -1247,64 +1253,260 @@
     if (graph.summary.truncated) {
       stats.append(node("span", "model-graph-stat", `Showing first ${graph.summary.visible_nodes} of ${graph.summary.nodes}`));
     }
+    syncGraphExplorerControls();
+    renderModelGraphCanvas();
+  }
 
-    const host = el("model-graph-canvas");
-    host.replaceChildren();
-    if (!graph.nodes.length) {
-      host.append(node("div", "chart-empty", "The checkpoint contains no graphable tensors."));
-      return;
+  function syncGraphExplorerControls() {
+    const leaves = state.graphView === "leaves";
+    const button = el("graph-view-toggle");
+    button.classList.toggle("active", leaves);
+    button.setAttribute("aria-pressed", String(leaves));
+    button.textContent = leaves ? "Show hierarchy" : "Flatten to leaves";
+    el("graph-search").value = state.graphQuery;
+    el("graph-expand-all").disabled = leaves;
+    el("graph-collapse-all").disabled = leaves;
+  }
+
+  function graphExpansionKey(graph) {
+    return `${graph.run}:${graph.checkpoint.kind}`;
+  }
+
+  function buildGraphExplorerModel(graph) {
+    const nodes = new Map(graph.nodes.map((item) => [item.id, { ...item }]));
+    const children = new Map(graph.nodes.map((item) => [item.id, []]));
+    const parents = new Map();
+    for (const edge of graph.edges) {
+      if (!nodes.has(edge.source) || !nodes.has(edge.target)) continue;
+      children.get(edge.source).push(edge.target);
+      parents.set(edge.target, edge.source);
+    }
+    const roots = graph.nodes
+      .map((item) => item.id)
+      .filter((id) => !parents.has(id));
+    const totals = new Map();
+    const calculateTotal = (id, active = new Set()) => {
+      if (totals.has(id)) return totals.get(id);
+      if (active.has(id)) return 0;
+      const nextActive = new Set(active).add(id);
+      const total = (nodes.get(id)?.parameters || 0)
+        + (children.get(id) || []).reduce(
+          (sum, child) => sum + calculateTotal(child, nextActive),
+          0,
+        );
+      totals.set(id, total);
+      return total;
+    };
+    for (const id of nodes.keys()) calculateTotal(id);
+    const modelTotal = Math.max(Number(graph.summary.parameters) || 0, 1);
+    for (const item of nodes.values()) {
+      item.blockParameters = totals.get(item.id) || 0;
+      item.parameterShare = Math.min(1, item.blockParameters / modelTotal);
+    }
+    return { nodes, children, parents, roots };
+  }
+
+  function graphParameterColor(share) {
+    const amount = Math.max(0, Math.min(1, Number(share) || 0)) ** 0.38;
+    const low = state.theme === "dark" ? [24, 44, 55] : [236, 246, 242];
+    const high = state.theme === "dark" ? [145, 53, 39] : [226, 82, 55];
+    const channels = low.map((value, index) => Math.round(
+      value + ((high[index] - value) * amount),
+    ));
+    return {
+      color: `rgb(${channels.join(",")})`,
+      dense: amount > 0.58,
+    };
+  }
+
+  function visibleGraphItems(graph, explorer) {
+    const expanded = new Set(
+      state.graphExpandedNodes[graphExpansionKey(graph)] || [],
+    );
+    const query = state.graphQuery.trim().toLowerCase();
+    const matches = new Set();
+    if (query) {
+      const includeDescendants = (id) => {
+        matches.add(id);
+        for (const child of explorer.children.get(id) || []) {
+          includeDescendants(child);
+        }
+      };
+      for (const item of explorer.nodes.values()) {
+        if (`${item.id} ${item.label} ${item.type}`.toLowerCase().includes(query)) {
+          includeDescendants(item.id);
+          let current = item.id;
+          while (current) {
+            matches.add(current);
+            current = explorer.parents.get(current);
+          }
+        }
+      }
+    }
+    const visible = [];
+    const edges = [];
+    if (state.graphView === "leaves") {
+      for (const item of explorer.nodes.values()) {
+        if (explorer.children.get(item.id).length) continue;
+        if (query && !matches.has(item.id)) continue;
+        visible.push({ ...item, displayDepth: 0 });
+      }
+      return { visible, edges, expanded, query };
+    }
+    const visit = (id, depth) => {
+      if (query && !matches.has(id)) return;
+      const item = explorer.nodes.get(id);
+      if (!item) return;
+      visible.push({ ...item, displayDepth: depth });
+      if (!query && !expanded.has(id)) return;
+      for (const child of explorer.children.get(id)) {
+        if (!query || matches.has(child)) {
+          edges.push({ source: id, target: child });
+          visit(child, depth + 1);
+        }
+      }
+    };
+    explorer.roots.forEach((id) => visit(id, 0));
+    return { visible, edges, expanded, query };
+  }
+
+  function layoutGraphItems(items) {
+    const positions = new Map();
+    if (state.graphView === "leaves") {
+      const columnCount = Math.min(3, Math.max(1, items.length));
+      const rowCount = Math.ceil(items.length / columnCount);
+      items.forEach((item, index) => positions.set(item.id, {
+        x: 20 + ((index % columnCount) * 218),
+        y: 20 + (Math.floor(index / columnCount) * 78),
+      }));
+      return {
+        positions,
+        width: Math.max(430, 30 + (columnCount * 218)),
+        height: Math.max(330, 30 + (rowCount * 78)),
+      };
     }
     const columns = new Map();
-    for (const item of graph.nodes) {
-      if (!columns.has(item.depth)) columns.set(item.depth, []);
-      columns.get(item.depth).push(item);
+    for (const item of items) {
+      if (!columns.has(item.displayDepth)) columns.set(item.displayDepth, []);
+      columns.get(item.displayDepth).push(item);
     }
     const maxDepth = Math.max(...columns.keys());
-    const maxRows = Math.max(...[...columns.values()].map((items) => items.length));
-    const width = Math.max(420, 40 + ((maxDepth + 1) * 210));
-    const height = Math.max(330, 35 + (maxRows * 68));
-    const positions = new Map();
-    for (const [depth, items] of columns.entries()) {
-      const columnHeight = items.length * 68;
-      const offset = Math.max(24, (height - columnHeight) / 2);
-      items.forEach((item, index) => positions.set(item.id, {
-        x: 20 + (depth * 210),
-        y: offset + (index * 68),
+    const maxRows = Math.max(...[...columns.values()].map((column) => column.length));
+    const width = Math.max(430, 35 + ((maxDepth + 1) * 218));
+    const height = Math.max(330, 35 + (maxRows * 78));
+    for (const [depth, column] of columns.entries()) {
+      const offset = Math.max(20, (height - (column.length * 78)) / 2);
+      column.forEach((item, index) => positions.set(item.id, {
+        x: 20 + (depth * 218),
+        y: offset + (index * 78),
       }));
     }
-    const svg = graphSvgElement("svg", { width, height, viewBox: `0 0 ${width} ${height}` });
-    const edges = graphSvgElement("g", { class: "graph-edges" });
-    for (const edge of graph.edges) {
+    return { positions, width, height };
+  }
+
+  function renderModelGraphCanvas() {
+    const graph = state.modelGraphData;
+    const host = el("model-graph-canvas");
+    const previousScroll = { left: host.scrollLeft, top: host.scrollTop };
+    host.replaceChildren();
+    if (!graph?.nodes.length) {
+      host.append(node("div", "graph-empty", "The checkpoint contains no graphable modules."));
+      return;
+    }
+    const explorer = buildGraphExplorerModel(graph);
+    const { visible, edges, expanded, query } = visibleGraphItems(graph, explorer);
+    if (!visible.length) {
+      host.append(node("div", "graph-empty", query
+        ? `No model blocks match “${state.graphQuery}”.`
+        : "No leaf modules are available."));
+      return;
+    }
+    const { positions, width, height } = layoutGraphItems(visible);
+    const svg = graphSvgElement("svg", {
+      width,
+      height,
+      viewBox: `0 0 ${width} ${height}`,
+    });
+    const edgeLayer = graphSvgElement("g", { class: "graph-edges" });
+    for (const edge of edges) {
       const source = positions.get(edge.source);
       const target = positions.get(edge.target);
       if (!source || !target) continue;
-      const startX = source.x + 174;
-      const startY = source.y + 23;
+      const startX = source.x + 190;
+      const startY = source.y + 29;
       const endX = target.x;
-      const endY = target.y + 23;
+      const endY = target.y + 29;
       const middle = (startX + endX) / 2;
-      edges.append(graphSvgElement("path", {
+      edgeLayer.append(graphSvgElement("path", {
         class: "graph-edge",
         d: `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`,
       }));
     }
-    svg.append(edges);
+    svg.append(edgeLayer);
     const nodeLayer = graphSvgElement("g", { class: "graph-nodes" });
-    for (const item of graph.nodes) {
+    for (const item of visible) {
       const position = positions.get(item.id);
+      const parameterColor = graphParameterColor(item.parameterShare);
+      const hasChildren = explorer.children.get(item.id).length > 0;
+      const isExpanded = expanded.has(item.id) || Boolean(query);
       const group = graphSvgElement("g", {
-        class: `graph-node${item.id === "__root__" ? " root" : ""}`,
+        class: `graph-node${parameterColor.dense ? " dense" : ""}`,
         transform: `translate(${position.x} ${position.y})`,
         tabindex: "0",
         role: "button",
       });
+      const labelX = hasChildren && state.graphView === "hierarchy" ? 29 : 10;
       group.append(
-        graphSvgElement("rect", { width: 174, height: 46 }),
-        graphSvgElement("text", { x: 10, y: 19, class: "graph-node-label" }, item.label.length > 24 ? `${item.label.slice(0, 22)}…` : item.label),
-        graphSvgElement("text", { x: 10, y: 34, class: "graph-node-type" }, item.type),
+        graphSvgElement("rect", {
+          width: 190,
+          height: 58,
+          class: "graph-node-card",
+          fill: parameterColor.color,
+        }),
+        graphSvgElement("text", {
+          x: labelX,
+          y: 19,
+          class: "graph-node-label",
+        }, item.label.length > 24 ? `${item.label.slice(0, 22)}…` : item.label),
+        graphSvgElement("text", {
+          x: 10,
+          y: 36,
+          class: "graph-node-type",
+        }, item.type),
+        graphSvgElement("text", {
+          x: 10,
+          y: 50,
+          class: "graph-node-share",
+        }, `${formatParameterShare(item.parameterShare)} · ${formatNumber(item.blockParameters)} params`),
       );
+      if (hasChildren && state.graphView === "hierarchy") {
+        const expansion = graphSvgElement("g", {
+          class: "graph-expansion-control",
+        });
+        expansion.append(
+          graphSvgElement("rect", {
+            x: 8,
+            y: 8,
+            width: 14,
+            height: 14,
+            class: "graph-node-expand",
+          }),
+          graphSvgElement("text", {
+            x: 12,
+            y: 19,
+            class: "graph-node-expand-symbol",
+          }, isExpanded ? "−" : "+"),
+        );
+        expansion.addEventListener("click", (event) => {
+          event.stopPropagation();
+          toggleGraphBlock(item.id);
+        });
+        group.append(expansion);
+      }
       const select = () => {
-        svg.querySelectorAll(".graph-node.selected").forEach((candidate) => candidate.classList.remove("selected"));
+        svg.querySelectorAll(".graph-node.selected").forEach(
+          (candidate) => candidate.classList.remove("selected"),
+        );
         group.classList.add("selected");
         renderModelNodeDetails(item);
       };
@@ -1316,6 +1518,38 @@
     }
     svg.append(nodeLayer);
     host.append(svg);
+    host.scrollLeft = previousScroll.left;
+    host.scrollTop = previousScroll.top;
+  }
+
+  function formatParameterShare(share) {
+    const percentage = Math.max(0, Number(share) || 0) * 100;
+    return `${percentage.toFixed(percentage < 0.1 ? 3 : 1)}%`;
+  }
+
+  function toggleGraphBlock(nodeId) {
+    const graph = state.modelGraphData;
+    if (!graph) return;
+    const key = graphExpansionKey(graph);
+    const expanded = new Set(state.graphExpandedNodes[key] || []);
+    if (expanded.has(nodeId)) expanded.delete(nodeId); else expanded.add(nodeId);
+    state.graphExpandedNodes[key] = [...expanded];
+    persistState();
+    renderModelGraphCanvas();
+  }
+
+  function setAllGraphBlocks(expand) {
+    const graph = state.modelGraphData;
+    if (!graph) return;
+    const explorer = buildGraphExplorerModel(graph);
+    const key = graphExpansionKey(graph);
+    state.graphExpandedNodes[key] = expand
+      ? [...explorer.nodes.keys()].filter(
+        (id) => explorer.children.get(id).length,
+      )
+      : [];
+    persistState();
+    renderModelGraphCanvas();
   }
 
   function renderGraphCheckpointSelect(graph) {
@@ -1344,7 +1578,9 @@
     const values = node("dl", "");
     for (const [label, value] of [
       ["Module type", item.type],
-      ["Parameters", formatNumber(item.parameters)],
+      ["Block parameters", formatNumber(item.blockParameters ?? item.parameters)],
+      ["Share of model", formatParameterShare(item.parameterShare)],
+      ["Direct parameters", formatNumber(item.parameters)],
       ["Trainable", formatNumber(item.trainable_parameters)],
     ]) values.append(node("dt", "", label), node("dd", "", value));
     panel.append(values);
@@ -1724,6 +1960,7 @@
     persistState();
     applyTheme();
     state.charts.forEach((chart) => drawChart(chart));
+    if (state.modelGraphData) renderModelGraphCanvas();
   });
   el("metric-search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
@@ -1823,6 +2060,18 @@
     state.graphCheckpointChoices[path] = event.target.value;
     persistState();
     loadModelGraph(path);
+  });
+  el("graph-expand-all").addEventListener("click", () => setAllGraphBlocks(true));
+  el("graph-collapse-all").addEventListener("click", () => setAllGraphBlocks(false));
+  el("graph-view-toggle").addEventListener("click", () => {
+    state.graphView = state.graphView === "hierarchy" ? "leaves" : "hierarchy";
+    persistState();
+    syncGraphExplorerControls();
+    renderModelGraphCanvas();
+  });
+  el("graph-search").addEventListener("input", (event) => {
+    state.graphQuery = event.target.value;
+    renderModelGraphCanvas();
   });
   if (state.selectedPath) {
     detailsView.hidden = false;

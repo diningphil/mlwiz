@@ -266,6 +266,11 @@ checkpoints are available when the configured early stopper stores them.
 To bound temporary memory pressure, the graph is not loaded when the checkpoint
 file itself is larger than the cache ceiling configured in the dashboard.
 Oversized Best/Last choices remain visible but disabled in the selector.
+The graph explorer groups modules into a collapsible hierarchy, supports
+expand/collapse-all, search, and a flattened leaf-module view. Block color
+represents the parameters contained by that block and its descendants relative
+to the model's total parameter count; the inspector shows the exact count and
+percentage for the selected block.
 
 The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
 this artifact (metric storage is enabled by default):

@@ -573,6 +573,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="experiment-overview"' in page
         assert 'id="model-graph-section"' in page
         assert 'id="model-graph-checkpoint-select"' in page
+        assert 'id="graph-expand-all"' in page
+        assert 'id="graph-collapse-all"' in page
+        assert 'id="graph-view-toggle"' in page
+        assert 'id="graph-search"' in page
         assert page.index('id="summary-grid"') < page.index(
             'id="model-graph-section"'
         ) < page.index('id="chart-toolbar"')
@@ -588,6 +592,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/api/model-graph-info" in app_script
         assert "renderModelGraph" in app_script
         assert "graphCheckpointChoices" in app_script
+        assert "buildGraphExplorerModel" in app_script
+        assert "graphParameterColor" in app_script
+        assert "toggleGraphBlock" in app_script
+        assert "setAllGraphBlocks" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
         assert "aggregateMetricLines" in app_script
@@ -610,6 +618,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "expandJsonDescendants" in app_script
         assert ".json-inspector" in stylesheet
         assert ".model-graph-section" in stylesheet
+        assert ".parameter-legend" in stylesheet
+        assert ".graph-node-card" in stylesheet
         assert ".plot-navigator { position: sticky" in stylesheet
         assert ".plot-navigator.is-stuck" in stylesheet
         assert ".content { min-width: 0;" in stylesheet
