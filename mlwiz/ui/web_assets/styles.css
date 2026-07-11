@@ -230,6 +230,39 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .legend-value { color: #303f50; font-variant-numeric: tabular-nums; font-weight: 700; }
 .chart-empty { grid-column: 1 / -1; padding: 50px 24px; border: 1px dashed #d8ddd7; border-radius: 12px; text-align: center; color: var(--muted); font-size: 12px; }
 .chart-empty strong { display: block; margin-bottom: 7px; color: var(--ink); }
+.model-graph-section { margin: 0 0 22px; border: 1px solid var(--line); border-radius: 13px; background: var(--panel); overflow: clip; }
+.model-graph-section > summary { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 15px 17px; list-style: none; cursor: pointer; }
+.model-graph-section > summary::-webkit-details-marker { display: none; }
+.model-graph-section > summary h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 23px; font-weight: 500; }
+.model-graph-summary-meta { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 9px; }
+.model-graph-chevron { font-size: 15px; transition: transform .18s ease; }
+.model-graph-section[open] .model-graph-chevron { transform: rotate(180deg); }
+.model-graph-body { padding: 0 17px 17px; border-top: 1px solid var(--line); }
+.model-graph-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0 8px; }
+.model-graph-status { color: var(--muted); font-size: 10px; }
+.model-graph-checkpoint-control { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 8px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.model-graph-checkpoint-control select { min-width: 108px; padding: 5px 24px 5px 7px; border: 1px solid var(--line); border-radius: 7px; outline: 0; color: var(--ink); background: var(--panel); font-size: 9px; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.model-graph-message { margin: 0 0 9px; padding: 9px 11px; border: 1px solid #eadfc9; border-radius: 8px; color: #7d6333; background: #fff9ea; font-size: 9px; line-height: 1.5; }
+.model-graph-message.error { color: #9d3c33; border-color: #f0cbc7; background: #fff2f0; }
+.model-graph-stats { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.model-graph-stat { padding: 5px 8px; border-radius: 99px; color: #58685e; background: #edf3ef; font-size: 8px; }
+.model-graph-layout { min-height: 340px; display: grid; grid-template-columns: minmax(0, 1fr) 230px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.model-graph-canvas { min-width: 0; min-height: 340px; max-height: 620px; overflow: auto; background: radial-gradient(circle, #dfe6e1 1px, transparent 1px); background-size: 18px 18px; }
+.model-graph-canvas svg { display: block; }
+.graph-edge { fill: none; stroke: #b8c8bf; stroke-width: 1.2; }
+.graph-node { cursor: pointer; }
+.graph-node rect { fill: #fff; stroke: #bdd0c5; stroke-width: 1.2; rx: 8px; }
+.graph-node:hover rect, .graph-node.selected rect { stroke: var(--green); stroke-width: 2px; }
+.graph-node.root rect { fill: #e5f3eb; stroke: #70b597; }
+.graph-node-label { fill: var(--ink); font-size: 10px; font-weight: 750; }
+.graph-node-type { fill: var(--faint); font-size: 8px; }
+.model-node-details { padding: 13px; overflow: auto; border-left: 1px solid var(--line); color: var(--muted); background: #f8faf8; font-size: 9px; line-height: 1.55; }
+.model-node-details h4 { margin: 0 0 4px; color: var(--ink); font-size: 12px; }
+.model-node-details code { display: block; margin-bottom: 10px; color: var(--faint); overflow-wrap: anywhere; }
+.model-node-details dl { margin: 0 0 10px; }
+.model-node-details dt { color: var(--faint); font-size: 7px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; }
+.model-node-details dd { margin: 1px 0 7px; color: var(--ink); }
+.model-node-details ul { margin: 5px 0 0; padding-left: 15px; }
 .metadata-section { margin-top: 34px; padding-top: 28px; border-top: 1px solid var(--line); }
 .section-title { display: flex; align-items: end; justify-content: space-between; margin-bottom: 12px; }
 .section-title h3 { margin: 0; font-family: Georgia, "Times New Roman", serif; font-size: 25px; font-weight: 500; }
@@ -306,6 +339,14 @@ html[data-theme="dark"] .freshness { color: #a5b5c3; background: #192a38; }
 html[data-theme="dark"] .notice { color: #d8bd7d; border-color: #5a4930; background: #2b2519; }
 html[data-theme="dark"] .notice.error { color: #efaaa3; border-color: #603b38; background: #2c1d1d; }
 html[data-theme="dark"] .chart-empty { border-color: #344654; }
+html[data-theme="dark"] .model-graph-message { color: #d8bd7d; border-color: #5a4930; background: #2b2519; }
+html[data-theme="dark"] .model-graph-message.error { color: #efaaa3; border-color: #603b38; background: #2c1d1d; }
+html[data-theme="dark"] .model-graph-stat { color: #a9bbb0; background: #1b3029; }
+html[data-theme="dark"] .model-graph-canvas { background-color: #0d1924; background-image: radial-gradient(circle, #293b48 1px, transparent 1px); }
+html[data-theme="dark"] .graph-edge { stroke: #40594e; }
+html[data-theme="dark"] .graph-node rect { fill: #132331; stroke: #40594e; }
+html[data-theme="dark"] .graph-node.root rect { fill: #17372b; stroke: #4b9877; }
+html[data-theme="dark"] .model-node-details { border-color: var(--line); background: #0c1823; }
 html[data-theme="dark"] .metadata-body,
 html[data-theme="dark"] .metadata-raw { color: #b9c8d4; border-color: var(--line); background: #0c1823; }
 html[data-theme="dark"] .metadata-toolbar { border-color: var(--line); }
@@ -357,6 +398,8 @@ html[data-theme="dark"] .overview-time-card { border-color: #30463e; background:
   .plot-navigator-controls { justify-content: stretch; flex-wrap: wrap; }
   .navigator-stepper { flex: 1; min-width: 180px; }
   .navigator-stepper label { flex: 1; }
+  .model-graph-layout { grid-template-columns: 1fr; }
+  .model-node-details { min-height: 130px; border-top: 1px solid var(--line); border-left: 0; }
   .select-field { margin-left: 0; }
   .metric-search { width: 100%; }
   .summary-grid { grid-template-columns: 1fr; }

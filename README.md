@@ -252,6 +252,20 @@ estimated remaining compute budget. Timing comes from the profiler markers in
 each `experiment.log`. The remaining estimate is deliberately reported as
 compute time because parallel execution may complete in less wall-clock time.
 
+The collapsible **Model graph** panel loads architecture information only when
+opened. For a running job it reads `last_checkpoint.pth`; for a completed job
+it prefers `best_checkpoint.pth`, falling back to the other checkpoint when
+necessary. A checkpoint selector can explicitly display Best or Last whenever
+that file exists, while Auto retains the status-based policy. New runs store a
+small `model_manifest.json`, allowing the dashboard
+to reconstruct the current CPU module hierarchy after loading checkpoint
+weights. Older runs remain inspectable through their checkpoint parameter
+hierarchy. Enable `checkpoint: true` to produce last checkpoints; best
+checkpoints are available when the configured early stopper stores them.
+To bound temporary memory pressure, the graph is not loaded when the checkpoint
+file itself is larger than the cache ceiling configured in the dashboard.
+Oversized Best/Last choices remain visible but disabled in the selector.
+
 The charts read `metrics_data.torch`. Configure the `Plotter` callback to write
 this artifact (metric storage is enabled by default):
 
@@ -266,7 +280,8 @@ dashboard keeps normalized histories in a least-recently-used cache (256 MB by
 default); its memory limit can be changed from the dashboard header, and `0`
 disables caching. The limit applies only to retained cache entries: a selected
 configuration is still loaded and displayed even when it is larger than the
-configured buffer.
+configured buffer. Lazily generated model graphs share this bounded cache and
+are also cleared by the header's cache-reset button.
 
 ## 🛠️ Utilities
 ### 🗂️ Config Management (CLI)

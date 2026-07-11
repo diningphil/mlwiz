@@ -20,7 +20,7 @@
         <code id="root-path">Loading results…</code>
       </div>
       <div class="header-actions">
-        <div class="cache-control" title="Normalized metric histories retained by the server">
+        <div class="cache-control" title="Metric histories and generated model graphs retained by the server">
           <span class="cache-usage" id="cache-usage">Cache · loading</span>
           <label>
             <span class="sr-only">Maximum metric cache memory in megabytes</span>
@@ -96,6 +96,38 @@
           </div>
 
           <div class="summary-grid" id="summary-grid"></div>
+
+          <details class="model-graph-section" id="model-graph-section" hidden>
+            <summary>
+              <div>
+                <p class="eyebrow">Checkpoint architecture</p>
+                <h3>Model graph</h3>
+              </div>
+              <div class="model-graph-summary-meta">
+                <span id="model-graph-run">Focused run</span>
+                <span class="model-graph-chevron">⌄</span>
+              </div>
+            </summary>
+            <div class="model-graph-body">
+              <div class="model-graph-toolbar">
+                <div class="model-graph-status" id="model-graph-status">Open to load the checkpoint graph.</div>
+                <label class="model-graph-checkpoint-control">
+                  <span>Checkpoint</span>
+                  <select id="model-graph-checkpoint-select">
+                    <option value="auto">Auto</option>
+                  </select>
+                </label>
+              </div>
+              <div class="model-graph-message" id="model-graph-message" hidden></div>
+              <div class="model-graph-stats" id="model-graph-stats"></div>
+              <div class="model-graph-layout">
+                <div class="model-graph-canvas" id="model-graph-canvas"></div>
+                <aside class="model-node-details" id="model-node-details">
+                  Select a module to inspect its checkpoint tensors.
+                </aside>
+              </div>
+            </div>
+          </details>
 
           <div class="toolbar" id="chart-toolbar">
             <div class="segmented" role="group" aria-label="Metric type">

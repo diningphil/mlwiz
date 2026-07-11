@@ -1,6 +1,9 @@
 """Unit tests for Experiment batch-size handling in DDP and non-DDP runs."""
 
+import json
+
 import pytest
+import torch
 
 from mlwiz.experiment import Experiment
 from mlwiz.static import EXPERIMENT_ERRFILE
@@ -55,6 +58,17 @@ class _EngineStub:
         return {}, {}, {}, {}, {}, {}
 
 
+class _ManifestModel(torch.nn.Module):
+    """Minimal model used to verify graph reconstruction manifests."""
+
+    def __init__(self, dim_input_features, dim_target, config):
+        super().__init__()
+        self.output = torch.nn.Linear(dim_input_features, dim_target)
+
+    def forward(self, inputs):
+        return self.output(inputs)
+
+
 def _make_experiment(monkeypatch, tmp_path, batch_size):
     """Create an Experiment instance patched with lightweight stubs."""
     config = {
@@ -83,6 +97,24 @@ def _make_experiment(monkeypatch, tmp_path, batch_size):
     )
 
     return experiment
+
+
+def test_create_model_writes_reconstruction_manifest(tmp_path):
+    """Model creation should atomically describe how to rebuild the run."""
+    config = {
+        "model": f"{__name__}._ManifestModel",
+        "device": "cpu",
+    }
+    experiment = Experiment(config, str(tmp_path), exp_seed=0)
+
+    model = experiment.create_model(4, 2, experiment.model_config)
+    manifest = json.loads((tmp_path / "model_manifest.json").read_text())
+
+    assert isinstance(model, _ManifestModel)
+    assert manifest["model"] == config["model"]
+    assert manifest["dim_input_features"] == 4
+    assert manifest["dim_target"] == 2
+    assert manifest["config"]["device"] == "cpu"
 
 
 def test_run_valid_keeps_batch_size_in_single_process(monkeypatch, tmp_path):

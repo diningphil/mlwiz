@@ -22,12 +22,22 @@ import webbrowser
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from pydoc import locate
 from typing import Any, Iterable, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 import torch
 
-from mlwiz.static import MODEL_ASSESSMENT
+from mlwiz.evaluation.config import Config
+from mlwiz.static import (
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    MODEL_ASSESSMENT,
+    MODEL_MANIFEST_FILENAME,
+    MODEL_STATE,
+)
 
 
 _OUTER_FOLD_PATTERN = re.compile(r"OUTER_FOLD_(\d+)$")
@@ -37,6 +47,7 @@ _RUN_PATTERN = re.compile(r"run_?(\d+)$")
 _FINAL_RUN_PATTERN = re.compile(r"final_run_?(\d+)$")
 _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
+_MAX_GRAPH_NODES = 600
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
@@ -148,8 +159,8 @@ class MetricsCache:
         self._skipped = 0
 
     def get(
-        self, path: Path, signature: tuple[int, int]
-    ) -> Optional[list[dict[str, Any]]]:
+        self, path: Path, signature: tuple[Any, ...]
+    ) -> Optional[Any]:
         """Return a fresh cached entry and update LRU order."""
         with self._lock:
             entry = self._entries.get(path)
@@ -168,8 +179,8 @@ class MetricsCache:
     def put(
         self,
         path: Path,
-        signature: tuple[int, int],
-        series: list[dict[str, Any]],
+        signature: tuple[Any, ...],
+        series: Any,
     ) -> bool:
         """Cache normalized series unless the entry exceeds the memory limit."""
         size = _deep_size(series) + _deep_size(path) + _deep_size(signature)
@@ -273,6 +284,370 @@ class ResultsRepository:
     def reset_cache(self) -> dict[str, Any]:
         """Clear normalized metric histories while preserving the size limit."""
         return self.metrics_cache.clear()
+
+    def model_graph(
+        self, relative_path: str, checkpoint_kind: str = "auto"
+    ) -> dict[str, Any]:
+        """Lazily reconstruct a run's module graph from its active checkpoint."""
+        (
+            run_folder,
+            status,
+            checkpoint_paths,
+            available_checkpoints,
+            loadable_checkpoints,
+            cache_limit,
+        ) = self._model_graph_context(relative_path)
+        if checkpoint_kind not in {"auto", "best", "last"}:
+            raise ValueError("Checkpoint must be 'auto', 'best', or 'last'.")
+        preferred = (
+            [BEST_CHECKPOINT_FILENAME, LAST_CHECKPOINT_FILENAME]
+            if status == "completed"
+            else [LAST_CHECKPOINT_FILENAME, BEST_CHECKPOINT_FILENAME]
+        )
+        if checkpoint_kind == "auto":
+            checkpoint = next(
+                (
+                    run_folder / name
+                    for name in preferred
+                    if (run_folder / name).is_file()
+                ),
+                None,
+            )
+        else:
+            checkpoint = checkpoint_paths[checkpoint_kind]
+            if not checkpoint.is_file():
+                raise ValueError(
+                    f"The {checkpoint_kind} checkpoint is not available for this run."
+                )
+        if checkpoint is None:
+            raise ValueError("No best or last checkpoint is available for this run.")
+
+        manifest_path = run_folder / MODEL_MANIFEST_FILENAME
+        checkpoint_stat = checkpoint.stat()
+        if checkpoint_stat.st_size > cache_limit:
+            checkpoint_mb = checkpoint_stat.st_size / _MEBIBYTE
+            limit_mb = cache_limit / _MEBIBYTE
+            raise ValueError(
+                f"Checkpoint is {checkpoint_mb:.2f} MB, exceeding the "
+                f"{limit_mb:.2f} MB cache limit; model graph loading was skipped."
+            )
+        manifest_signature = None
+        if manifest_path.is_file():
+            manifest_stat = manifest_path.stat()
+            manifest_signature = (
+                manifest_stat.st_mtime_ns,
+                manifest_stat.st_size,
+            )
+        signature = (
+            checkpoint_stat.st_mtime_ns,
+            checkpoint_stat.st_size,
+            manifest_signature,
+        )
+        graph = self.metrics_cache.get(checkpoint, signature)
+        cache_hit = graph is not None
+        if graph is None:
+            try:
+                graph = self._load_checkpoint_graph(checkpoint, manifest_path)
+            except (
+                RuntimeError,
+                TypeError,
+                EOFError,
+                pickle.UnpicklingError,
+            ) as error:
+                raise ValueError(f"Could not load checkpoint: {error}") from error
+            final_stat = checkpoint.stat()
+            if (
+                final_stat.st_mtime_ns,
+                final_stat.st_size,
+                manifest_signature,
+            ) == signature:
+                self.metrics_cache.put(checkpoint, signature, graph)
+
+        return {
+            **graph,
+            "run": self._relative(run_folder),
+            "run_state": status,
+            "checkpoint": {
+                "kind": "best"
+                if checkpoint.name == BEST_CHECKPOINT_FILENAME
+                else "last",
+                "path": self._relative(checkpoint),
+                "modified_at": checkpoint_stat.st_mtime,
+                "cache_hit": cache_hit,
+                "requested": checkpoint_kind,
+                "available": available_checkpoints,
+                "loadable": loadable_checkpoints,
+            },
+            "cache": self.cache_status(),
+        }
+
+    def model_graph_info(self, relative_path: str) -> dict[str, Any]:
+        """Return checkpoint availability without loading checkpoint contents."""
+        (
+            run_folder,
+            status,
+            checkpoint_paths,
+            available,
+            loadable,
+            cache_limit,
+        ) = self._model_graph_context(relative_path)
+        preference = ["best", "last"] if status == "completed" else ["last", "best"]
+        default_kind = next((kind for kind in preference if kind in available), None)
+        return {
+            "run": self._relative(run_folder),
+            "run_state": status,
+            "checkpoint": {
+                "kind": default_kind,
+                "requested": "auto",
+                "available": available,
+                "loadable": loadable,
+                "sizes_mb": {
+                    kind: round(checkpoint_paths[kind].stat().st_size / _MEBIBYTE, 2)
+                    for kind in available
+                },
+            },
+            "cache_max_mb": round(cache_limit / _MEBIBYTE, 2),
+        }
+
+    def _model_graph_context(
+        self, relative_path: str
+    ) -> tuple[Path, str, dict[str, Path], list[str], list[str], int]:
+        """Resolve one run and its checkpoint availability policy."""
+        run_folder = self.resolve(relative_path)
+        if not run_folder.is_dir() or not (
+            _RUN_PATTERN.fullmatch(run_folder.name)
+            or _FINAL_RUN_PATTERN.fullmatch(run_folder.name)
+        ):
+            raise ValueError("Select a model-selection or final run.")
+        observed_status = self._run_status(run_folder)["state"]
+        if any(run_folder.glob("run_*_results.dill")):
+            status = "completed"
+        elif observed_status == "failed":
+            status = "failed"
+        else:
+            status = "running"
+        checkpoint_paths = {
+            "best": run_folder / BEST_CHECKPOINT_FILENAME,
+            "last": run_folder / LAST_CHECKPOINT_FILENAME,
+        }
+        available = [
+            kind for kind in ("best", "last") if checkpoint_paths[kind].is_file()
+        ]
+        cache_limit = self.metrics_cache.stats()["max_bytes"]
+        loadable = [
+            kind
+            for kind in available
+            if checkpoint_paths[kind].stat().st_size <= cache_limit
+        ]
+        return (
+            run_folder,
+            status,
+            checkpoint_paths,
+            available,
+            loadable,
+            cache_limit,
+        )
+
+    def _load_checkpoint_graph(
+        self, checkpoint: Path, manifest_path: Path
+    ) -> dict[str, Any]:
+        """Load one checkpoint on CPU and normalize its current module graph."""
+        payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        if not isinstance(payload, dict) or not isinstance(
+            payload.get(MODEL_STATE), dict
+        ):
+            raise ValueError("Checkpoint does not contain a model state dictionary.")
+        model_state = payload[MODEL_STATE]
+        manifest = _read_json(manifest_path)
+        warning = None
+        if isinstance(manifest, dict):
+            try:
+                model = self._reconstruct_model(manifest, model_state)
+                graph = self._module_graph(model)
+            except Exception as error:  # custom model reconstruction is best-effort
+                graph = self._state_dict_graph(model_state, manifest)
+                warning = (
+                    "The model class could not be reconstructed; showing the "
+                    f"checkpoint parameter hierarchy instead ({error})."
+                )
+        else:
+            graph = self._state_dict_graph(model_state, None)
+            warning = (
+                "This run predates model manifests; showing the checkpoint "
+                "parameter hierarchy."
+            )
+
+        epoch = payload.get(
+            BEST_EPOCH if checkpoint.name == BEST_CHECKPOINT_FILENAME else EPOCH
+        )
+        try:
+            display_epoch = int(epoch) + 1 if epoch is not None else None
+        except (TypeError, ValueError):
+            display_epoch = None
+        graph.update(
+            {
+                "epoch": display_epoch,
+                "warning": warning,
+            }
+        )
+        return graph
+
+    def _reconstruct_model(
+        self, manifest: dict[str, Any], model_state: dict[str, Any]
+    ) -> torch.nn.Module:
+        """Instantiate a manifest model on CPU and restore checkpoint weights."""
+        model_path = manifest.get("model")
+        config_payload = manifest.get("config")
+        if not isinstance(model_path, str) or not isinstance(config_payload, dict):
+            raise ValueError("Model manifest is incomplete.")
+        config_payload = {**config_payload, "device": "cpu"}
+        dim_input = manifest.get("dim_input_features")
+        if isinstance(dim_input, list):
+            dim_input = tuple(dim_input)
+        dim_target = manifest.get("dim_target")
+        model_class = locate(model_path)
+        if model_class is None:
+            raise ImportError(f"Unknown model class '{model_path}'.")
+        model = model_class(
+            dim_input_features=dim_input,
+            dim_target=dim_target,
+            config=Config(config_payload),
+        )
+        model.load_state_dict(model_state)
+        model.eval()
+        return model
+
+    def _module_graph(self, model: torch.nn.Module) -> dict[str, Any]:
+        """Build a hierarchy graph from the reconstructed module topology."""
+        nodes = []
+        edges = []
+        total_parameters = sum(
+            parameter.numel() for parameter in model.parameters()
+        )
+        named_modules = list(model.named_modules())
+        total_nodes = len(named_modules)
+        for name, module in named_modules[:_MAX_GRAPH_NODES]:
+            node_id = name or "__root__"
+            parent_name = name.rpartition(".")[0] if name else ""
+            parent_id = parent_name or "__root__"
+            direct_parameters = list(module.named_parameters(recurse=False))
+            direct_buffers = list(module.named_buffers(recurse=False))
+            nodes.append(
+                {
+                    "id": node_id,
+                    "label": name.rsplit(".", 1)[-1] if name else type(module).__name__,
+                    "type": type(module).__name__,
+                    "depth": name.count(".") + (1 if name else 0),
+                    "parameters": sum(item.numel() for _, item in direct_parameters),
+                    "trainable_parameters": sum(
+                        item.numel()
+                        for _, item in direct_parameters
+                        if item.requires_grad
+                    ),
+                    "tensors": [
+                        {"name": key, "shape": list(value.shape)}
+                        for key, value in (direct_parameters + direct_buffers)[:16]
+                    ],
+                }
+            )
+            if name:
+                edges.append({"source": parent_id, "target": node_id})
+        visible = {node["id"] for node in nodes}
+        edges = [
+            edge
+            for edge in edges
+            if edge["source"] in visible and edge["target"] in visible
+        ]
+        return {
+            "graph_kind": "module",
+            "nodes": nodes,
+            "edges": edges,
+            "summary": {
+                "model_class": type(model).__name__,
+                "parameters": total_parameters,
+                "nodes": total_nodes,
+                "visible_nodes": len(nodes),
+                "truncated": total_nodes > len(nodes),
+            },
+        }
+
+    def _state_dict_graph(
+        self,
+        model_state: dict[str, Any],
+        manifest: Optional[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Build a backward-compatible hierarchy directly from state keys."""
+        model_name = (
+            str(manifest.get("model", "Model")).rsplit(".", 1)[-1]
+            if manifest
+            else "Model"
+        )
+        records: dict[str, dict[str, Any]] = {
+            "__root__": {
+                "id": "__root__",
+                "label": model_name,
+                "type": "Checkpoint model",
+                "depth": 0,
+                "parameters": 0,
+                "trainable_parameters": 0,
+                "tensors": [],
+            }
+        }
+        total_parameters = 0
+        for key, value in model_state.items():
+            if not torch.is_tensor(value):
+                continue
+            parts = str(key).split(".")
+            module_parts = parts[:-1]
+            parent = "__root__"
+            for depth in range(1, len(module_parts) + 1):
+                node_id = ".".join(module_parts[:depth])
+                records.setdefault(
+                    node_id,
+                    {
+                        "id": node_id,
+                        "label": module_parts[depth - 1],
+                        "type": "Checkpoint module",
+                        "depth": depth,
+                        "parameters": 0,
+                        "trainable_parameters": 0,
+                        "tensors": [],
+                        "parent": parent,
+                    },
+                )
+                parent = node_id
+            record = records[parent]
+            count = value.numel()
+            record["parameters"] += count
+            record["trainable_parameters"] += count
+            if len(record["tensors"]) < 16:
+                record["tensors"].append(
+                    {"name": parts[-1], "shape": list(value.shape)}
+                )
+            total_parameters += count
+
+        all_nodes = list(records.values())
+        nodes = all_nodes[:_MAX_GRAPH_NODES]
+        visible = {node["id"] for node in nodes}
+        edges = [
+            {"source": node["parent"], "target": node["id"]}
+            for node in nodes
+            if node.get("parent") in visible
+        ]
+        for node in nodes:
+            node.pop("parent", None)
+        return {
+            "graph_kind": "checkpoint hierarchy",
+            "nodes": nodes,
+            "edges": edges,
+            "summary": {
+                "model_class": model_name,
+                "parameters": total_parameters,
+                "nodes": len(all_nodes),
+                "visible_nodes": len(nodes),
+                "truncated": len(all_nodes) > len(nodes),
+            },
+        }
 
     def experiment_filter_data(self, relative_path: str) -> dict[str, Any]:
         """Return lazy configuration-filter values for one experiment."""
@@ -918,6 +1293,33 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/cache":
                 self._send_json(self.server.repository.cache_status())
+                return
+            if parsed.path == "/api/model-graph":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                checkpoint_kind = query.get("checkpoint", ["auto"])[0]
+                self._send_json(
+                    self.server.repository.model_graph(
+                        relative_path, checkpoint_kind=checkpoint_kind
+                    )
+                )
+                return
+            if parsed.path == "/api/model-graph-info":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                self._send_json(
+                    self.server.repository.model_graph_info(relative_path)
+                )
                 return
             if parsed.path == "/api/experiment-filter":
                 query = parse_qs(parsed.query)

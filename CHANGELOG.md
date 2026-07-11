@@ -1,15 +1,9 @@
 # Changelog
 
-## [1.6.0]
+## [1.6.2]
 
 ## Added
 
-- new training callback event `on_termination`, dispatched when training ends regularly and when it is interrupted (e.g., CTRL-C / external termination signal)
-- `Plotter` now supports `store_every_N_epochs` to flush `metrics_data.torch` every `N` epochs when `store_on_disk=True`
-- added unit coverage to verify termination hooks run on both normal completion and interruption
-- training logs are now buffered and flushed to `experiment.log` every `N` epochs via `engine.args.store_log_every_N_epochs` (default: `1`), with a forced flush on termination and at training end
-- added CLI option `--detailed-gui` to toggle detailed per-run progress UI in non-debug mode; without it, MLWiz keeps the lightweight/global view (detailed GUI disabled). Use it when parallelism is low, otherwise it can spawn many threads
-- added `mlwiz-dashboard`, a local web app for browsing model-selection configurations, final runs, epoch metrics, and result metadata
 - added interactive metric charts with epoch hover values and a symmetric logarithmic scale that supports positive, zero, and negative values
 - added per-experiment configuration filters for training or validation metrics, configurable comparison operators, and combined `AND`/`OR` clauses
 - added configurable dashboard metric-cache size and automatic refresh interval controls
@@ -19,15 +13,18 @@
 - added a collapsible configuration/result inspector with nested structured and raw JSON views
 - added a plot mode for grouping model-selection curves by inner fold, with an optional mean ± standard deviation checkbox, plus an all-final-runs aggregation view
 - added a sticky plot navigator with fold/run selectors, previous/next controls, focused-first defaults, and a `Show all` override for model-selection configurations
+- added a lazy checkpoint-backed Model graph panel with module details, parameter shapes, dynamic run selection, and compatibility fallback for runs created before model manifests
+- added per-run Auto/Best/Last checkpoint selection to the collapsed Model graph panel, which now appears directly below configuration statistics
+- new runs persist `model_manifest.json` with resolved model reconstruction inputs for checkpoint architecture inspection
 
 ## Changed
 
-- `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
-- `Plotter` now persists `metrics_data.torch` for MLWiz Dashboard by default
 - the dashboard now loads `metrics_data.torch` files on demand and retains them in a bounded LRU memory cache; a single oversized selection is still loaded but is not retained in the cache
 - completed configuration filters use the experiment-selected best metric value, while running configurations use the latest available metric value
 - opening an object or array nested beneath `config` in the dashboard inspector now expands its complete descendant tree in one action
 - sibling final-run metrics are loaded on demand only when the all-final-runs aggregation view is selected
+- running model graphs prefer `last_checkpoint.pth`, completed graphs prefer `best_checkpoint.pth`, and both fall back to the other existing checkpoint without introducing separate checkpoint files
+- model graph loading is skipped when the selected checkpoint file exceeds the user-configured dashboard cache ceiling
 
 ## Fixed
 
@@ -39,6 +36,28 @@
 - the plot navigator now remains pinned to the top of the viewport while scrolling through charts
 - changing the focused inner fold or run no longer resets the chart-page scroll position
 - the sticky plot navigator gains a higher-contrast border and shadow while detached from its original page position
+
+## [1.6.1]
+
+## Changed
+
+- `Plotter` now persists metrics every epoch by default to work with the dashboard (we abandoned tensorboard); configure `store_every_N_epochs` to change the interval or set it to `None` to write only on termination
+
+## [1.6.0]
+
+## Added
+
+- new training callback event `on_termination`, dispatched when training ends regularly and when it is interrupted (e.g., CTRL-C / external termination signal)
+- `Plotter` now supports `store_every_N_epochs` to flush `metrics_data.torch` every `N` epochs when `store_on_disk=True`
+- added unit coverage to verify termination hooks run on both normal completion and interruption
+- training logs are now buffered and flushed to `experiment.log` every `N` epochs via `engine.args.store_log_every_N_epochs` (default: `1`), with a forced flush on termination and at training end
+- added CLI option `--detailed-gui` to toggle detailed per-run progress UI in non-debug mode; without it, MLWiz keeps the lightweight/global view (detailed GUI disabled). Use it when parallelism is low, otherwise it can spawn many threads
+- added `mlwiz-dashboard`, a local web app for browsing model-selection configurations, final runs, epoch metrics, and result metadata
+
+## Changed
+
+- `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
+- `Plotter` now persists `metrics_data.torch` for MLWiz Dashboard by default
 
 ## Removed
 
