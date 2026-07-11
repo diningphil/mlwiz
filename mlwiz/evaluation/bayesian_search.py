@@ -18,6 +18,7 @@ from scipy.stats import norm
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import ConstantKernel, Matern, WhiteKernel
 
+from mlwiz.config_loader import validate_experiment_config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.static import (
     ARGS,
@@ -74,28 +75,31 @@ class BayesianSearch(Grid):
                 ``budget``, ``random_starts``, ``candidate_pool_size``,
                 ``ei_xi`` and a ``bayes`` section.
         """
-        raw_budget = configs_dict.get(BUDGET, None)
+        configs_dict = validate_experiment_config(configs_dict)
+        search_config = configs_dict[self.__search_type__]
+        raw_budget = search_config.get(BUDGET, None)
         if raw_budget is None:
-            raise KeyError(
-                f"Missing required '{BUDGET}' key in configuration."
-            )
+            raise KeyError(f"Missing required '{BUDGET}' key in configuration.")
         self.budget = int(raw_budget)
         if self.budget <= 0:
-            raise ValueError(
-                f"'{BUDGET}' must be > 0, got {self.budget}."
-            )
-        self._search_space_template = deepcopy(configs_dict[self.__search_type__])
+            raise ValueError(f"'{BUDGET}' must be > 0, got {self.budget}.")
+        self._search_space_template = deepcopy(search_config)
+        for control_key in (
+            BUDGET,
+            RANDOM_STARTS,
+            CANDIDATE_POOL_SIZE,
+            EI_XI,
+        ):
+            self._search_space_template.pop(control_key, None)
         self._dimensions: List[_Dimension] = []
         self._collect_dimensions(self._search_space_template, path=())
 
         # BO hyper-parameters are explicitly user-configurable.
-        self._random_starts = self._read_positive_int(
-            configs_dict, RANDOM_STARTS
-        )
+        self._random_starts = self._read_positive_int(search_config, RANDOM_STARTS)
         self._candidate_pool_size = self._read_positive_int(
-            configs_dict, CANDIDATE_POOL_SIZE
+            search_config, CANDIDATE_POOL_SIZE
         )
-        self._ei_xi = self._read_non_negative_float(configs_dict, EI_XI)
+        self._ei_xi = self._read_non_negative_float(search_config, EI_XI)
 
         # Per-outer-fold adaptive state.
         self._outer_states: Dict[int, dict] = {}
@@ -249,7 +253,22 @@ class BayesianSearch(Grid):
             return deepcopy(node)
         if isinstance(node, dict):
             if SAMPLE_METHOD in node:
-                return deepcopy(assignment[path])
+                selected = deepcopy(assignment[path])
+                method = str(node[SAMPLE_METHOD]).split(".")[-1]
+                if method == "choice" and isinstance(selected, (dict, list)):
+                    options = list(node.get(ARGS, []))
+                    try:
+                        selected_index = options.index(selected)
+                    except ValueError as error:
+                        raise ValueError(
+                            f"Unknown categorical assignment at path {path}."
+                        ) from error
+                    return self._materialize(
+                        selected,
+                        path + ("__choice__", selected_index),
+                        assignment,
+                    )
+                return selected
             return {
                 key: self._materialize(value, path + (key,), assignment)
                 for key, value in node.items()
@@ -270,7 +289,18 @@ class BayesianSearch(Grid):
             return
         if isinstance(node, dict):
             if SAMPLE_METHOD in node:
-                self._dimensions.append(self._make_dimension(path, node))
+                dimension = self._make_dimension(path, node)
+                self._dimensions.append(dimension)
+                # A modular optimizer/model alternative may itself contain
+                # sampled parameters.  Keep a fixed feature space by collecting
+                # every branch; dimensions in unselected branches are harmless
+                # inactive features for that proposal.
+                if dimension.kind == "choice":
+                    for index, option in enumerate(dimension.args):
+                        if isinstance(option, (dict, list)):
+                            self._collect_dimensions(
+                                option, path + ("__choice__", index)
+                            )
                 return
             for key, value in node.items():
                 self._collect_dimensions(value, path + (key,))
@@ -351,7 +381,9 @@ class BayesianSearch(Grid):
 
         raise ValueError(f"Unknown dimension kind: {dim.kind}")
 
-    def _assignment_to_feature(self, assignment: Dict[Tuple[Any, ...], Any]) -> List[float]:
+    def _assignment_to_feature(
+        self, assignment: Dict[Tuple[Any, ...], Any]
+    ) -> List[float]:
         """Encode an assignment into a numeric feature vector for the GP."""
         if len(self._dimensions) == 0:
             return [0.0]
@@ -372,7 +404,9 @@ class BayesianSearch(Grid):
                 feature.append(float(value))
         return feature
 
-    def _feature_to_assignment(self, feature: Sequence[float]) -> Dict[Tuple[Any, ...], Any]:
+    def _feature_to_assignment(
+        self, feature: Sequence[float]
+    ) -> Dict[Tuple[Any, ...], Any]:
         """Decode a numeric feature vector into a valid assignment."""
         assignment = {}
         for idx, dim in enumerate(self._dimensions):
@@ -412,9 +446,8 @@ class BayesianSearch(Grid):
         if x_obs.ndim == 1:
             x_obs = x_obs.reshape(-1, 1)
 
-        kernel = (
-            ConstantKernel(1.0, (1e-3, 1e3)) * Matern(nu=2.5)
-            + WhiteKernel(noise_level=1e-5, noise_level_bounds=(1e-8, 1e1))
+        kernel = ConstantKernel(1.0, (1e-3, 1e3)) * Matern(nu=2.5) + WhiteKernel(
+            noise_level=1e-5, noise_level_bounds=(1e-8, 1e1)
         )
         gp = GaussianProcessRegressor(
             kernel=kernel,

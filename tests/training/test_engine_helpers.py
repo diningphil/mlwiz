@@ -13,12 +13,29 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from mlwiz.exceptions import TerminationRequested
 from mlwiz.model.interface import ModelInterface
-from mlwiz.static import MAIN_LOSS, MAIN_SCORE, TRAINING
+from mlwiz.static import (
+    BEST_CHECKPOINT_FILENAME,
+    BEST_EPOCH,
+    BEST_OPTIMIZER_CHECKPOINT_FILENAME,
+    EPOCH,
+    LAST_CHECKPOINT_FILENAME,
+    LAST_OPTIMIZER_CHECKPOINT_FILENAME,
+    LAST_RUN_ELAPSED_TIME,
+    MAIN_LOSS,
+    MAIN_SCORE,
+    MODEL_STATE,
+    OPTIMIZER_STATE,
+    SCALER_STATE,
+    SCHEDULER_STATE,
+    STOP_TRAINING,
+    TRAINING,
+)
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.metric import ToyMetric
 from mlwiz.training.callback.optimizer import Optimizer
 from mlwiz.training.engine import TrainingEngine, fmt
 from mlwiz.training.event.handler import EventHandler
+from mlwiz.training.util import atomic_save_split_checkpoint
 
 
 class _EmbeddingModel(ModelInterface):
@@ -187,3 +204,121 @@ def test_on_termination_called_on_normal_end_and_interrupt(tmp_path):
 
     assert interrupt_recorder.fit_end_calls == 0
     assert interrupt_recorder.termination_calls == 1
+
+
+def test_split_checkpoint_keeps_optimizer_state_out_of_model_file(tmp_path):
+    """Model checkpoint filenames stay stable while training state is separate."""
+    checkpoint = {
+        EPOCH: 3,
+        MODEL_STATE: {"linear.weight": torch.ones(1, 1)},
+        OPTIMIZER_STATE: {"state": {0: {"momentum_buffer": torch.ones(1)}}},
+        SCHEDULER_STATE: {"last_epoch": 3},
+        SCALER_STATE: {"scale": 1024.0},
+        STOP_TRAINING: False,
+    }
+    model_path = tmp_path / LAST_CHECKPOINT_FILENAME
+    optimizer_path = tmp_path / LAST_OPTIMIZER_CHECKPOINT_FILENAME
+
+    atomic_save_split_checkpoint(checkpoint, model_path, optimizer_path)
+
+    model_payload = torch.load(model_path, weights_only=True)
+    optimizer_payload = torch.load(optimizer_path, weights_only=True)
+    assert model_payload[MODEL_STATE]["linear.weight"].item() == 1.0
+    assert OPTIMIZER_STATE not in model_payload
+    assert SCHEDULER_STATE not in model_payload
+    assert SCALER_STATE not in model_payload
+    assert optimizer_payload[EPOCH] == 3
+    assert optimizer_payload[OPTIMIZER_STATE]["state"][0][
+        "momentum_buffer"
+    ].item() == 1.0
+
+
+def test_engine_callback_writes_parallel_last_checkpoint_files(tmp_path):
+    """Epoch-end checkpointing uses the split artifacts in normal training."""
+    engine = _make_engine(tmp_path)
+    state = engine.state
+    state.update(
+        epoch=0,
+        epoch_results={"losses": {}, "scores": {}},
+        optimizer_state=engine.optimizer.optimizer.state_dict(),
+        scheduler_state=None,
+        scaler_state=None,
+        current_elapsed_time=1.25,
+    )
+
+    EngineCallback(store_last_checkpoint=True).on_epoch_end(state)
+
+    assert (tmp_path / LAST_CHECKPOINT_FILENAME).is_file()
+    assert (tmp_path / LAST_OPTIMIZER_CHECKPOINT_FILENAME).is_file()
+    model_payload = torch.load(
+        tmp_path / LAST_CHECKPOINT_FILENAME, weights_only=True
+    )
+    assert MODEL_STATE in model_payload
+    assert OPTIMIZER_STATE not in model_payload
+
+
+def test_engine_restores_split_and_legacy_optimizer_checkpoints(tmp_path):
+    """New split artifacts and old bundled checkpoints resume identically."""
+    for legacy in (False, True):
+        run_path = tmp_path / ("legacy" if legacy else "split")
+        run_path.mkdir()
+        engine = _make_engine(run_path)
+        model_state = {
+            key: torch.full_like(value, 2.0)
+            for key, value in engine.model.state_dict().items()
+        }
+        optimizer_state = {
+            "state": {},
+            "param_groups": engine.optimizer.optimizer.state_dict()[
+                "param_groups"
+            ],
+        }
+        checkpoint = {
+            EPOCH: 4,
+            MODEL_STATE: model_state,
+            OPTIMIZER_STATE: optimizer_state,
+            SCHEDULER_STATE: None,
+            SCALER_STATE: {"scale": 8.0},
+            STOP_TRAINING: False,
+            LAST_RUN_ELAPSED_TIME: 12.5,
+        }
+        last_path = run_path / LAST_CHECKPOINT_FILENAME
+        if legacy:
+            torch.save(checkpoint, last_path)
+        else:
+            atomic_save_split_checkpoint(
+                checkpoint,
+                last_path,
+                run_path / LAST_OPTIMIZER_CHECKPOINT_FILENAME,
+            )
+
+        best_checkpoint = {
+            BEST_EPOCH: 2,
+            MODEL_STATE: model_state,
+            OPTIMIZER_STATE: optimizer_state,
+            SCHEDULER_STATE: None,
+            SCALER_STATE: None,
+        }
+        best_path = run_path / BEST_CHECKPOINT_FILENAME
+        if legacy:
+            torch.save(best_checkpoint, best_path)
+        else:
+            atomic_save_split_checkpoint(
+                best_checkpoint,
+                best_path,
+                run_path / BEST_OPTIMIZER_CHECKPOINT_FILENAME,
+            )
+
+        engine._restore_checkpoint_and_best_results(
+            last_path, best_path, zero_epoch=False
+        )
+
+        assert engine.state.initial_epoch == 5
+        assert engine.state.current_elapsed_time == pytest.approx(12.5)
+        assert engine.state.optimizer_state == optimizer_state
+        assert engine.state.scaler_state == {"scale": 8.0}
+        assert engine.state.best_epoch_results[OPTIMIZER_STATE] == optimizer_state
+        assert all(
+            torch.equal(value, model_state[key])
+            for key, value in engine.model.state_dict().items()
+        )

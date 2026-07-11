@@ -10,11 +10,13 @@ from typing import Optional
 
 import yaml
 
+from mlwiz.config_loader import load_experiment_config
 from mlwiz.static import (
     CONFIG_FILE,
     CONFIG_FILE_CLI_ARGUMENT,
     CUDA,
     BAYES_SEARCH,
+    DATASET,
     DATA_SPLITS_FILE,
     DETAILED_GUI,
     DETAILED_GUI_CLI_ARGUMENT,
@@ -23,6 +25,7 @@ from mlwiz.static import (
     DEVICE,
     EXECUTE_CONFIG_ID,
     EXECUTE_CONFIG_ID_CLI_ARGUMENT,
+    EXPERIMENT,
     GPUS_PER_TASK,
     GPUS_SUBSET,
     GRID_SEARCH,
@@ -31,6 +34,7 @@ from mlwiz.static import (
     MLWIZ_RAY_NUM_GPUS_PER_TASK,
     MODEL_SELECTION_TRAINING_RUNS,
     RANDOM_SEARCH,
+    RESOURCES,
     RESULT_FOLDER,
     RISK_ASSESSMENT_TRAINING_RUNS,
     SKIP_CONFIG_IDS,
@@ -91,11 +95,7 @@ def set_gpus(num_gpus: int, gpus_subset: Optional[str] = None):
                     stats,
                 )
                 if (str(res[0]) not in selected)
-                and (
-                    str(res[0]) in gpus_subset
-                    if gpus_subset is not None
-                    else True
-                )
+                and (str(res[0]) in gpus_subset if gpus_subset is not None else True)
             ]
 
             if len(ids_mem) == 0:
@@ -103,14 +103,11 @@ def set_gpus(num_gpus: int, gpus_subset: Optional[str] = None):
                 break
 
             best = min(ids_mem, key=lambda x: x[1])
-            bestGPU, bestMem = best[0], best[1]
-            # print(f"{i}-th best is {bestGPU} with mem {bestMem}")
+            bestGPU = best[0]
             selected.append(str(bestGPU))
 
         if gpus_subset is not None:
-            print(
-                f"The user specified the following GPUs to use: {gpus_subset}"
-            )
+            print(f"The user specified the following GPUs to use: {gpus_subset}")
         print("Setting GPUs to: {}".format(",".join(selected)))
         os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(selected)
@@ -139,12 +136,13 @@ def evaluation(options: argparse.Namespace):
         skip_config_ids = skip_config_ids.split(" ")
         skip_config_ids = [int(s) for s in skip_config_ids]
 
-    configs_dict = yaml.load(
-        open(kwargs[CONFIG_FILE], "r"), Loader=yaml.FullLoader
-    )
+    configs_dict = load_experiment_config(kwargs[CONFIG_FILE])
+    dataset_config = configs_dict[DATASET]
+    resources_config = configs_dict[RESOURCES]
+    experiment_config = configs_dict[EXPERIMENT]
 
     # Telegram bot settings
-    telegram_config_file = configs_dict.get(TELEGRAM_CONFIG_FILE, None)
+    telegram_config_file = experiment_config.get(TELEGRAM_CONFIG_FILE, None)
     if telegram_config_file is not None:
         telegram_config = yaml.load(
             open(telegram_config_file, "r"), Loader=yaml.FullLoader
@@ -153,9 +151,9 @@ def evaluation(options: argparse.Namespace):
         telegram_config = None
 
     # Hardware initialization
-    max_cpus = configs_dict[MAX_CPUS]
+    max_cpus = resources_config[MAX_CPUS]
 
-    device = configs_dict[DEVICE]
+    device = resources_config[DEVICE]
     use_cuda = CUDA in device
 
     if not use_cuda:
@@ -163,9 +161,9 @@ def evaluation(options: argparse.Namespace):
         gpus_per_task = 0
     else:
         # We will choose the GPU with least ratio of memory usage
-        max_gpus = configs_dict[MAX_GPUS]
+        max_gpus = resources_config[MAX_GPUS]
         # Optionally, use a specific subset of gpus
-        gpus_subset = configs_dict.get(GPUS_SUBSET, None)
+        gpus_subset = resources_config.get(GPUS_SUBSET, None)
         # Choose which GPUs to use
         try:
             set_gpus(max_gpus, gpus_subset)
@@ -174,11 +172,9 @@ def evaluation(options: argparse.Namespace):
             print(e)
             exit(0)
 
-        gpus_per_task = configs_dict[GPUS_PER_TASK]
+        gpus_per_task = resources_config[GPUS_PER_TASK]
         if gpus_per_task > 1 and not float(gpus_per_task).is_integer():
-            raise ValueError(
-                "DDP requires an integer gpus_per_task when > 1."
-            )
+            raise ValueError("DDP requires an integer gpus_per_task when > 1.")
 
     os.environ[MLWIZ_RAY_NUM_GPUS_PER_TASK] = str(float(gpus_per_task))
 
@@ -206,9 +202,7 @@ def evaluation(options: argparse.Namespace):
     from mlwiz.evaluation.random_search import RandomSearch
 
     enabled_search_sections = [
-        key
-        for key in (GRID_SEARCH, RANDOM_SEARCH, BAYES_SEARCH)
-        if key in configs_dict
+        key for key in (GRID_SEARCH, RANDOM_SEARCH, BAYES_SEARCH) if key in configs_dict
     ]
     if len(enabled_search_sections) == 0:
         raise ValueError(
@@ -241,7 +235,7 @@ def evaluation(options: argparse.Namespace):
     print(f"Base seed set to {seed}.")
     experiment = search.experiment
     experiment_class = s2c(experiment)
-    exp_path = os.path.join(configs_dict[RESULT_FOLDER], f"{search.exp_name}")
+    exp_path = os.path.join(experiment_config[RESULT_FOLDER], f"{search.exp_name}")
 
     # You can make MLWiz work on a cluster of machines!
     if os.environ.get("ip_head") is not None:
@@ -284,7 +278,7 @@ def evaluation(options: argparse.Namespace):
 
         print("Started local ray instance.")
 
-    data_splits_file = configs_dict[DATA_SPLITS_FILE]
+    data_splits_file = dataset_config[DATA_SPLITS_FILE]
 
     splitter = Splitter.load(data_splits_file)
     inner_folds, outer_folds = splitter.n_inner_folds, splitter.n_outer_folds
@@ -311,16 +305,12 @@ def evaluation(options: argparse.Namespace):
         exp_path,
         data_splits_file,
         search,
-        risk_assessment_training_runs=configs_dict[
-            RISK_ASSESSMENT_TRAINING_RUNS
-        ],
-        model_selection_training_runs=configs_dict[
-            MODEL_SELECTION_TRAINING_RUNS
-        ],
+        risk_assessment_training_runs=experiment_config[RISK_ASSESSMENT_TRAINING_RUNS],
+        model_selection_training_runs=experiment_config[MODEL_SELECTION_TRAINING_RUNS],
         higher_is_better=search.higher_results_are_better,
         gpus_per_task=gpus_per_task,
         base_seed=seed,
-        training_timeout_seconds=configs_dict.get(TRAINING_TIME_SECONDS, -1),
+        training_timeout_seconds=experiment_config.get(TRAINING_TIME_SECONDS, -1),
     )
 
     if not debug and execute_config_id is not None:

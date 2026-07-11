@@ -17,9 +17,12 @@ from mlwiz.static import (
     BAYES_SEARCH,
     BUDGET,
     CANDIDATE_POOL_SIZE,
+    DATASET,
     DATASET_CLASS,
     DATASET_GETTER,
+    DATA_LOADING,
     DATA_LOADER,
+    DATA_SPLITS_FILE,
     DEVICE,
     EI_XI,
     EXPERIMENT,
@@ -28,8 +31,14 @@ from mlwiz.static import (
     MAIN_LOSS,
     MAIN_SCORE,
     MODEL_ASSESSMENT,
+    MODEL_SELECTION_TRAINING_RUNS,
+    REPRODUCIBILITY,
+    RESOURCES,
+    RESULT_FOLDER,
+    RISK_ASSESSMENT_TRAINING_RUNS,
     RANDOM_STARTS,
     SCORE,
+    SEED,
     STORAGE_FOLDER,
     TEST,
     evaluate_every,
@@ -85,22 +94,75 @@ class _FastExperiment:
 def _make_base_config(tmp_path):
     """Build a minimal valid experiment configuration dictionary."""
     return {
-        EXP_NAME: "bayes_test",
-        STORAGE_FOLDER: str(tmp_path / "DATA"),
-        DATASET_CLASS: "builtins.list",
-        DATASET_GETTER: "mlwiz.data.provider.DataProvider",
-        DATA_LOADER: {
-            "class_name": "torch.utils.data.DataLoader",
-            "args": {"num_workers": 0, "pin_memory": False},
+        DATASET: {
+            STORAGE_FOLDER: str(tmp_path / "DATA"),
+            DATASET_CLASS: "builtins.list",
+            DATA_SPLITS_FILE: str(tmp_path / "dummy.splits"),
         },
-        EXPERIMENT: f"{__name__}._FastExperiment",
-        HIGHER_RESULTS_ARE_BETTER: True,
-        evaluate_every: 1,
-        DEVICE: "cpu",
-        RANDOM_STARTS: 2,
-        CANDIDATE_POOL_SIZE: 64,
-        EI_XI: 1e-3,
+        RESOURCES: {
+            DEVICE: "cpu",
+            "max_cpus": 1,
+            "max_gpus": 0,
+            "gpus_per_task": 0,
+        },
+        REPRODUCIBILITY: {SEED: 42},
+        DATA_LOADING: {
+            DATASET_GETTER: "mlwiz.data.provider.DataProvider",
+            DATA_LOADER: {
+                "class_name": "torch.utils.data.DataLoader",
+                "args": {"num_workers": 0, "pin_memory": False},
+            },
+        },
+        EXPERIMENT: {
+            EXP_NAME: "bayes_test",
+            RESULT_FOLDER: str(tmp_path / "RESULTS"),
+            EXPERIMENT: f"{__name__}._FastExperiment",
+            HIGHER_RESULTS_ARE_BETTER: True,
+            evaluate_every: 1,
+            RISK_ASSESSMENT_TRAINING_RUNS: 1,
+            MODEL_SELECTION_TRAINING_RUNS: 1,
+        },
+        BAYES_SEARCH: {
+            RANDOM_STARTS: 2,
+            CANDIDATE_POOL_SIZE: 64,
+            EI_XI: 1e-3,
+        },
     }
+
+
+def test_categorical_config_alternatives_materialize_nested_dimensions(tmp_path):
+    """A selected modular alternative also resolves its own sampled values."""
+    cfg = _make_base_config(tmp_path)
+    cfg[BAYES_SEARCH].update({
+        BUDGET: 3,
+        "optimizer": {
+            "sample_method": "mlwiz.evaluation.util.choice",
+            "args": [
+                {
+                    "kind": "adam",
+                    "lr": {
+                        "sample_method": "mlwiz.evaluation.util.loguniform",
+                        "args": [1e-4, 1e-2],
+                    },
+                },
+                {
+                    "kind": "sgd",
+                    "lr": {
+                        "sample_method": "mlwiz.evaluation.util.uniform",
+                        "args": [0.01, 0.1],
+                    },
+                },
+            ],
+        },
+    })
+
+    search = BayesianSearch(cfg)
+    search.start_outer(0)
+    proposed = [search.ask(0)[1] for _ in range(3)]
+
+    assert len(search._dimensions) == 3
+    assert all(item["optimizer"]["kind"] in {"adam", "sgd"} for item in proposed)
+    assert all(isinstance(item["optimizer"]["lr"], float) for item in proposed)
 
 
 def _patch_non_interactive_progress(monkeypatch):
@@ -126,13 +188,13 @@ def _run_bayesopt_evaluator(
     risk_assessment_training_runs: int,
 ):
     cfg = _make_base_config(tmp_path)
-    cfg[BUDGET] = budget
-    cfg[BAYES_SEARCH] = {
+    cfg[BAYES_SEARCH].update({
+        BUDGET: budget,
         "hp_id": {
             "sample_method": "mlwiz.evaluation.util.choice",
             "args": list(range(max(5, budget))),
-        }
-    }
+        },
+    })
 
     search = BayesianSearch(cfg)
     search.telegram_config = None
@@ -176,8 +238,8 @@ def _run_bayesopt_evaluator(
 def test_bayesian_search_ask_tell_respects_budget(tmp_path):
     """Bayesian search should lazily generate at most ``budget`` configs."""
     cfg = _make_base_config(tmp_path)
-    cfg[BUDGET] = 5
-    cfg[BAYES_SEARCH] = {
+    cfg[BAYES_SEARCH].update({
+        BUDGET: 5,
         "hp_id": {
             "sample_method": "mlwiz.evaluation.util.randint",
             "args": [0, 5],
@@ -186,7 +248,7 @@ def test_bayesian_search_ask_tell_respects_budget(tmp_path):
             "sample_method": "mlwiz.evaluation.util.loguniform",
             "args": [1e-4, 1e-2],
         },
-    }
+    })
 
     search = BayesianSearch(cfg)
     assert len(search) == 5
@@ -210,14 +272,14 @@ def test_bayesian_search_ask_tell_respects_budget(tmp_path):
 def test_bayesian_search_requires_bo_hyperparams(tmp_path, missing_key):
     """BayesianSearch should require explicit BO hyper-parameters."""
     cfg = _make_base_config(tmp_path)
-    cfg[BUDGET] = 5
-    cfg[BAYES_SEARCH] = {
+    cfg[BAYES_SEARCH].update({
+        BUDGET: 5,
         "hp_id": {
             "sample_method": "mlwiz.evaluation.util.choice",
             "args": [0, 1, 2, 3, 4],
         }
-    }
-    cfg.pop(missing_key)
+    })
+    cfg[BAYES_SEARCH].pop(missing_key)
 
     with pytest.raises(KeyError, match=missing_key):
         BayesianSearch(cfg)
@@ -317,13 +379,13 @@ def test_bayesopt_evaluator_rejects_skip_and_execute_controls(
 ):
     """BayesOptRiskAssesser should reject skip/priority controls."""
     cfg = _make_base_config(tmp_path)
-    cfg[BUDGET] = 5
-    cfg[BAYES_SEARCH] = {
+    cfg[BAYES_SEARCH].update({
+        BUDGET: 5,
         "hp_id": {
             "sample_method": "mlwiz.evaluation.util.choice",
             "args": [0, 1, 2, 3, 4],
         }
-    }
+    })
 
     search = BayesianSearch(cfg)
     search.telegram_config = None

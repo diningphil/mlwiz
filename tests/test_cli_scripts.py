@@ -83,7 +83,22 @@ def test_config_duplicator_creates_dataset_specific_files(
     base_cfg = tmp_path / "base.yml"
     data_cfg = tmp_path / "data.yml"
 
-    base_cfg.write_text(yaml.safe_dump({"exp_name": "exp", "keep": 123}))
+    base_cfg.write_text(
+        yaml.safe_dump(
+            {
+                "dataset": {
+                    "storage_folder": "old",
+                    "dataset_class": "old.Dataset",
+                    "data_splits_file": "old.splits",
+                },
+                "resources": {},
+                "reproducibility": {},
+                "data_loading": {},
+                "experiment": {"exp_name": "exp"},
+                "grid": {"keep": 123},
+            }
+        )
+    )
     data_cfg.write_text(
         yaml.safe_dump(
             {
@@ -117,11 +132,14 @@ def test_config_duplicator_creates_dataset_specific_files(
     assert out_path.exists()
     merged = yaml.safe_load(out_path.read_text())
 
-    assert merged["exp_name"] == "exp"
-    assert merged["keep"] == 123
-    assert merged["storage_folder"] == "/DATA"
-    assert merged["dataset_class"] == "mlwiz.data.dataset.FakeMNIST"
-    assert merged["data_splits_file"] == os.path.join(
+    assert merged["experiment"]["exp_name"] == "exp"
+    assert merged["grid"]["keep"] == 123
+    assert merged["dataset"]["storage_folder"] == "/DATA"
+    assert (
+        merged["dataset"]["dataset_class"]
+        == "mlwiz.data.dataset.FakeMNIST"
+    )
+    assert merged["dataset"]["data_splits_file"] == os.path.join(
         "/SPLITS", "FakeMNIST", "FakeMNIST_outer3_inner2.splits"
     )
 

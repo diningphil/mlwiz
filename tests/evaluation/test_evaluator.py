@@ -9,10 +9,10 @@ from shutil import rmtree
 import ray
 import numpy as np
 import pytest
-import yaml
-
 import os
+from mlwiz.config_loader import load_experiment_config
 from mlwiz.static import (
+    DATASET,
     DATA_SPLITS_FILE,
     LOSS,
     SCORE,
@@ -122,13 +122,10 @@ def test_evaluator():
     """
     results_folder = "tests/tmp/debug_evaluator/"
     search = Grid(
-        yaml.load(
-            open("tests/evaluation/grid_search.yml", "r"),
-            Loader=yaml.FullLoader,
-        )
+        load_experiment_config("tests/evaluation/grid_search.yml")
     )
     search.telegram_config = None
-    splits_filepath = search.configs_dict.get(DATA_SPLITS_FILE)
+    splits_filepath = search.configs_dict[DATASET][DATA_SPLITS_FILE]
 
     ray.init(ignore_reinit_error=True)
     evaluator = RiskAssesser(

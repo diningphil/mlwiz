@@ -1,0 +1,4 @@
+device: cuda
+max_cpus: 8
+max_gpus: 2
+gpus_per_task: 2

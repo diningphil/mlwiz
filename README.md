@@ -133,54 +133,55 @@ dataset:
     storage_folder: DATA/
 ```
 
-Minimal experiment config (grid search):
+Experiment configs use five required global sections plus exactly one
+model-selection section:
 
 ```yaml
-storage_folder: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file: DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+dataset:
+  storage_folder: DATA
+  dataset_class: mlwiz.data.dataset.MNIST
+  data_splits_file: DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
-device: cpu
-max_cpus: 8
+resources:
+  device: cpu
+  max_cpus: 8
+  max_gpus: 0
+  gpus_per_task: 0
 
-dataset_getter: mlwiz.data.provider.DataProvider
-data_loader:
-  class_name: torch.utils.data.DataLoader
-  args:
-    num_workers : 0
-    pin_memory: False
+reproducibility:
+  seed: 42
 
-result_folder: RESULTS
-exp_name: mlp
-experiment: mlwiz.experiment.Experiment
-model_selection_criteria:
-  - metric: main_score
-    direction: max
-evaluate_every: 1
-risk_assessment_training_runs: 3
-model_selection_training_runs: 2
+data_loading:
+  dataset_getter: mlwiz.data.provider.DataProvider
+  data_loader:
+    class_name: torch.utils.data.DataLoader
+    args:
+      num_workers: 0
+      pin_memory: false
+
+experiment:
+  result_folder: RESULTS
+  exp_name: mlp
+  experiment: mlwiz.experiment.Experiment
+  model_selection_criteria:
+    - metric: main_score
+      direction: max
+  evaluate_every: 1
+  risk_assessment_training_runs: 3
+  model_selection_training_runs: 2
 
 grid:
   model: mlwiz.model.MLP
   epochs: 400
   batch_size: 512
-  dim_embedding: 5
-  mlwiz_tests: True  # patch: allow reshaping of MNIST dataset
   optimizer:
-    - class_name: mlwiz.training.callback.optimizer.Optimizer
-      args:
-        optimizer_class_name: torch.optim.Adam
-        lr:
-          - 0.01
-          - 0.03
-        weight_decay: 0.
+    class_name: mlwiz.training.callback.optimizer.Optimizer
+    args:
+      optimizer_class_name: torch.optim.Adam
+      lr: 0.01
   loss: mlwiz.training.callback.metric.MulticlassClassification
   scorer: mlwiz.training.callback.metric.MulticlassAccuracy
-  engine:
-    class_name: mlwiz.training.engine.TrainingEngine
-    args:
-      mixed_precision: false
-      mixed_precision_dtype: torch.float16
+  engine: mlwiz.training.engine.TrainingEngine
 ```
 
 When `mixed_precision: true` is used on CPU, requesting
@@ -192,6 +193,82 @@ When `mixed_precision: true` is used on CPU, requesting
 
 See `examples/` for complete configs (including random/Bayesian search, schedulers, early stopping, and more).
 
+### Modular configuration groups
+
+MLWiz composes YAML files using an ordered Hydra-style `defaults` list. Global
+defaults belong at the root; model-selection defaults belong inside `grid`,
+`random`, or `bayes`:
+
+```text
+MODEL_CONFIGS/
+├── config_MLP.yml
+├── dataset/
+│   └── mnist.yml
+├── resources/
+│   └── cpu.yml
+└── optimizer/
+    ├── adam.yml
+    └── adagrad.yml
+```
+
+```yaml
+# config_MLP.yml
+defaults:
+  - dataset: mnist
+  - resources: cpu
+  - reproducibility: default
+  - data_loading: torch
+  - experiment: default
+  - _self_
+
+experiment:
+  exp_name: mlp
+
+grid:
+  defaults:
+    - optimizer:
+        - adam
+        - adagrad
+    - search/mlp@_here_
+    - _self_
+  model: mlwiz.model.MLP
+  epochs: 100
+```
+
+The terminology is precise:
+
+- **Defaults list**: the ordered `defaults:` sequence that tells MLWiz which
+  files to compose. The directive itself is removed from the final config.
+- **Config group**: a directory of named alternatives. `dataset: mnist` selects
+  `dataset/mnist.yml` and normally places its contents under `dataset`.
+- **`_self_`**: the current file at that exact point in composition order.
+  Values composed later override scalar/list values; dictionaries merge. If
+  omitted, `_self_` is implicitly last.
+- **Nested defaults**: a `defaults` list inside `grid`, `random`, or `bayes`.
+  Its selected files are composed only into that search section, cleanly
+  separating runtime settings from model selection.
+- **Package override**: `group@package: option` changes where a selected file is
+  placed. For example, `optimizer@training.optimizer: adam` targets
+  `training.optimizer` instead of `optimizer`.
+- **`_here_` package**: merges a selected mapping directly into the section
+  containing the nested defaults. `search/mlp@_here_` contributes `loss`,
+  `scorer`, and `engine` directly to `grid`.
+- **`_global_` package**: at the root defaults list, removes the normal group
+  wrapper and merges a mapping into the root configuration. Use it for a file
+  that already contains complete top-level sections.
+- **Nested config defaults**: a selected config file may define its own
+  `defaults`; MLWiz resolves those recursively and rejects cycles.
+
+Selecting multiple files from a search config group concatenates every
+alternative. Grid search expands all of them; random and Bayesian search treat
+them as categorical alternatives and still resolve samplers nested inside the
+selected configuration.
+
+Paths are relative to the file declaring `defaults`; a leading `/` resolves
+from the main config directory. Flat experiment configurations are intentionally
+rejected with an MLWiz 1.7.0 migration error—there is no legacy fallback. See
+[`examples/MODEL_CONFIGS/config_MLP.yml`](examples/MODEL_CONFIGS/config_MLP.yml).
+
 ### 🧩 Custom Code Via Dotted Paths
 Point YAML entries to your own classes (in your project). `mlwiz-data` and `mlwiz-exp` add the current working directory to `sys.path`, so this works out of the box:
 
@@ -200,7 +277,7 @@ grid:
   model: my_project.models.MyModel
 
 dataset:
-  class_name: my_project.data.MyDataset
+  dataset_class: my_project.data.MyDataset
 ```
 
 ## 📦 Outputs
@@ -283,6 +360,11 @@ in Architecture and need a model-specific export adapter for the Operators view.
 
 Enable `checkpoint: true` to produce last checkpoints; best checkpoints are
 available when the configured early stopper stores them.
+Model weights and run metadata use the stable `last_checkpoint.pth` and
+`best_checkpoint.pth` names. Resumable optimizer, scheduler, and AMP scaler
+state is stored separately in `last_optimizer_checkpoint.pth` and
+`best_optimizer_checkpoint.pth`; the dashboard reads only the model files.
+Pre-1.7 bundled checkpoints remain resumable when no optimizer file is present.
 To bound temporary memory pressure, the graph is not loaded when the checkpoint
 file itself is larger than the cache ceiling configured in the dashboard.
 Oversized Best/Last choices remain visible but disabled in the selector.

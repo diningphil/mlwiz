@@ -5,6 +5,7 @@ The :class:`~mlwiz.evaluation.random_search.RandomSearch` class samples configur
 
 from copy import deepcopy
 
+from mlwiz.config_loader import validate_experiment_config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.util import s2c
 from mlwiz.static import (
@@ -46,16 +47,13 @@ class RandomSearch(Grid):
             Stores ``budget`` and initializes the base :class:`~Grid`
             fields.
         """
-        raw_budget = configs_dict.get(BUDGET, None)
+        configs_dict = validate_experiment_config(configs_dict)
+        raw_budget = configs_dict[RANDOM_SEARCH].get(BUDGET, None)
         if raw_budget is None:
-            raise KeyError(
-                f"Missing required '{BUDGET}' key in configuration."
-            )
+            raise KeyError(f"Missing required '{BUDGET}' key in configuration.")
         self.budget = int(raw_budget)
         if self.budget <= 0:
-            raise ValueError(
-                f"'{BUDGET}' must be > 0, got {self.budget}."
-            )
+            raise ValueError(f"'{BUDGET}' must be > 0, got {self.budget}.")
         super().__init__(configs_dict)
 
     def _gen_helper(self, cfgs_dict: dict) -> Iterator[Dict[str, Any]]:
@@ -66,9 +64,6 @@ class RandomSearch(Grid):
         Returns:
             A list of all possible configurations in the form of dictionaries
         """
-        keys = cfgs_dict.keys()
-        param = list(keys)[0]
-
         for _ in range(self.budget):
             result = {}
             for key, values in cfgs_dict.items():
@@ -90,6 +85,12 @@ class RandomSearch(Grid):
                     result[key] = self._dict_helper(deepcopy(values[0]))
 
             yield deepcopy(result)
+
+    def _get_search_space(self) -> dict:
+        """Return random-search model settings without its control budget."""
+        search_space = deepcopy(super()._get_search_space())
+        search_space.pop(BUDGET, None)
+        return search_space
 
     def _dict_helper(self, configs: dict):
         r"""

@@ -13,7 +13,12 @@ import torch
 
 from mlwiz.static import (
     ATOMIC_SAVE_EXTENSION,
+    BEST_EPOCH,
+    EPOCH,
     MODEL_GRAPH_INPUT_SPEC_FILENAME,
+    OPTIMIZER_STATE,
+    SCALER_STATE,
+    SCHEDULER_STATE,
 )
 
 
@@ -117,6 +122,40 @@ def atomic_torch_save(data: dict, filepath: str):
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
         raise e
+
+
+def atomic_save_split_checkpoint(
+    checkpoint: dict,
+    model_filepath: str | os.PathLike,
+    optimizer_filepath: str | os.PathLike,
+):
+    """Atomically save model and resumable optimizer state separately.
+
+    The model payload deliberately excludes optimizer, scheduler, and AMP
+    scaler state so inference and dashboard consumers never deserialize those
+    potentially large tensors.  The optimizer payload is written first and
+    carries the epoch marker needed to diagnose mismatched partial writes.
+
+    Args:
+        checkpoint: Complete in-memory training checkpoint.
+        model_filepath: Existing-compatible model checkpoint filename.
+        optimizer_filepath: Parallel optimizer-state checkpoint filename.
+    """
+    optimizer_keys = (OPTIMIZER_STATE, SCHEDULER_STATE, SCALER_STATE)
+    model_checkpoint = {
+        key: value
+        for key, value in checkpoint.items()
+        if key not in optimizer_keys
+    }
+    optimizer_checkpoint = {
+        key: checkpoint.get(key) for key in optimizer_keys
+    }
+    for epoch_key in (EPOCH, BEST_EPOCH):
+        if epoch_key in checkpoint:
+            optimizer_checkpoint[epoch_key] = checkpoint[epoch_key]
+
+    atomic_torch_save(optimizer_checkpoint, optimizer_filepath)
+    atomic_torch_save(model_checkpoint, model_filepath)
 
 
 def clone_to_cpu(obj):
