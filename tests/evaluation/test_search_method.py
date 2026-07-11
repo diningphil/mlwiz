@@ -4,8 +4,8 @@ Ensures the YAML-defined search space expands to the expected number of configur
 """
 
 import pytest
-import yaml
 
+from mlwiz.config_loader import ConfigCompositionError, load_experiment_config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
 
@@ -33,7 +33,7 @@ def test_search_method(search_method_config_length):
     """
     for search_method, filepath, num_of_configs in search_method_config_length:
         search = search_method(
-            yaml.load(open(filepath, "r"), Loader=yaml.FullLoader)
+            load_experiment_config(filepath)
         )
         # Check the amount of configurations expected and those produced
         # are the same
@@ -53,27 +53,46 @@ def test_grid_rejects_conflicting_model_selection_keys():
     with pytest.raises(ValueError, match="cannot define both"):
         Grid(
             {
-                "exp_name": "conflict",
-                "storage_folder": "DATA",
-                "dataset_class": "builtins.list",
-                "data_splits_file": "dummy.splits",
-                "device": "cpu",
-                "max_cpus": 1,
-                "max_gpus": 0,
-                "gpus_per_task": 0,
-                "dataset_getter": "mlwiz.data.provider.DataProvider",
-                "data_loader": {
-                    "class_name": "torch.utils.data.DataLoader",
-                    "args": {"num_workers": 0, "pin_memory": False},
+                "dataset": {
+                    "storage_folder": "DATA",
+                    "dataset_class": "builtins.list",
+                    "data_splits_file": "dummy.splits",
                 },
-                "experiment": "mlwiz.experiment.Experiment",
-                "higher_results_are_better": True,
-                "model_selection_criteria": [
-                    {"metric": "main_score", "direction": "max"}
-                ],
-                "evaluate_every": 1,
-                "risk_assessment_training_runs": 1,
-                "model_selection_training_runs": 1,
+                "resources": {
+                    "device": "cpu",
+                    "max_cpus": 1,
+                    "max_gpus": 0,
+                    "gpus_per_task": 0,
+                },
+                "reproducibility": {"seed": 42},
+                "data_loading": {
+                    "dataset_getter": "mlwiz.data.provider.DataProvider",
+                    "data_loader": {
+                        "class_name": "torch.utils.data.DataLoader",
+                        "args": {"num_workers": 0, "pin_memory": False},
+                    },
+                },
+                "experiment": {
+                    "exp_name": "conflict",
+                    "result_folder": "RESULTS",
+                    "experiment": "mlwiz.experiment.Experiment",
+                    "higher_results_are_better": True,
+                    "model_selection_criteria": [
+                        {"metric": "main_score", "direction": "max"}
+                    ],
+                    "evaluate_every": 1,
+                    "risk_assessment_training_runs": 1,
+                    "model_selection_training_runs": 1,
+                },
                 "grid": {"hp_id": [0, 1]},
             }
         )
+
+
+def test_search_rejects_flat_pre_1_7_configuration():
+    """Search constructors enforce the structured 1.7 experiment schema."""
+    with pytest.raises(
+        ConfigCompositionError,
+        match=r"schema changed in MLWiz 1\.7\.0.*Flat pre-1\.7\.0",
+    ):
+        Grid({"device": "cpu", "grid": {"model": "Model"}})

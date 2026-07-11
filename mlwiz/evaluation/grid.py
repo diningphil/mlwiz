@@ -6,10 +6,13 @@ The :class:`~mlwiz.evaluation.grid.Grid` class enumerates all combinations from 
 from copy import deepcopy
 from typing import List
 
+from mlwiz.config_loader import validate_experiment_config
 from mlwiz.util import return_class_and_args, s2c
 from mlwiz.static import (
+    DATASET,
     DATASET_CLASS,
     DATASET_GETTER,
+    DATA_LOADING,
     DATA_LOADER,
     DATA_LOADER_ARGS,
     DEVICE,
@@ -18,6 +21,8 @@ from mlwiz.static import (
     GRID_SEARCH,
     HIGHER_RESULTS_ARE_BETTER,
     MODEL_SELECTION_CRITERIA,
+    REPRODUCIBILITY,
+    RESOURCES,
     SEED,
     STORAGE_FOLDER,
     evaluate_every,
@@ -53,19 +58,25 @@ class Grid:
             Parses configuration fields and eagerly generates all hyper-parameter
             combinations into ``self.hparams``.
         """
-        self.configs_dict = configs_dict
-        self.seed = self.configs_dict.get(SEED, None)
-        self._exp_name = self.configs_dict.get(EXP_NAME)
-        self.storage_folder = self.configs_dict.get(STORAGE_FOLDER)
-        self.dataset_class = self.configs_dict[DATASET_CLASS]
+        self.configs_dict = validate_experiment_config(configs_dict)
+        dataset_config = self.configs_dict[DATASET]
+        resources_config = self.configs_dict[RESOURCES]
+        reproducibility_config = self.configs_dict[REPRODUCIBILITY]
+        data_loading_config = self.configs_dict[DATA_LOADING]
+        experiment_config = self.configs_dict[EXPERIMENT]
+
+        self.seed = reproducibility_config[SEED]
+        self._exp_name = experiment_config[EXP_NAME]
+        self.storage_folder = dataset_config[STORAGE_FOLDER]
+        self.dataset_class = dataset_config[DATASET_CLASS]
         self.data_loader_class, self.data_loader_args = return_class_and_args(
-            self.configs_dict, DATA_LOADER, return_class_name=True
+            data_loading_config, DATA_LOADER, return_class_name=True
         )
-        self.experiment = self.configs_dict[EXPERIMENT]
-        self.model_selection_criteria = self.configs_dict.get(
+        self.experiment = experiment_config[EXPERIMENT]
+        self.model_selection_criteria = experiment_config.get(
             MODEL_SELECTION_CRITERIA, None
         )
-        self.higher_results_are_better = self.configs_dict.get(
+        self.higher_results_are_better = experiment_config.get(
             HIGHER_RESULTS_ARE_BETTER, None
         )
         if (
@@ -84,9 +95,9 @@ class Grid:
                 f"Configuration must define either '{MODEL_SELECTION_CRITERIA}' "
                 f"or '{HIGHER_RESULTS_ARE_BETTER}'."
             )
-        self.evaluate_every = self.configs_dict[evaluate_every]
-        self.device = self.configs_dict[DEVICE]
-        self.dataset_getter = self.configs_dict[DATASET_GETTER]
+        self.evaluate_every = experiment_config[evaluate_every]
+        self.device = resources_config[DEVICE]
+        self.dataset_getter = data_loading_config[DATASET_GETTER]
 
         # This MUST be called at the END of the init method!
         self.hparams = self._gen_configs()
@@ -99,12 +110,7 @@ class Grid:
         Returns:
             A list of al possible configurations in the form of dictionaries
         """
-        configs = [
-            cfg
-            for cfg in self._gen_helper(
-                self.configs_dict[self.__search_type__]
-            )
-        ]
+        configs = [cfg for cfg in self._gen_helper(self._get_search_space())]
         for cfg in configs:
             shared_cfg = {
                 DATASET_GETTER: self.dataset_getter,
@@ -117,15 +123,15 @@ class Grid:
                 evaluate_every: self.evaluate_every,
             }
             if self.higher_results_are_better is not None:
-                shared_cfg[HIGHER_RESULTS_ARE_BETTER] = (
-                    self.higher_results_are_better
-                )
+                shared_cfg[HIGHER_RESULTS_ARE_BETTER] = self.higher_results_are_better
             if self.model_selection_criteria is not None:
-                shared_cfg[MODEL_SELECTION_CRITERIA] = (
-                    self.model_selection_criteria
-                )
+                shared_cfg[MODEL_SELECTION_CRITERIA] = self.model_selection_criteria
             cfg.update(shared_cfg)
         return configs
+
+    def _get_search_space(self) -> dict:
+        """Return the model configuration subtree expanded by the search."""
+        return self.configs_dict[self.__search_type__]
 
     def _gen_helper(self, cfgs_dict: dict) -> dict:
         """

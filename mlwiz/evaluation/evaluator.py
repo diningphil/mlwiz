@@ -584,9 +584,7 @@ class RiskAssesser:
         self.risk_assessment_training_runs = risk_assessment_training_runs
         self.model_selection_training_runs = model_selection_training_runs
         self.training_timeout_seconds = training_timeout_seconds
-        self.model_selection_criteria = model_configs.configs_dict.get(
-            MODEL_SELECTION_CRITERIA, None
-        )
+        self.model_selection_criteria = model_configs.model_selection_criteria
         if (
             self.model_selection_criteria is not None
             and higher_is_better is not None

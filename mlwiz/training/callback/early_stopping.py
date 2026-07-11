@@ -11,11 +11,13 @@ from mlwiz.static import (
     BEST_CHECKPOINT_FILENAME,
     BEST_EPOCH,
     BEST_EPOCH_RESULTS,
+    BEST_OPTIMIZER_CHECKPOINT_FILENAME,
     LOSSES,
     MAX,
     MIN,
     MODEL_STATE,
     OPTIMIZER_STATE,
+    SCALER_STATE,
     SCHEDULER_STATE,
     SCORES,
     TEST,
@@ -26,7 +28,7 @@ from mlwiz.training.distributed import (
 )
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
-from mlwiz.training.util import atomic_torch_save, clone_to_cpu
+from mlwiz.training.util import atomic_save_split_checkpoint, clone_to_cpu
 
 
 class EarlyStopper(EventHandler):
@@ -121,10 +123,17 @@ class EarlyStopper(EventHandler):
             state.best_epoch_results[SCHEDULER_STATE] = clone_to_cpu(
                 state[SCHEDULER_STATE]
             )  # computed by scheduler
+            state.best_epoch_results[SCALER_STATE] = clone_to_cpu(
+                getattr(state, SCALER_STATE, None)
+            )
             if self.checkpoint and _is_main_process():
-                atomic_torch_save(
+                atomic_save_split_checkpoint(
                     state.best_epoch_results,
                     Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
+                    Path(
+                        state.exp_path,
+                        BEST_OPTIMIZER_CHECKPOINT_FILENAME,
+                    ),
                 )
         else:
             best_metric = state.best_epoch_results[score_or_loss][self.monitor]
@@ -144,10 +153,17 @@ class EarlyStopper(EventHandler):
                 state.best_epoch_results[SCHEDULER_STATE] = clone_to_cpu(
                     state[SCHEDULER_STATE]
                 )  # computed by scheduler
+                state.best_epoch_results[SCALER_STATE] = clone_to_cpu(
+                    getattr(state, SCALER_STATE, None)
+                )
                 if self.checkpoint and _is_main_process():
-                    atomic_torch_save(
+                    atomic_save_split_checkpoint(
                         state.best_epoch_results,
                         Path(state.exp_path, BEST_CHECKPOINT_FILENAME),
+                        Path(
+                            state.exp_path,
+                            BEST_OPTIMIZER_CHECKPOINT_FILENAME,
+                        ),
                     )
 
         # Regarless of improvement or not

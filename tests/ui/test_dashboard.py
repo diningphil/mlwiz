@@ -9,7 +9,10 @@ from urllib.request import Request, urlopen
 import pytest
 import torch
 
-from mlwiz.static import MODEL_GRAPH_INPUT_SPEC_FILENAME
+from mlwiz.static import (
+    LAST_OPTIMIZER_CHECKPOINT_FILENAME,
+    MODEL_GRAPH_INPUT_SPEC_FILENAME,
+)
 from mlwiz.ui.dashboard import (
     MetricsCache,
     ResultsRepository,
@@ -445,6 +448,48 @@ def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
     assert info["checkpoint"]["kind"] == "last"
     assert set(info["checkpoint"]["loadable"]) == {"best", "last"}
     assert info["modes"]["operators"]["available"] is True
+
+
+def test_model_graph_never_loads_parallel_optimizer_checkpoint(
+    tmp_path, monkeypatch
+):
+    """Dashboard graph inspection deserializes only the lightweight model file."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    model = _TinyGraphModel(2, 1, {})
+    torch.save(
+        {"epoch": 0, "model_state": model.state_dict()},
+        selection_run / "last_checkpoint.pth",
+    )
+    torch.save(
+        {"optimizer_state": {"state": {0: {"buffer": torch.ones(100)}}}},
+        selection_run / LAST_OPTIMIZER_CHECKPOINT_FILENAME,
+    )
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "model": f"{__name__}._TinyGraphModel",
+                "config": {},
+                "dim_input_features": 2,
+                "dim_target": 1,
+            }
+        )
+    )
+    loaded_paths = []
+    original_load = torch.load
+
+    def _recording_load(path, *args, **kwargs):
+        loaded_paths.append(path)
+        return original_load(path, *args, **kwargs)
+
+    monkeypatch.setattr("mlwiz.ui.dashboard.torch.load", _recording_load)
+    repository = ResultsRepository(experiment.parent)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+
+    graph = repository.model_graph(relative)
+
+    assert graph["checkpoint"]["kind"] == "last"
+    assert [path.name for path in loaded_paths] == ["last_checkpoint.pth"]
 
 
 def test_operator_graph_requires_a_recorded_tensor_input(tmp_path):

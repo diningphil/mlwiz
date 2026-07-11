@@ -367,34 +367,53 @@ def test_run_valid_and_run_test_execute_in_process(tmp_path, monkeypatch):
     assert pushed  # progress updates were forwarded
 
 
+def _structured_grid_config(tmp_path, exp_name, criteria):
+    """Return a minimal experiment config using the MLWiz 1.7 schema."""
+    return {
+        "dataset": {
+            "storage_folder": str(tmp_path / "DATA"),
+            "dataset_class": "builtins.list",
+            "data_splits_file": str(tmp_path / "dummy.splits"),
+        },
+        "resources": {
+            "device": "cpu",
+            "max_cpus": 1,
+            "max_gpus": 0,
+            "gpus_per_task": 0,
+        },
+        "reproducibility": {"seed": 42},
+        "data_loading": {
+            "dataset_getter": "mlwiz.data.provider.DataProvider",
+            "data_loader": {
+                "class_name": "torch.utils.data.DataLoader",
+                "args": {"num_workers": 0, "pin_memory": False},
+            },
+        },
+        "experiment": {
+            "exp_name": exp_name,
+            "result_folder": str(tmp_path / "RESULTS"),
+            "experiment": "mlwiz.experiment.Experiment",
+            "model_selection_criteria": criteria,
+            "evaluate_every": 1,
+            "risk_assessment_training_runs": 1,
+            "model_selection_training_runs": 1,
+        },
+        "grid": {"hp_id": [0, 1]},
+    }
+
+
 def test_compute_best_hyperparameters_uses_ordered_criteria(tmp_path):
     """
     Model selection should follow the configured criteria lexicographically.
     """
-    configs_dict = {
-        "exp_name": "criteria_test",
-        "storage_folder": str(tmp_path / "DATA"),
-        "dataset_class": "builtins.list",
-        "data_splits_file": str(tmp_path / "dummy.splits"),
-        "device": "cpu",
-        "max_cpus": 1,
-        "max_gpus": 0,
-        "gpus_per_task": 0,
-        "dataset_getter": "mlwiz.data.provider.DataProvider",
-        "data_loader": {
-            "class_name": "torch.utils.data.DataLoader",
-            "args": {"num_workers": 0, "pin_memory": False},
-        },
-        "experiment": "mlwiz.experiment.Experiment",
-        "model_selection_criteria": [
+    configs_dict = _structured_grid_config(
+        tmp_path,
+        "criteria_test",
+        [
             {"metric": "main_score", "direction": "max"},
             {"metric": "aux", "source": "score", "direction": "max"},
         ],
-        "evaluate_every": 1,
-        "risk_assessment_training_runs": 1,
-        "model_selection_training_runs": 1,
-        "grid": {"hp_id": [0, 1]},
-    }
+    )
     search = evaluator.Grid(configs_dict)
     search.telegram_config = None
 
@@ -451,30 +470,14 @@ def test_compute_best_hyperparameters_requires_source_for_non_main_metric(
     """
     Non-main criteria must explicitly specify whether they are score or loss.
     """
-    configs_dict = {
-        "exp_name": "criteria_source_required_test",
-        "storage_folder": str(tmp_path / "DATA"),
-        "dataset_class": "builtins.list",
-        "data_splits_file": str(tmp_path / "dummy.splits"),
-        "device": "cpu",
-        "max_cpus": 1,
-        "max_gpus": 0,
-        "gpus_per_task": 0,
-        "dataset_getter": "mlwiz.data.provider.DataProvider",
-        "data_loader": {
-            "class_name": "torch.utils.data.DataLoader",
-            "args": {"num_workers": 0, "pin_memory": False},
-        },
-        "experiment": "mlwiz.experiment.Experiment",
-        "model_selection_criteria": [
+    configs_dict = _structured_grid_config(
+        tmp_path,
+        "criteria_source_required_test",
+        [
             {"metric": "main_score", "direction": "max"},
             {"metric": "aux", "direction": "max"},
         ],
-        "evaluate_every": 1,
-        "risk_assessment_training_runs": 1,
-        "model_selection_training_runs": 1,
-        "grid": {"hp_id": [0, 1]},
-    }
+    )
     search = evaluator.Grid(configs_dict)
     search.telegram_config = None
 

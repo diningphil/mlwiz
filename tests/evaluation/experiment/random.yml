@@ -1,0 +1,7 @@
+result_folder: TEST
+exp_name: TEST_RANDOM
+experiment: mlwiz.experiment.supervised_task.SupervisedTask
+higher_results_are_better: true
+evaluate_every: 1
+risk_assessment_training_runs: 1
+model_selection_training_runs: 1

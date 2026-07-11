@@ -1,0 +1,15 @@
+# Each file in a config group can define one or more complete alternatives.
+- class_name: mlwiz.training.callback.optimizer.Optimizer
+  args:
+    optimizer_class_name: torch.optim.Adam
+    lr:
+      - 0.01
+      - 0.001
+    weight_decay: 0.0
+
+- class_name: mlwiz.training.callback.optimizer.Optimizer
+  args:
+    optimizer_class_name: torch.optim.AdamW
+    lr:
+      - 0.005
+    weight_decay: 0.01

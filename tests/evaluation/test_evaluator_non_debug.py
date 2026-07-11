@@ -20,9 +20,12 @@ from mlwiz.evaluation.grid import Grid
 from mlwiz.ui.progress_manager import ProgressManager
 from mlwiz.static import (
     AVG,
+    DATASET,
     DATASET_CLASS,
     DATASET_GETTER,
+    DATA_LOADING,
     DATA_LOADER,
+    DATA_SPLITS_FILE,
     DEVICE,
     EXPERIMENT,
     EXP_NAME,
@@ -31,7 +34,13 @@ from mlwiz.static import (
     MAIN_LOSS,
     MAIN_SCORE,
     MODEL_ASSESSMENT,
+    MODEL_SELECTION_TRAINING_RUNS,
+    REPRODUCIBILITY,
+    RESOURCES,
+    RESULT_FOLDER,
+    RISK_ASSESSMENT_TRAINING_RUNS,
     SCORE,
+    SEED,
     STORAGE_FOLDER,
     TEST,
     evaluate_every,
@@ -133,18 +142,34 @@ def test_evaluator_non_debug_mode(tmp_path, monkeypatch):
     )
 
     configs_dict = {
-        EXP_NAME: "fast_non_debug",
-        STORAGE_FOLDER: str(tmp_path / "DATA"),
-        DATASET_CLASS: "builtins.list",
-        DATASET_GETTER: "mlwiz.data.provider.DataProvider",
-        DATA_LOADER: {
-            "class_name": "torch.utils.data.DataLoader",
-            "args": {"num_workers": 0, "pin_memory": False},
+        DATASET: {
+            STORAGE_FOLDER: str(tmp_path / "DATA"),
+            DATASET_CLASS: "builtins.list",
+            DATA_SPLITS_FILE: str(tmp_path / "dummy.splits"),
         },
-        EXPERIMENT: f"{__name__}.FastExperiment",
-        HIGHER_RESULTS_ARE_BETTER: True,
-        evaluate_every: 1,
-        DEVICE: "cpu",
+        RESOURCES: {
+            DEVICE: "cpu",
+            "max_cpus": 1,
+            "max_gpus": 0,
+            "gpus_per_task": 0,
+        },
+        REPRODUCIBILITY: {SEED: 42},
+        DATA_LOADING: {
+            DATASET_GETTER: "mlwiz.data.provider.DataProvider",
+            DATA_LOADER: {
+                "class_name": "torch.utils.data.DataLoader",
+                "args": {"num_workers": 0, "pin_memory": False},
+            },
+        },
+        EXPERIMENT: {
+            EXP_NAME: "fast_non_debug",
+            RESULT_FOLDER: str(tmp_path / "RESULTS"),
+            EXPERIMENT: f"{__name__}.FastExperiment",
+            HIGHER_RESULTS_ARE_BETTER: True,
+            evaluate_every: 1,
+            RISK_ASSESSMENT_TRAINING_RUNS: 1,
+            MODEL_SELECTION_TRAINING_RUNS: 1,
+        },
         GRID_SEARCH: {"hp_id": [0, 1]},
     }
     search = Grid(configs_dict)

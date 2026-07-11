@@ -1,0 +1,3 @@
+storage_folder: DATA
+dataset_class: mlwiz.data.dataset.MNISTTemporal
+data_splits_file: DATA_SPLITS/MNISTTemporal/MNISTTemporal_outer3_inner2.splits

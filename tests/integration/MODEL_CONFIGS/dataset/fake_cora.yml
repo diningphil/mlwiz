@@ -1,0 +1,3 @@
+storage_folder: tests/tmp/DATA
+dataset_class: tests.integration.fake_dataset.FakeCora
+data_splits_file: tests/tmp/DATA_SPLITS/FakeCora/FakeCora_outer3_inner2.splits

@@ -55,7 +55,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 # -- Options for HTML output -------------------------------------------------
 
 autodoc_mock_imports = [
-    "PyYAML",
+    "yaml",
     "requests",
     "ogb",
     "aioredis",

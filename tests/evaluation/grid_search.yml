@@ -1,35 +1,10 @@
-# Dataset and Splits
-storage_folder: DATA
-dataset_class: mlwiz.data.dataset.MNIST
-data_splits_file:  TEST
-
-# Hardware
-device:  cpu
-max_cpus:  4
-max_gpus: 0
-gpus_per_task:  1
-
-
-# Data Loading
-dataset_getter: mlwiz.data.provider.DataProvider
-data_loader:
-  class_name: torch_geometric.loader.DataLoader
-  args:
-    num_workers : 0
-    pin_memory: False
-
-
-# Reproducibility
-seed: 42
-
-
-# Experiment
-result_folder: TEST
-exp_name: TEST_GRID
-experiment: mlwiz.experiment.Experiment
-higher_results_are_better: True
-evaluate_every: 1
-risk_assessment_training_runs: 1
+defaults:
+  - dataset: mnist
+  - resources: cpu
+  - reproducibility: default
+  - data_loading: pyg
+  - experiment: grid
+  - _self_
 
 
 grid:
