@@ -376,6 +376,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
+        assert "localStorage.setItem(themeStorageKey" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
         assert "/api/experiment-filter" in app_script
@@ -384,6 +385,14 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "configurationPassesFilter" in app_script
         assert "scheduleRefresh" in app_script
         assert "applyTheme" in app_script
+        assert "metadataViewer" in app_script
+        assert '"Raw JSON"' in app_script
+        assert "metadata-json:" in app_script
+        assert "metadataModes" in app_script
+        assert "metadataScrolls" in app_script
+        assert "restoreScroll" in app_script
+        assert "expandJsonDescendants" in app_script
+        assert ".json-inspector" in stylesheet
         assert "[hidden] { display: none !important; }" in stylesheet
         assert logo.startswith(b"\x89PNG\r\n\x1a\n")
         assert tree["experiments"][0]["name"] == "mlp_MNIST"

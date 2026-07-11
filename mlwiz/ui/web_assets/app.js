@@ -2,6 +2,7 @@
   "use strict";
 
   const storageKey = "mlwiz-dashboard-navigation-v1";
+  const themeStorageKey = "mlwiz-dashboard-theme-v1";
 
   function readStoredState() {
     try {
@@ -11,7 +12,16 @@
     }
   }
 
+  function readStoredTheme() {
+    try {
+      return localStorage.getItem(themeStorageKey);
+    } catch (_error) {
+      return null;
+    }
+  }
+
   const storedState = readStoredState();
+  const storedTheme = readStoredTheme();
   const storedRefreshSeconds = Number(storedState.refreshSeconds);
   const state = {
     tree: null,
@@ -23,13 +33,17 @@
     source: storedState.source || "all",
     query: storedState.query || "",
     scale: storedState.scale || "linear",
-    theme: ["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark",
+    theme: ["dark", "day"].includes(storedTheme)
+      ? storedTheme
+      : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
     refreshSeconds: Number.isFinite(storedRefreshSeconds)
       && storedRefreshSeconds >= 2
       && storedRefreshSeconds <= 3600
       ? Math.round(storedRefreshSeconds)
       : 15,
     experimentFilters: storedState.experimentFilters || {},
+    metadataModes: storedState.metadataModes || {},
+    metadataScrolls: storedState.metadataScrolls || {},
     overviewExpanded: storedState.overviewExpanded !== false,
     filterData: {},
     filterLoading: {},
@@ -47,6 +61,7 @@
     other: "#8257e5",
   };
   let refreshTimer = null;
+  let metadataScrollTimer = null;
 
   function persistState() {
     try {
@@ -61,10 +76,17 @@
         theme: state.theme,
         refreshSeconds: state.refreshSeconds,
         experimentFilters: state.experimentFilters,
+        metadataModes: state.metadataModes,
+        metadataScrolls: state.metadataScrolls,
         overviewExpanded: state.overviewExpanded,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
+    }
+    try {
+      localStorage.setItem(themeStorageKey, state.theme);
+    } catch (_error) {
+      // Keep the theme session-scoped when persistent browser storage is disabled.
     }
   }
 
@@ -984,6 +1006,129 @@
     }
   }
 
+  function jsonValueKind(value) {
+    if (value === null) return "null";
+    if (Array.isArray(value)) return "array";
+    return typeof value;
+  }
+
+  function jsonCollectionLabel(value) {
+    if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"}`;
+    const count = Object.keys(value).length;
+    return `${count} field${count === 1 ? "" : "s"}`;
+  }
+
+  function isNestedBelowConfig(jsonPath) {
+    const configIndex = jsonPath.indexOf("config");
+    return configIndex !== -1 && configIndex < jsonPath.length - 1;
+  }
+
+  function expandJsonDescendants(collection) {
+    collection.querySelectorAll("details.json-collection").forEach((descendant) => {
+      descendant.open = true;
+    });
+  }
+
+  function renderJsonValue(value, key, disclosurePrefix, jsonPath = []) {
+    const kind = jsonValueKind(value);
+    const row = node("div", "json-row");
+
+    if (kind !== "object" && kind !== "array") {
+      if (key !== null) row.append(node("span", "json-key", String(key)));
+      let display = String(value);
+      if (kind === "string") display = value;
+      row.append(node("span", `json-value json-${kind}`, display));
+      return row;
+    }
+
+    const entries = Array.isArray(value) ? value.entries() : Object.entries(value);
+    const collection = node("details", `json-collection json-${kind}`);
+    bindDisclosure(
+      collection,
+      `${disclosurePrefix}:${JSON.stringify(jsonPath)}`,
+      key === null,
+    );
+    const summary = node("summary", "json-collection-summary");
+    if (key !== null) summary.append(node("span", "json-key", String(key)));
+    summary.append(node("span", "json-count", jsonCollectionLabel(value)));
+    collection.append(summary);
+
+    const children = node("div", "json-children");
+    for (const [childKey, childValue] of entries) {
+      children.append(renderJsonValue(
+        childValue,
+        childKey,
+        disclosurePrefix,
+        [...jsonPath, childKey],
+      ));
+    }
+    if (!children.childElementCount) children.append(node("span", "json-empty", "Empty"));
+    collection.append(children);
+    if (isNestedBelowConfig(jsonPath)) {
+      collection.addEventListener("toggle", () => {
+        if (collection.open) expandJsonDescendants(collection);
+      });
+    }
+    row.append(collection);
+    return row;
+  }
+
+  function metadataViewer(item) {
+    const body = node("div", "metadata-body");
+    const toolbar = node("div", "metadata-toolbar");
+    const structuredButton = node("button", "active", "Inspector");
+    const rawButton = node("button", "", "Raw JSON");
+    structuredButton.type = rawButton.type = "button";
+    structuredButton.setAttribute("aria-pressed", "true");
+    rawButton.setAttribute("aria-pressed", "false");
+    toolbar.append(structuredButton, rawButton);
+
+    const structured = node("div", "json-inspector");
+    structured.append(renderJsonValue(item.data, null, `metadata-json:${item.path}`));
+    const raw = node("pre", "metadata-raw", JSON.stringify(item.data, null, 2));
+    raw.hidden = true;
+
+    const modeKey = item.path;
+    const inspectorScrollKey = `${item.path}:inspector`;
+    const rawScrollKey = `${item.path}:raw`;
+    const trackScroll = (element, key) => {
+      element.addEventListener("scroll", () => {
+        state.metadataScrolls[key] = element.scrollTop;
+        clearTimeout(metadataScrollTimer);
+        metadataScrollTimer = setTimeout(persistState, 100);
+      });
+    };
+    const restoreScroll = (element, key) => {
+      requestAnimationFrame(() => {
+        element.scrollTop = Number(state.metadataScrolls[key]) || 0;
+      });
+    };
+    trackScroll(structured, inspectorScrollKey);
+    trackScroll(raw, rawScrollKey);
+
+    const setMode = (showRaw, save = true) => {
+      structured.hidden = showRaw;
+      raw.hidden = !showRaw;
+      structuredButton.classList.toggle("active", !showRaw);
+      rawButton.classList.toggle("active", showRaw);
+      structuredButton.setAttribute("aria-pressed", String(!showRaw));
+      rawButton.setAttribute("aria-pressed", String(showRaw));
+      restoreScroll(
+        showRaw ? raw : structured,
+        showRaw ? rawScrollKey : inspectorScrollKey,
+      );
+      if (save) {
+        state.metadataModes[modeKey] = showRaw ? "raw" : "inspector";
+        persistState();
+      }
+    };
+    structuredButton.addEventListener("click", () => setMode(false));
+    rawButton.addEventListener("click", () => setMode(true));
+    setMode(state.metadataModes[modeKey] === "raw", false);
+    body.append(toolbar, structured, raw);
+    return body;
+  }
+
   function renderMetadata(items) {
     const section = el("metadata-section");
     const list = el("metadata-list");
@@ -994,8 +1139,19 @@
       const details = node("details", "");
       const summary = node("summary", "");
       summary.append(node("span", "", item.label), node("code", "", item.path));
-      const pre = node("pre", "", JSON.stringify(item.data, null, 2));
-      details.append(summary, pre);
+      let viewer = null;
+      const ensureViewer = () => {
+        if (!viewer) {
+          viewer = metadataViewer(item);
+          details.append(viewer);
+        }
+      };
+      bindDisclosure(details, `metadata:${item.path}`, false);
+      details.addEventListener("toggle", () => {
+        if (details.open) ensureViewer();
+      });
+      details.append(summary);
+      if (details.open) ensureViewer();
       list.append(details);
     }
   }

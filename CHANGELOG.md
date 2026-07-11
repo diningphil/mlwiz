@@ -10,11 +10,28 @@
 - training logs are now buffered and flushed to `experiment.log` every `N` epochs via `engine.args.store_log_every_N_epochs` (default: `1`), with a forced flush on termination and at training end
 - added CLI option `--detailed-gui` to toggle detailed per-run progress UI in non-debug mode; without it, MLWiz keeps the lightweight/global view (detailed GUI disabled). Use it when parallelism is low, otherwise it can spawn many threads
 - added `mlwiz-dashboard`, a local web app for browsing model-selection configurations, final runs, epoch metrics, and result metadata
+- added interactive metric charts with epoch hover values and a symmetric logarithmic scale that supports positive, zero, and negative values
+- added per-experiment configuration filters for training or validation metrics, configurable comparison operators, and combined `AND`/`OR` clauses
+- added configurable dashboard metric-cache size and automatic refresh interval controls
+- added dark and day themes, with dark mode as the default
+- added a collapsible overview of completed, running, and failed runs plus experiment timing statistics for the selected experiment
+- added a collapsible configuration/result inspector with nested structured and raw JSON views
 
 ## Changed
 
 - `Plotter` now keeps metrics in memory during epochs and persists them on `on_termination` (or every `N` epochs when configured), instead of writing to disk every epoch by default
 - `Plotter` now persists `metrics_data.torch` for MLWiz Dashboard by default
+- the dashboard now loads `metrics_data.torch` files on demand and retains them in a bounded LRU memory cache; a single oversized selection is still loaded but is not retained in the cache
+- completed configuration filters use the experiment-selected best metric value, while running configurations use the latest available metric value
+- opening an object or array nested beneath `config` in the dashboard inspector now expands its complete descendant tree in one action
+
+## Fixed
+
+- dashboard selections, sidebar disclosures, filters, and chart controls now remain stable across automatic refreshes; the day/dark theme choice also persists across browser sessions
+- configuration inspector mode, nested disclosures, and scroll position now remain stable across automatic refreshes
+- filters with no matching configurations now show an empty result instead of unfiltered configurations
+- dashboard configuration counts no longer include final runs
+- the central selection prompt is hidden after a configuration or run is opened
 
 ## Removed
 
