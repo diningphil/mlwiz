@@ -56,6 +56,9 @@
     filterData: {},
     filterLoading: {},
     charts: [],
+    graphRequestId: 0,
+    graphPath: null,
+    graphCheckpointChoices: storedState.graphCheckpointChoices || {},
   };
 
   const el = (id) => document.getElementById(id);
@@ -92,6 +95,7 @@
         metadataModes: state.metadataModes,
         metadataScrolls: state.metadataScrolls,
         overviewExpanded: state.overviewExpanded,
+        graphCheckpointChoices: state.graphCheckpointChoices,
       }));
     } catch (_error) {
       // The dashboard remains fully usable when browser storage is disabled.
@@ -672,6 +676,7 @@
 
     renderCharts();
     renderMetadata(data.metadata);
+    prepareModelGraph();
   }
 
   function readableName(name) {
@@ -1136,6 +1141,223 @@
     requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
   }
 
+  function focusedModelGraphPath() {
+    const selection = state.details?.selection;
+    if (!selection) return null;
+    if (selection.plot_scope === "model_selection_configuration") {
+      return state.focusedRun ? `${selection.path}/${state.focusedRun}` : null;
+    }
+    if (["single_run", "final_runs"].includes(selection.plot_scope)) {
+      return selection.path;
+    }
+    return null;
+  }
+
+  function prepareModelGraph() {
+    const section = el("model-graph-section");
+    const path = focusedModelGraphPath();
+    section.hidden = !path;
+    if (!path) return;
+    el("model-graph-run").textContent = path.split("/").slice(-2).join(" / ").replaceAll("_", " ");
+    if (section.open) loadModelGraph(path);
+  }
+
+  async function loadModelGraph(path) {
+    const requestId = ++state.graphRequestId;
+    const pathChanged = state.graphPath !== path;
+    state.graphPath = path;
+    const status = el("model-graph-status");
+    const message = el("model-graph-message");
+    let checkpointChoice = state.graphCheckpointChoices[path] || "auto";
+    el("model-graph-checkpoint-select").disabled = true;
+    if (pathChanged) {
+      el("model-graph-canvas").replaceChildren();
+      el("model-graph-stats").replaceChildren();
+      el("model-node-details").textContent = "Select a module to inspect its checkpoint tensors.";
+      message.hidden = true;
+      status.textContent = "Loading checkpoint graph on CPU…";
+    } else {
+      status.textContent = "Checking the active checkpoint…";
+      message.hidden = true;
+    }
+    try {
+      const info = await getJson(`/api/model-graph-info?path=${encodeURIComponent(path)}`);
+      if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
+      if (checkpointChoice !== "auto" && !info.checkpoint.available.includes(checkpointChoice)) {
+        checkpointChoice = "auto";
+        state.graphCheckpointChoices[path] = "auto";
+        persistState();
+      }
+      renderGraphCheckpointSelect(info);
+      const resolvedKind = checkpointChoice === "auto"
+        ? info.checkpoint.kind
+        : checkpointChoice;
+      if (!resolvedKind) {
+        throw new Error("No best or last checkpoint is available for this run.");
+      }
+      if (!info.checkpoint.loadable.includes(resolvedKind)) {
+        const size = info.checkpoint.sizes_mb[resolvedKind];
+        status.textContent = "Model graph not loaded";
+        message.hidden = false;
+        message.className = "model-graph-message error";
+        message.textContent = `${resolvedKind[0].toUpperCase()}${resolvedKind.slice(1)} checkpoint is ${formatNumber(size)} MB, exceeding the ${formatNumber(info.cache_max_mb)} MB cache limit.`;
+        return;
+      }
+      const graph = await getJson(`/api/model-graph?path=${encodeURIComponent(path)}&checkpoint=${encodeURIComponent(checkpointChoice)}`);
+      if (requestId !== state.graphRequestId || path !== focusedModelGraphPath()) return;
+      renderModelGraph(graph);
+    } catch (error) {
+      if (requestId !== state.graphRequestId) return;
+      status.textContent = "Model graph unavailable";
+      message.hidden = false;
+      message.className = "model-graph-message error";
+      message.textContent = error.message;
+      el("model-graph-checkpoint-select").disabled = false;
+    }
+  }
+
+  function graphSvgElement(tag, attributes = {}, text = null) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [key, value] of Object.entries(attributes)) element.setAttribute(key, value);
+    if (text !== null) element.textContent = text;
+    return element;
+  }
+
+  function renderModelGraph(graph) {
+    renderCacheStatus(graph.cache);
+    const epoch = graph.epoch ? ` · epoch ${graph.epoch}` : "";
+    el("model-graph-status").textContent = `${graph.run_state} · ${graph.checkpoint.kind} checkpoint${epoch} · ${graph.graph_kind}`;
+    const message = el("model-graph-message");
+    if (graph.warning) {
+      message.hidden = false;
+      message.className = "model-graph-message";
+      message.textContent = graph.warning;
+    } else {
+      message.hidden = true;
+    }
+
+    const stats = el("model-graph-stats");
+    stats.replaceChildren();
+    for (const text of [
+      graph.summary.model_class,
+      `${formatNumber(graph.summary.parameters)} parameters`,
+      `${graph.summary.visible_nodes} module${graph.summary.visible_nodes === 1 ? "" : "s"}`,
+      graph.checkpoint.cache_hit ? "Graph cache hit" : "Loaded from checkpoint",
+    ]) stats.append(node("span", "model-graph-stat", text));
+    if (graph.summary.truncated) {
+      stats.append(node("span", "model-graph-stat", `Showing first ${graph.summary.visible_nodes} of ${graph.summary.nodes}`));
+    }
+
+    const host = el("model-graph-canvas");
+    host.replaceChildren();
+    if (!graph.nodes.length) {
+      host.append(node("div", "chart-empty", "The checkpoint contains no graphable tensors."));
+      return;
+    }
+    const columns = new Map();
+    for (const item of graph.nodes) {
+      if (!columns.has(item.depth)) columns.set(item.depth, []);
+      columns.get(item.depth).push(item);
+    }
+    const maxDepth = Math.max(...columns.keys());
+    const maxRows = Math.max(...[...columns.values()].map((items) => items.length));
+    const width = Math.max(420, 40 + ((maxDepth + 1) * 210));
+    const height = Math.max(330, 35 + (maxRows * 68));
+    const positions = new Map();
+    for (const [depth, items] of columns.entries()) {
+      const columnHeight = items.length * 68;
+      const offset = Math.max(24, (height - columnHeight) / 2);
+      items.forEach((item, index) => positions.set(item.id, {
+        x: 20 + (depth * 210),
+        y: offset + (index * 68),
+      }));
+    }
+    const svg = graphSvgElement("svg", { width, height, viewBox: `0 0 ${width} ${height}` });
+    const edges = graphSvgElement("g", { class: "graph-edges" });
+    for (const edge of graph.edges) {
+      const source = positions.get(edge.source);
+      const target = positions.get(edge.target);
+      if (!source || !target) continue;
+      const startX = source.x + 174;
+      const startY = source.y + 23;
+      const endX = target.x;
+      const endY = target.y + 23;
+      const middle = (startX + endX) / 2;
+      edges.append(graphSvgElement("path", {
+        class: "graph-edge",
+        d: `M ${startX} ${startY} C ${middle} ${startY}, ${middle} ${endY}, ${endX} ${endY}`,
+      }));
+    }
+    svg.append(edges);
+    const nodeLayer = graphSvgElement("g", { class: "graph-nodes" });
+    for (const item of graph.nodes) {
+      const position = positions.get(item.id);
+      const group = graphSvgElement("g", {
+        class: `graph-node${item.id === "__root__" ? " root" : ""}`,
+        transform: `translate(${position.x} ${position.y})`,
+        tabindex: "0",
+        role: "button",
+      });
+      group.append(
+        graphSvgElement("rect", { width: 174, height: 46 }),
+        graphSvgElement("text", { x: 10, y: 19, class: "graph-node-label" }, item.label.length > 24 ? `${item.label.slice(0, 22)}…` : item.label),
+        graphSvgElement("text", { x: 10, y: 34, class: "graph-node-type" }, item.type),
+      );
+      const select = () => {
+        svg.querySelectorAll(".graph-node.selected").forEach((candidate) => candidate.classList.remove("selected"));
+        group.classList.add("selected");
+        renderModelNodeDetails(item);
+      };
+      group.addEventListener("click", select);
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") select();
+      });
+      nodeLayer.append(group);
+    }
+    svg.append(nodeLayer);
+    host.append(svg);
+  }
+
+  function renderGraphCheckpointSelect(graph) {
+    const select = el("model-graph-checkpoint-select");
+    select.replaceChildren();
+    const auto = node("option", "", `Auto (${graph.checkpoint.kind || "unavailable"})`);
+    auto.value = "auto";
+    select.append(auto);
+    for (const kind of graph.checkpoint.available) {
+      const size = graph.checkpoint.sizes_mb?.[kind];
+      const tooLarge = !graph.checkpoint.loadable.includes(kind);
+      const suffix = size === undefined ? "" : ` · ${formatNumber(size)} MB${tooLarge ? " · too large" : ""}`;
+      const option = node("option", "", `${kind[0].toUpperCase()}${kind.slice(1)}${suffix}`);
+      option.value = kind;
+      option.disabled = tooLarge;
+      select.append(option);
+    }
+    select.value = state.graphCheckpointChoices[graph.run] || "auto";
+    select.disabled = false;
+  }
+
+  function renderModelNodeDetails(item) {
+    const panel = el("model-node-details");
+    panel.replaceChildren();
+    panel.append(node("h4", "", item.label), node("code", "", item.id));
+    const values = node("dl", "");
+    for (const [label, value] of [
+      ["Module type", item.type],
+      ["Parameters", formatNumber(item.parameters)],
+      ["Trainable", formatNumber(item.trainable_parameters)],
+    ]) values.append(node("dt", "", label), node("dd", "", value));
+    panel.append(values);
+    if (item.tensors.length) {
+      panel.append(node("strong", "", "Checkpoint tensors"));
+      const list = node("ul", "");
+      for (const tensor of item.tensors) {
+        list.append(node("li", "", `${tensor.name} · [${tensor.shape.join(", ")}]`));
+      }
+      panel.append(list);
+    }
+  }
+
   function updateChartHover(chart, event) {
     const rect = chart.canvas.getBoundingClientRect();
     const margin = { right: 12, left: 48 };
@@ -1537,12 +1759,14 @@
     persistState();
     renderPlotNavigator();
     renderChartsPreservingScroll();
+    prepareModelGraph();
   });
   el("run-select").addEventListener("change", (event) => {
     state.focusedRun = event.target.value;
     persistState();
     renderPlotNavigator();
     renderChartsPreservingScroll();
+    prepareModelGraph();
   });
   el("fold-previous").addEventListener("click", () => moveNavigatorSelection("fold-select", -1));
   el("fold-next").addEventListener("click", () => moveNavigatorSelection("fold-select", 1));
@@ -1589,6 +1813,17 @@
   });
   syncScaleButton();
   observeStickyPlotNavigator();
+  bindDisclosure(el("model-graph-section"), "model-graph", false);
+  el("model-graph-section").addEventListener("toggle", () => {
+    if (el("model-graph-section").open) prepareModelGraph();
+  });
+  el("model-graph-checkpoint-select").addEventListener("change", (event) => {
+    const path = focusedModelGraphPath();
+    if (!path) return;
+    state.graphCheckpointChoices[path] = event.target.value;
+    persistState();
+    loadModelGraph(path);
+  });
   if (state.selectedPath) {
     detailsView.hidden = false;
     welcome.hidden = true;

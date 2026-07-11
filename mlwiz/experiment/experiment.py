@@ -4,6 +4,7 @@ Defines :class:`~mlwiz.experiment.experiment.Experiment`, which instantiates mod
 """
 
 import random
+import json
 import os
 import socket
 import threading
@@ -11,6 +12,7 @@ import time
 import traceback
 import faulthandler
 from queue import Empty
+from pathlib import Path
 from typing import Callable, Optional, Tuple, Union
 
 import numpy as np
@@ -30,6 +32,7 @@ from mlwiz.static import DEFAULT_ENGINE_CALLBACK
 from mlwiz.static import EXPERIMENT_ERRFILE
 from mlwiz.static import LOSS, SCORE
 from mlwiz.static import MLWIZ_RAY_NUM_GPUS_PER_TASK
+from mlwiz.static import MODEL_MANIFEST_FILENAME
 from mlwiz.log.logger import Logger
 from mlwiz.training.distributed import dist_is_initialized
 from mlwiz.training.engine import TrainingEngine
@@ -532,7 +535,33 @@ class Experiment:
         # move to device
         # model .to() may not return anything
         model.to(self.model_config.device)
+        self._write_model_manifest(dim_input_features, dim_target)
         return model
+
+    def _write_model_manifest(
+        self, dim_input_features: Union[int, Tuple[int]], dim_target: int
+    ) -> None:
+        """Persist the information needed to reconstruct this run's model."""
+        if dist_is_initialized() and dist.get_rank() != 0:
+            return
+        run_folder = Path(self.exp_path)
+        run_folder.mkdir(parents=True, exist_ok=True)
+        destination = run_folder / MODEL_MANIFEST_FILENAME
+        temporary = destination.with_name(destination.name + ".part")
+        manifest = {
+            "version": 1,
+            "model": self.model_config["model"],
+            "config": self.model_config.config_dict,
+            "dim_input_features": dim_input_features,
+            "dim_target": dim_target,
+        }
+        try:
+            with temporary.open("w", encoding="utf-8") as stream:
+                json.dump(manifest, stream, ensure_ascii=False, default=str)
+            os.replace(temporary, destination)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
 
     def create_engine(
         self,

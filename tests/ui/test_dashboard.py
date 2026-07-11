@@ -17,6 +17,21 @@ from mlwiz.ui.dashboard import (
 )
 
 
+class _TinyGraphModel(torch.nn.Module):
+    """Small reconstructable model used by checkpoint-graph tests."""
+
+    def __init__(self, dim_input_features, dim_target, config):
+        super().__init__()
+        self.encoder = torch.nn.Sequential(
+            torch.nn.Linear(dim_input_features, 3),
+            torch.nn.ReLU(),
+        )
+        self.output = torch.nn.Linear(3, dim_target)
+
+    def forward(self, inputs):
+        return self.output(self.encoder(inputs))
+
+
 def _write_fixture_results(tmp_path):
     """Create a compact model-selection and final-run result hierarchy."""
     experiment = tmp_path / "RESULTS" / "mlp_MNIST"
@@ -343,6 +358,115 @@ def test_final_run_siblings_are_loaded_only_for_aggregation(tmp_path):
     }
 
 
+def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
+    """A live run should reconstruct its latest checkpoint module graph."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    model = _TinyGraphModel(2, 1, {})
+    torch.save(
+        {"epoch": 2, "model_state": model.state_dict()},
+        selection_run / "last_checkpoint.pth",
+    )
+    torch.save(
+        {"best_epoch": 0, "model_state": model.state_dict()},
+        selection_run / "best_checkpoint.pth",
+    )
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "model": f"{__name__}._TinyGraphModel",
+                "config": {},
+                "dim_input_features": 2,
+                "dim_target": 1,
+            }
+        )
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+
+    graph = repository.model_graph(relative)
+    cached = repository.model_graph(relative)
+    explicit_best = repository.model_graph(relative, checkpoint_kind="best")
+    info = repository.model_graph_info(relative)
+
+    assert graph["checkpoint"]["kind"] == "last"
+    assert graph["checkpoint"]["requested"] == "auto"
+    assert set(graph["checkpoint"]["available"]) == {"best", "last"}
+    assert graph["epoch"] == 3
+    assert graph["graph_kind"] == "module"
+    assert graph["warning"] is None
+    assert {node["id"] for node in graph["nodes"]} >= {
+        "__root__",
+        "encoder",
+        "encoder.0",
+        "output",
+    }
+    assert cached["checkpoint"]["cache_hit"] is True
+    assert explicit_best["checkpoint"]["kind"] == "best"
+    assert explicit_best["epoch"] == 1
+    assert info["checkpoint"]["kind"] == "last"
+    assert set(info["checkpoint"]["loadable"]) == {"best", "last"}
+
+
+def test_completed_model_graph_prefers_best_checkpoint_with_fallback(tmp_path):
+    """Completed runs prefer best state and old runs retain hierarchy support."""
+    experiment, _, _, final_run = _write_fixture_results(tmp_path)
+    (final_run / "experiment.log").write_text(
+        "Total time of the experiment in seconds: 4.0\n"
+    )
+    (final_run / "run_1_results.dill").write_bytes(b"completed")
+    torch.save(
+        {
+            "best_epoch": 4,
+            "model_state": {
+                "encoder.weight": torch.ones(3, 2),
+                "encoder.bias": torch.ones(3),
+            },
+        },
+        final_run / "best_checkpoint.pth",
+    )
+    torch.save(
+        {"epoch": 8, "model_state": {"other.weight": torch.ones(1, 1)}},
+        final_run / "last_checkpoint.pth",
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    graph = repository.model_graph(
+        final_run.relative_to(experiment.parent).as_posix()
+    )
+    explicit_last = repository.model_graph(
+        final_run.relative_to(experiment.parent).as_posix(),
+        checkpoint_kind="last",
+    )
+
+    assert graph["run_state"] == "completed"
+    assert graph["checkpoint"]["kind"] == "best"
+    assert graph["epoch"] == 5
+    assert graph["graph_kind"] == "checkpoint hierarchy"
+    assert "predates model manifests" in graph["warning"]
+    assert any(node["id"] == "encoder" for node in graph["nodes"])
+    assert explicit_last["checkpoint"]["kind"] == "last"
+    assert explicit_last["epoch"] == 9
+
+
+def test_model_graph_skips_checkpoint_larger_than_cache(tmp_path):
+    """Checkpoint graph loading must respect the cache memory ceiling."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    torch.save(
+        {"epoch": 1, "model_state": {"layer.weight": torch.ones(2, 2)}},
+        selection_run / "last_checkpoint.pth",
+    )
+    repository = ResultsRepository(experiment.parent, cache_max_bytes=1)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+
+    with pytest.raises(ValueError, match="exceeding the 0.00 MB cache limit"):
+        repository.model_graph(relative)
+
+    info = repository.model_graph_info(relative)
+    assert info["checkpoint"]["available"] == ["last"]
+    assert info["checkpoint"]["loadable"] == []
+
+
 def test_details_reports_unreadable_metric_file(tmp_path):
     """A damaged artifact should not take down the dashboard API."""
     experiment, _, _, final_run = _write_fixture_results(tmp_path)
@@ -385,7 +509,11 @@ def test_cli_parses_dashboard_options(tmp_path):
 
 def test_http_server_serves_frontend_and_api(tmp_path):
     """A startable server should expose both the page and tree API."""
-    experiment, _, _, _ = _write_fixture_results(tmp_path)
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    torch.save(
+        {"epoch": 1, "model_state": {"layer.weight": torch.ones(2, 2)}},
+        selection_run / "last_checkpoint.pth",
+    )
     server = create_server(experiment.parent, port=0)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -407,6 +535,15 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             f"{base_url}/api/experiment-filter?path=mlp_MNIST", timeout=3
         ) as response:
             filter_data = json.loads(response.read())
+        graph_path = selection_run.relative_to(experiment.parent).as_posix()
+        with urlopen(
+            f"{base_url}/api/model-graph?path={graph_path}", timeout=3
+        ) as response:
+            graph_data = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/model-graph-info?path={graph_path}", timeout=3
+        ) as response:
+            graph_info = json.loads(response.read())
         cache_request = Request(
             f"{base_url}/api/cache",
             data=json.dumps({"max_mb": 64}).encode("utf-8"),
@@ -434,6 +571,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
         assert 'id="experiment-overview"' in page
+        assert 'id="model-graph-section"' in page
+        assert 'id="model-graph-checkpoint-select"' in page
+        assert page.index('id="summary-grid"') < page.index(
+            'id="model-graph-section"'
+        ) < page.index('id="chart-toolbar"')
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
@@ -442,6 +584,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'postJson("/api/cache"' in app_script
         assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
+        assert "/api/model-graph" in app_script
+        assert "/api/model-graph-info" in app_script
+        assert "renderModelGraph" in app_script
+        assert "graphCheckpointChoices" in app_script
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
         assert "aggregateMetricLines" in app_script
@@ -463,6 +609,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "restoreScroll" in app_script
         assert "expandJsonDescendants" in app_script
         assert ".json-inspector" in stylesheet
+        assert ".model-graph-section" in stylesheet
         assert ".plot-navigator { position: sticky" in stylesheet
         assert ".plot-navigator.is-stuck" in stylesheet
         assert ".content { min-width: 0;" in stylesheet
@@ -474,6 +621,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert updated_cache["max_mb"] == 64
         assert reset_cache["entries"] == 0
         assert reset_cache["max_mb"] == 64
+        assert graph_data["checkpoint"]["kind"] == "last"
+        assert graph_data["epoch"] == 2
+        assert graph_info["checkpoint"]["kind"] == "last"
+        assert graph_info["checkpoint"]["loadable"] == ["last"]
         assert filter_data["default_metric"] == "scores:main_score"
     finally:
         server.shutdown()

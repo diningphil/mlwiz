@@ -77,6 +77,7 @@ LAST_RUN_ELAPSED_TIME = "last_run_elapsed_time"
 STOP_TRAINING = "stop_training"
 LAST_CHECKPOINT_FILENAME = "last_checkpoint.pth"
 BEST_CHECKPOINT_FILENAME = "best_checkpoint.pth"
+MODEL_MANIFEST_FILENAME = "model_manifest.json"
 BATCH_LOSS_EXTRA = "batch_loss_extra"
 
 # STRING FORMATTING
