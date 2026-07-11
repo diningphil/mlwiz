@@ -74,7 +74,7 @@ mlwiz-dashboard --logdir RESULTS
 ```
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/diningphil/mlwiz/main/docs/_static/dashboard.png" width="960" alt="MLWiz visualization dashboard showing an experiment summary and selected final run"/>
+  <img src="https://raw.githubusercontent.com/diningphil/mlwiz/main/docs/_static/dashboard.jpg" width="960" alt="MLWiz visualization dashboard showing an experiment summary and selected final run"/>
 </p>
 
 See the [dashboard section](#mlwiz-dashboard) for its filtering, comparison,
