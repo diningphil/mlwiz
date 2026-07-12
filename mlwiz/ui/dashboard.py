@@ -1668,7 +1668,7 @@ class DashboardServer(ThreadingHTTPServer):
     def __init__(
         self,
         server_address: tuple[str, int],
-        repository: ResultsRepository,
+        repository: Any,
     ):
         """Bind the server address and attach its result repository."""
         super().__init__(server_address, DashboardRequestHandler)
@@ -1707,6 +1707,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/cache":
                 self._send_json(self.server.repository.cache_status())
+                return
+            if parsed.path == "/api/snapshot-state":
+                state_getter = getattr(self.server.repository, "snapshot_state", None)
+                self._send_json(state_getter() if state_getter is not None else {})
                 return
             if parsed.path == "/api/model-graph":
                 query = parse_qs(parsed.query)
@@ -1775,6 +1779,26 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - BaseHTTPRequestHandler API
         """Handle dashboard configuration requests."""
         parsed = urlparse(self.path)
+        if parsed.path == "/api/export":
+            try:
+                from mlwiz.ui.dashboard_snapshot import build_snapshot, snapshot_bytes
+
+                payload = self._read_json_body(max_bytes=2 * _MEBIBYTE)
+                snapshot = build_snapshot(self.server.repository, payload)
+                self._send_bytes(
+                    snapshot_bytes(snapshot),
+                    "application/vnd.mlwiz.dashboard+zip",
+                    "mlwiz-dashboard-view.mlwiz",
+                )
+            except (
+                ValueError,
+                json.JSONDecodeError,
+                AttributeError,
+                FileNotFoundError,
+                OSError,
+            ) as error:
+                self._send_error(HTTPStatus.BAD_REQUEST, str(error))
+            return
         if parsed.path == "/api/cache/reset":
             self._send_json(self.server.repository.reset_cache())
             return
@@ -1789,14 +1813,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         except (ValueError, json.JSONDecodeError) as error:
             self._send_error(HTTPStatus.BAD_REQUEST, str(error))
 
-    def _read_json_body(self) -> dict[str, Any]:
+    def _read_json_body(self, max_bytes: int = 65536) -> dict[str, Any]:
         """Read a small JSON request body."""
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError as error:
             raise ValueError("Invalid Content-Length header.") from error
-        if not 0 < content_length <= 65536:
-            raise ValueError("Request body must be between 1 byte and 64 KiB.")
+        if not 0 < content_length <= max_bytes:
+            raise ValueError(f"Request body must be between 1 and {max_bytes} bytes.")
         payload = json.loads(self.rfile.read(content_length))
         if not isinstance(payload, dict):
             raise ValueError("Expected a JSON object.")
@@ -1842,6 +1866,19 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_bytes(
+        self, body: bytes, content_type: str, download_name: str
+    ) -> None:
+        """Send a generated binary response as a browser download."""
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header(
+            "Content-Disposition", f'attachment; filename="{download_name}"'
+        )
         self.end_headers()
         self.wfile.write(body)
 

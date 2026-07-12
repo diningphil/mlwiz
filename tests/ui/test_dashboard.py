@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import threading
+import zipfile
 from urllib.request import Request, urlopen
 
 import pytest
@@ -14,10 +16,20 @@ from mlwiz.static import (
     MODEL_GRAPH_INPUT_SPEC_FILENAME,
 )
 from mlwiz.ui.dashboard import (
+    DashboardServer,
     MetricsCache,
     ResultsRepository,
     create_server,
     get_args,
+)
+from mlwiz.ui.dashboard_snapshot import (
+    SNAPSHOT_MEMBER,
+    SnapshotRepository,
+    build_snapshot,
+    export_get_args,
+    import_get_args,
+    read_snapshot,
+    write_snapshot,
 )
 
 
@@ -707,6 +719,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
         assert 'id="cache-reset"' in page
+        assert 'id="export-button"' in page
         assert 'id="plot-mode-select"' in page
         assert 'id="inner-fold-aggregate"' in page
         assert 'id="plot-navigator"' in page
@@ -731,6 +744,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
+        assert 'fetch("/api/export"' in app_script
+        assert 'getJson("/api/snapshot-state")' in app_script
         assert "localStorage.setItem(themeStorageKey" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
@@ -807,3 +822,131 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_snapshot_round_trip_contains_normalized_dashboard_data(tmp_path):
+    """A portable archive should reproduce plots without raw Torch artifacts."""
+    experiment, config, _, _ = _write_fixture_results(tmp_path)
+    selected_path = config.relative_to(experiment.parent).as_posix()
+    state = {
+        "selectedPath": selected_path,
+        "plotMode": "inner-fold",
+        "query": "score",
+    }
+
+    snapshot = build_snapshot(ResultsRepository(experiment.parent), state)
+    archive_path = write_snapshot(snapshot, tmp_path / "shared-view.mlwiz")
+    imported = read_snapshot(archive_path)
+    repository = SnapshotRepository(imported)
+
+    assert repository.snapshot_state() == state
+    assert repository.tree()["experiment_count"] == 1
+    assert repository.tree()["root"] == "Portable dashboard snapshot"
+    assert repository.details(selected_path)["metrics_file_count"] == 1
+    assert repository.details(selected_path)["series"]
+    with zipfile.ZipFile(archive_path) as archive:
+        assert archive.namelist() == [SNAPSHOT_MEMBER]
+        assert "metrics_data.torch" not in archive.read(SNAPSHOT_MEMBER).decode()
+    with pytest.raises(ValueError, match="not included"):
+        repository.model_graph_info(selected_path)
+
+
+def test_snapshot_export_does_not_require_a_selection(tmp_path):
+    """An empty browser state should export the complete dashboard root."""
+    experiment, config, selection_run, final_run = _write_fixture_results(tmp_path)
+    shutil.copytree(experiment, experiment.parent / "second_experiment")
+
+    snapshot = build_snapshot(ResultsRepository(experiment.parent), {})
+
+    assert snapshot["state"] == {}
+    assert snapshot["tree"]["experiment_count"] == 2
+    assert {item["name"] for item in snapshot["tree"]["experiments"]} == {
+        "mlp_MNIST",
+        "second_experiment",
+    }
+    expected_paths = {
+        config.relative_to(experiment.parent).as_posix(),
+        selection_run.relative_to(experiment.parent).as_posix(),
+        final_run.relative_to(experiment.parent).as_posix(),
+    }
+    assert expected_paths.issubset(snapshot["details"])
+
+
+def test_snapshot_server_restores_state_and_serves_details(tmp_path):
+    """The import repository should satisfy the existing read-only HTTP API."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    selected_path = selection_run.relative_to(experiment.parent).as_posix()
+    snapshot = build_snapshot(
+        ResultsRepository(experiment.parent), {"selectedPath": selected_path}
+    )
+    server = DashboardServer(("127.0.0.1", 0), SnapshotRepository(snapshot))
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        base_url = f"http://127.0.0.1:{server.server_address[1]}"
+        with urlopen(f"{base_url}/api/snapshot-state", timeout=3) as response:
+            imported_state = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/details?path={selected_path}", timeout=3
+        ) as response:
+            details = json.loads(response.read())
+
+        assert imported_state["selectedPath"] == selected_path
+        assert details["selection"]["path"] == selected_path
+        assert details["series"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_dashboard_export_endpoint_returns_portable_archive(tmp_path):
+    """The live dashboard should export the exact browser state as a download."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    selected_path = selection_run.relative_to(experiment.parent).as_posix()
+    server = create_server(experiment.parent, port=0)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        request = Request(
+            f"http://127.0.0.1:{server.server_address[1]}/api/export",
+            data=json.dumps(
+                {"selectedPath": selected_path, "scale": "symlog"}
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urlopen(request, timeout=10) as response:
+            body = response.read()
+            disposition = response.headers["Content-Disposition"]
+
+        archive_path = tmp_path / "download.mlwiz"
+        archive_path.write_bytes(body)
+        imported = read_snapshot(archive_path)
+        assert imported["state"]["scale"] == "symlog"
+        assert "mlwiz-dashboard-view.mlwiz" in disposition
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+def test_snapshot_cli_argument_parsers(tmp_path):
+    """Both console scripts should expose predictable file-oriented CLIs."""
+    results = tmp_path / "RESULTS"
+    results.mkdir()
+    snapshot = tmp_path / "view.mlwiz"
+    snapshot.touch()
+
+    export_args = export_get_args(
+        ["--logdir", str(results), "--path", "exp/run_1", "-o", "out.mlwiz"]
+    )
+    export_all_args = export_get_args(
+        ["--logdir", str(results), "-o", "everything.mlwiz"]
+    )
+    import_args = import_get_args([str(snapshot), "--port", "0"])
+
+    assert export_args.path == "exp/run_1"
+    assert export_args.output == "out.mlwiz"
+    assert export_all_args.path is None
+    assert import_args.port == 0

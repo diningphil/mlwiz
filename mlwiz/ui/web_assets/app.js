@@ -85,7 +85,19 @@
 
   function persistState() {
     try {
-      sessionStorage.setItem(storageKey, JSON.stringify({
+      sessionStorage.setItem(storageKey, JSON.stringify(exportableState()));
+    } catch (_error) {
+      // The dashboard remains fully usable when browser storage is disabled.
+    }
+    try {
+      localStorage.setItem(themeStorageKey, state.theme);
+    } catch (_error) {
+      // Keep the theme session-scoped when persistent browser storage is disabled.
+    }
+  }
+
+  function exportableState() {
+    return {
         selectedPath: state.selectedPath,
         openNodes: state.openNodes,
         treeScrollTop: state.treeScrollTop,
@@ -111,14 +123,34 @@
         graphNodePositions: state.graphNodePositions,
         graphMode: state.graphMode,
         graphView: state.graphView,
-      }));
-    } catch (_error) {
-      // The dashboard remains fully usable when browser storage is disabled.
-    }
+      };
+  }
+
+  async function exportView() {
+    const button = el("export-button");
+    button.disabled = true;
+    button.textContent = "Exporting…";
     try {
-      localStorage.setItem(themeStorageKey, state.theme);
-    } catch (_error) {
-      // Keep the theme session-scoped when persistent browser storage is disabled.
+      const response = await fetch("/api/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(exportableState()),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || `Export failed (${response.status})`);
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "mlwiz-dashboard-view.mlwiz";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      window.alert(error.message);
+    } finally {
+      button.disabled = false;
+      button.textContent = "⇩ Export all";
     }
   }
 
@@ -2592,6 +2624,7 @@
   }
 
   el("refresh-button").addEventListener("click", () => loadTree());
+  el("export-button").addEventListener("click", exportView);
   el("cache-apply").addEventListener("click", applyCacheLimit);
   el("cache-reset").addEventListener("click", resetCache);
   el("cache-limit").addEventListener("keydown", (event) => {
@@ -2761,9 +2794,30 @@
     el("selection-path").textContent = state.selectedPath;
   }
 
-  loadCacheStatus();
-  loadTree();
-  scheduleRefresh();
+  async function bootstrap() {
+    try {
+      const imported = await getJson("/api/snapshot-state");
+      if (imported && Object.keys(imported).length) {
+        Object.assign(state, imported, {
+          tree: null,
+          details: null,
+          charts: [],
+          modelGraphData: null,
+        });
+        el("metric-search").value = state.query || "";
+        el("refresh-interval").value = String(state.refreshSeconds || 15);
+        applyTheme();
+        syncScaleButton();
+        persistState();
+      }
+    } catch (_error) {
+      // A live results dashboard has no imported state.
+    }
+    loadCacheStatus();
+    loadTree();
+    scheduleRefresh();
+  }
+  bootstrap();
 
   function syncScaleButton() {
     const button = el("scale-toggle");

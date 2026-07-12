@@ -952,6 +952,104 @@ clicking a run focuses on that run only. The dashboard reads
 ``metrics_data.torch`` written by the
 :class:`~mlwiz.training.callback.plotter.Plotter` described above.
 
+Sharing Dashboard Results with a Peer
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+MLWiz can turn dashboard results into a portable ``.mlwiz`` snapshot. This is
+useful when a peer should be able to inspect metric histories, configurations,
+filters, and assessment results without receiving your experiment repository or
+the complete ``RESULTS`` directory. The recipient only needs a compatible
+version of MLWiz installed.
+
+1. Review and export the results
+""""""""""""""""""""""""""""""""
+
+Start the normal dashboard and arrange the view you want your peer to see:
+
+.. code-block:: bash
+
+    mlwiz-dashboard --logdir RESULTS --open
+
+The current selection, chart controls, filters, theme, and navigation state are
+restored when the peer opens the snapshot. Click **Export all** in the dashboard
+header to download ``mlwiz-dashboard-view.mlwiz``. The archive includes every
+experiment recognized beneath the dashboard's ``--logdir``; no experiment or
+run needs to be selected first.
+
+For a scripted or headless export, run:
+
+.. code-block:: bash
+
+    mlwiz-dashboard-export \
+      --logdir RESULTS \
+      --output results-for-review.mlwiz
+
+Large result roots can produce large snapshots because all normalized metric
+histories are included. To share only one experiment, pass the dashboard path
+of any configuration or run in that experiment. The exporter includes the
+containing experiment, rather than only that individual run, so the peer can
+still compare its configurations and folds:
+
+.. code-block:: bash
+
+    mlwiz-dashboard-export \
+      --logdir RESULTS \
+      --path mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1 \
+      --output mnist-review.mlwiz
+
+Dashboard paths are relative to ``--logdir`` and are shown below the selected
+configuration or run in the web interface.
+
+2. Check what will be shared
+""""""""""""""""""""""""""""
+
+A ``.mlwiz`` file is a versioned ZIP archive containing one normalized JSON
+snapshot. It includes metric histories, configuration and assessment JSON,
+configuration-filter values, the experiment/run hierarchy, and browser view
+state. It deliberately excludes model and optimizer checkpoints, raw
+``metrics_data.torch`` files, Python objects, experiment logs, training data,
+operator graphs, and model source code. Consequently, importing it never needs
+the sender's custom model classes and does not deserialize Torch or pickle
+payloads.
+
+Configuration and assessment metadata can still contain project names,
+hyperparameters, paths, or other information from the original result JSON.
+Export is therefore not an anonymization step. Before sending the archive, its
+JSON can be inspected with standard ZIP tools:
+
+.. code-block:: bash
+
+    unzip -p results-for-review.mlwiz snapshot.json | less
+
+Transfer the resulting ``.mlwiz`` file using the same approved channel you
+would use for result tables or other research artifacts.
+
+3. Open the snapshot on the recipient's machine
+""""""""""""""""""""""""""""""""""""""""""""""""
+
+After receiving the file, the peer starts an ad-hoc local dashboard server:
+
+.. code-block:: bash
+
+    mlwiz-dashboard-import results-for-review.mlwiz --open
+
+The import command validates the snapshot format, serves only the captured
+data, and binds to ``127.0.0.1:6006`` by default. It does not extract an
+experiment tree or modify the archive. If port 6006 is occupied, let the
+operating system choose a free port:
+
+.. code-block:: bash
+
+    mlwiz-dashboard-import results-for-review.mlwiz --port 0 --open
+
+The peer can navigate, filter, compare plots, and inspect captured JSON just as
+in the original dashboard. Model graph inspection is unavailable because
+checkpoints are intentionally omitted. Press ``Ctrl-C`` in the terminal to stop
+the temporary server.
+
+Snapshots are immutable point-in-time copies. If experiments continue running
+or the sender changes the result set, export and share a new ``.mlwiz`` file.
+
 
 Filtering Configurations for Post-processing of Results
 ----------------------------------------------------------

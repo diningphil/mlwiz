@@ -59,6 +59,8 @@ mlwiz-data = "mlwiz.build_dataset:main"
 mlwiz-exp = "mlwiz.launch_experiment:main"
 mlwiz-config-duplicator = "mlwiz.config_duplicator:main"
 mlwiz-dashboard = "mlwiz.ui.dashboard:main"
+mlwiz-dashboard-export = "mlwiz.ui.dashboard_snapshot:export_main"
+mlwiz-dashboard-import = "mlwiz.ui.dashboard_snapshot:import_main"
 
 [tool.setuptools.dynamic]
 version = {attr = "mlwiz.__version__"}

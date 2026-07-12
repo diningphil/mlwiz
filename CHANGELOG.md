@@ -4,6 +4,10 @@
 
 ## Added
 
+- added versioned, compressed `.mlwiz` dashboard snapshots for sharing normalized experiment metrics, result metadata, filters, and browser state without sharing the original result directory, checkpoints, or project-specific model classes
+- added `mlwiz-dashboard-export` for exporting every experiment under a result root by default, with an optional dashboard path to limit the archive to one containing experiment
+- added `mlwiz-dashboard-import` for validating a portable snapshot and serving it through an ad-hoc, read-only local dashboard without extracting files or deserializing Torch/pickle payloads
+- added an **Export all** dashboard action and a tutorial guide covering sender/recipient workflows, archive inspection, privacy considerations, scoped exports, and immutable point-in-time behavior
 - added Hydra-style modular YAML composition through ordered `defaults` lists, config-group directories, `_self_` ordering, recursive nested defaults, and package overrides (`@package`, `@_here_`, and `@_global_`)
 - experiment configs now require structured `dataset`, `resources`, `reproducibility`, `data_loading`, and `experiment` sections plus exactly one `grid`, `random`, or `bayes` section
 - `grid`, `random`, and `bayes` support their own local `defaults` lists, keeping model/optimizer/training choices separate from global runtime settings
@@ -20,6 +24,7 @@
 
 ## Compatibility
 
+- portable dashboard archives use snapshot format version 1; import validates the format and rejects unsupported versions instead of attempting a best-effort load
 - when a separate optimizer checkpoint is absent during resume, MLWiz reads optimizer, scheduler, and scaler state from the model checkpoint, preserving compatibility with checkpoints created by releases up to 1.6.x
 - flat pre-1.7.0 experiment configurations are intentionally unsupported and fail with an explicit schema-migration error; data-building configuration files are unaffected
 
