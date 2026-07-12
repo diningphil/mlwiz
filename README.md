@@ -80,6 +80,35 @@ mlwiz-dashboard --logdir RESULTS
 See the [dashboard section](#mlwiz-dashboard) for its filtering, comparison,
 caching, and model-inspection features.
 
+To share a dashboard without sharing the project, click **Export all** in the
+dashboard. The resulting `.mlwiz` file contains normalized metric histories,
+metadata, filters, and navigation state for all experiments under `--logdir`;
+it does not contain checkpoints, executable Python objects, or operator graphs.
+A recipient with MLWiz installed can open it with:
+
+```bash
+mlwiz-dashboard-import shared-view.mlwiz --open
+```
+
+The same archive can be produced without a browser:
+
+```bash
+mlwiz-dashboard-export --logdir RESULTS --output shared-view.mlwiz
+```
+
+Optionally pass a dashboard-relative path to export only the experiment that
+contains that configuration or run:
+
+```bash
+mlwiz-dashboard-export --logdir RESULTS \
+  --path mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/final_run1 \
+  --output shared-view.mlwiz
+```
+
+See the [peer-sharing guide](docs/tutorial.rst) for the complete sender and
+recipient workflow, archive contents, privacy considerations, and scoped
+exports.
+
 ### 🧭 Navigating the CLI (non-debug mode)
 Example of the global view CLI:
 
@@ -403,6 +432,12 @@ plotter: mlwiz.training.callback.plotter.Plotter
 ```
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
+
+Portable dashboards can be shared without copying the result directory or
+custom model code. Use **Export all** in the dashboard or
+`mlwiz-dashboard-export --logdir RESULTS --output shared.mlwiz`, then have the
+recipient run `mlwiz-dashboard-import shared.mlwiz --open`. See the
+[peer-sharing guide](docs/tutorial.rst) for details and privacy considerations.
 
 Metric artifacts are loaded only when a configuration or run is selected. The
 dashboard keeps normalized histories in a least-recently-used cache (256 MB by
