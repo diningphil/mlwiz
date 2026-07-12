@@ -29,15 +29,13 @@ the following, with an explanation of each field as a comment:
       args:  # arguments to pass to the dataset class
         arg_name1:
         arg_namen:
-      # pre_transform:  # transform data and store it at dataset creation time. Can be a string or a class + args as below
-      transform_train: # on the fly transforms for training data
-        - class_name: mlwiz.data.transform.ConstantIfEmpty
+        # Transforms belong inside args. Each can be a dotted path or a class + args mapping.
+        # pre_transform: torch.nn.Identity  # transform and store data at dataset creation time
+        transform_train:  # on-the-fly transform for training data
+          class_name: torchvision.transforms.RandomHorizontalFlip
           args:
-            value: 1
-      transform_eval: # on the fly transforms for validation and test data
-        - class_name: mlwiz.data.transform.ConstantIfEmpty
-          args:
-            value: 1
+            p: 0.5
+        transform_eval: torch.nn.Identity  # on-the-fly transform for validation and test data
 
 
 Data Splitting
@@ -91,7 +89,7 @@ Once our data configuration file is ready, we can create the dataset using (for 
 
 .. code-block:: bash
 
-    mlwiz-data --config-file examples/DATA_CONFIGS/config_NCI1.yml
+    mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml
 
 Experiment Setup
 **********************
@@ -227,98 +225,6 @@ also have exactly one search section: ``grid``, ``random``, or ``bayes``. Flat
 pre-1.7.0 experiment files are rejected; MLWiz deliberately has no legacy
 fallback for the old schema.
 
-Reusable files are selected through ordered ``defaults`` lists. Root defaults
-compose global settings, while a defaults list inside a search section composes
-only model-selection settings::
-
-    # MODEL_CONFIGS/config_MLP.yml
-    defaults:
-      - dataset: mnist
-      - resources: cpu
-      - reproducibility: default
-      - data_loading: torch
-      - experiment: default
-      - _self_
-
-    experiment:
-      exp_name: mlp
-
-    grid:
-      defaults:
-        - optimizer:
-            - adam
-            - adagrad
-        - search/mlp@_here_
-        - _self_
-      model: mlwiz.model.MLP
-      epochs: 100
-
-Terms and composition rules
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-``defaults``
-  An ordered list of configuration selections. It instructs MLWiz how to build
-  the final dictionary and is removed from that dictionary after composition.
-
-Config group
-  A directory containing named alternatives. ``dataset: mnist`` selects
-  ``dataset/mnist.yml`` and, by default, packages its contents under
-  ``dataset``. ``optimizer: [adam, adagrad]`` selects two files from the same
-  group.
-
-``_self_``
-  The current file at that exact location in the ordered defaults list. Later
-  scalar/list values replace earlier ones and dictionaries merge recursively.
-  If omitted, MLWiz implicitly composes ``_self_`` last.
-
-Nested defaults
-  A selected config file may have its own root defaults, so reusable fragments
-  can be built from smaller fragments. MLWiz resolves these recursively and
-  reports cycles. MLWiz also supports a local defaults list directly inside
-  ``grid``, ``random``, or ``bayes``; its output stays in that search section.
-
-Package override
-  The ``group@package: option`` syntax changes the destination path. For
-  example, ``optimizer@training.optimizer: adam`` writes the selected value to
-  ``training.optimizer`` instead of ``optimizer``.
-
-``_here_``
-  A package used in search-local defaults to merge a selected mapping directly
-  into the current search section. In the example, ``search/mlp@_here_`` adds
-  sibling ``loss``, ``scorer``, and ``engine`` keys directly to ``grid``.
-
-``_global_``
-  A package used from the root defaults list to suppress the normal group
-  wrapper and merge a mapping at the root. It is useful when one reusable file
-  already contains several complete top-level sections.
-
-Relative and absolute config paths
-  Paths are relative to the YAML file containing the defaults list. A leading
-  ``/`` resolves from the main configuration directory.
-
-Multiple search configurations
-  Each selected optimizer/model/etc. file can contain one mapping or a list of
-  alternatives. MLWiz concatenates alternatives from all selected files. Grid
-  search expands them all; random and Bayesian search use a categorical choice
-  and still resolve samplers nested inside the chosen alternative.
-
-See ``examples/MODEL_CONFIGS/config_MLP.yml`` and the sibling config-group
-directories for a complete example.
-
-
-Data Information
------------------
-=======
-=======
-Modular configuration groups
-----------------------------
-
-Experiment YAML files have five required global sections: ``dataset``,
-``resources``, ``reproducibility``, ``data_loading``, and ``experiment``. They
-also have exactly one search section: ``grid``, ``random``, or ``bayes``. Flat
-pre-1.7.0 experiment files are rejected; MLWiz deliberately has no legacy
-fallback for the old schema.
-
 The configuration files shipped in ``examples/MODEL_CONFIGS`` are examples,
 not mandatory templates. You can organize and customize your configuration as
 needed. An experiment has the required top-level structure as long as it
@@ -409,7 +315,6 @@ directories for a complete example.
 
 Data Information
 -----------------
-=======
 
 Here we can specify some information about the dataset:
 
@@ -834,7 +739,7 @@ Sometimes, a specific configuration may take a long time to finish training, and
 You can skip its execution during model selection (**note: for all outer folds!**)
 by passing the argument ``--skip-config-ids [config_id1] [config_id2] ...``
 to ``mlwiz-exp``. This will ignore the specified configurations across all outer folds and continue with the remaining
-experiments. It cannot be used together with ``-execute-config-id``.
+experiments. It cannot be used together with ``--execute-config-id``.
 
 
 Storing logged metrics on disk
@@ -948,10 +853,10 @@ then do something like
     from mlwiz.evaluation.util import retrieve_experiments, filter_experiments
 
     configs = retrieve_experiments('RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/')
-    print(len(configs))  # will return 32
+    print(len(configs))  # returns 20 for the current example configuration
 
     filtered_configs = filter_experiments(configs, logic='OR', parameters={'Multiclass Classification': 1, 'lr': 0.001})
-    print(len(filtered_configs))  # will return 24
+    print(len(filtered_configs))  # depends on the recorded metric values
 
 
 Converting Results to a DataFrame for Post-processing
@@ -973,7 +878,7 @@ Exporting Assessment Results to LaTeX
 ----------------------------------------------------------
 
 When you need a publication-ready table summarizing multiple experiments, rely on the helper located in
-``mlwiz/experiment/util.py``. The function ``create_latex_table_from_assessment_results`` accepts a list of
+``mlwiz/evaluation/util.py``. The function ``create_latex_table_from_assessment_results`` accepts a list of
 ``(experiment_folder, model_name, dataset_name)`` tuples, reads the aggregated assessment JSON files, and formats them
 as a LaTeX table that already includes the corresponding standard deviations.
 
@@ -1064,7 +969,12 @@ We provide utilities to use your model immediately after experiments end to run 
     # ------------------------------------------------------------------ #
     # OPTIONAL: you can also instantiate a DataProvider to load TR/VL/TE splits specific to each fold
 
-    data_provider = instantiate_data_provider_from_config(config, splits_filepath)
+    data_provider = instantiate_data_provider_from_config(
+        config,
+        splits_filepath,
+        n_outer_folds=3,
+        n_inner_folds=2,
+    )
     # select outer fold 1 (indices start from 0)
     data_provider.set_outer_k(0)
     # select inner fold 1 (indices start from 0)
@@ -1075,8 +985,8 @@ We provide utilities to use your model immediately after experiments end to run 
 
     # load loaders associated with final runs of outer 1 split
     train_loader = data_provider.get_outer_train()
-    val_loader = data_provider.get_outer_train()
-    test_loader = data_provider.get_outer_train()
+    val_loader = data_provider.get_outer_val()
+    test_loader = data_provider.get_outer_test()
 
     # Please refer to the DataProvider documentation to use it properly.
     # ------------------------------------------------------------------ #
