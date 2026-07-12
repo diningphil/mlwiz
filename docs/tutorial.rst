@@ -567,6 +567,118 @@ There are two example files you can use as a starting point:
 ``examples/MODEL_CONFIGS/config_MLP_bayes.yml``.
 
 
+Hydra-like configuration style
+------------------------------
+
+MLWiz uses a lightweight, Hydra-like composition style for experiment
+configuration, without requiring Hydra or OmegaConf at runtime. A main YAML
+file acts as the entry point, and its ordered ``defaults`` lists select reusable
+files from config-group directories such as ``dataset/``, ``resources/``, and
+``optimizer/``. This makes it possible to switch a dataset, execution target,
+or optimizer by changing a selection instead of copying a complete experiment
+file.
+
+The composition directives follow the rules described above: ``_self_``
+controls when the current file is merged, ``group@package`` changes the output
+location, ``@_here_`` merges a selected mapping into the current search
+section, and ``@_global_`` merges it at the configuration root. Relative paths
+are resolved from the file declaring the defaults list, while paths beginning
+with ``/`` are resolved from the main configuration directory. After
+composition, MLWiz works with an ordinary Python dictionary; the ``defaults``
+directives do not remain in the final experiment configuration.
+
+Composition examples
+^^^^^^^^^^^^^^^^^^^^
+
+The following snippets focus on composition, so unrelated required experiment
+sections are omitted for brevity.
+
+Select named files from config groups and use ``_self_`` to control precedence:
+
+.. code-block:: yaml
+
+    defaults:
+      - dataset: mnist       # loads dataset/mnist.yml under dataset
+      - experiment: default  # loads experiment/default.yml under experiment
+      - _self_               # merges this file after both selections
+
+    experiment:
+      exp_name: custom_mlp   # overrides/adds to experiment/default.yml
+
+Moving ``_self_`` to the beginning would instead let the selected files
+override conflicting values from the main file.
+
+Select several alternatives and merge a shared search fragment in place:
+
+.. code-block:: yaml
+
+    grid:
+      defaults:
+        - optimizer:
+            - adam
+            - adagrad
+        - search/mlp@_here_
+        - _self_
+      model: mlwiz.model.MLP
+      epochs: 100
+
+Here, the optimizer files become alternatives at ``grid.optimizer``.
+``search/mlp@_here_`` contributes keys such as ``loss``, ``scorer``, and
+``engine`` directly to ``grid`` instead of creating ``grid.search``.
+
+Use an explicit dotted package when a selection should have a different
+destination:
+
+.. code-block:: yaml
+
+    defaults:
+      - optimizer@training.optimizer: adam
+      - _self_
+
+The contents of ``optimizer/adam.yml`` are placed at
+``training.optimizer`` rather than the default ``optimizer`` package.
+
+Use ``@_global_`` when a selected mapping already contains complete top-level
+sections. A relative reference starts beside the file declaring it, whereas a
+leading ``/`` starts at the main configuration directory:
+
+.. code-block:: yaml
+
+    defaults:
+      - fragments/local_sections@_global_  # relative to this YAML file
+      - /shared/cluster@_global_            # relative to the config root
+      - _self_
+
+Both selected mappings are merged directly into the configuration root without
+``fragments`` or ``shared`` wrappers.
+
+Selected files can themselves have defaults. For example,
+``models/base.yml`` can reuse ``models/variant/small.yml``:
+
+.. code-block:: yaml
+
+    # models/base.yml
+    defaults:
+      - variant: small
+      - _self_
+    activation: relu
+
+.. code-block:: yaml
+
+    # models/variant/small.yml
+    width: 64
+
+Selecting ``models: base`` from the main file produces
+``models.variant.width: 64`` and ``models.activation: relu``. MLWiz resolves
+such nested defaults recursively and reports an error if they form a cycle.
+
+This style is optional: the files under ``examples/MODEL_CONFIGS`` demonstrate
+one maintainable organization, not a required directory layout. A composed
+experiment only needs the five global sections ``dataset``, ``resources``,
+``reproducibility``, ``data_loading``, and ``experiment``, together with exactly
+one search section: ``grid``, ``random``, or ``bayes``.
+
+
 Experiment
 --------------
 
