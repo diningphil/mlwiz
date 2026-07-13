@@ -25,3 +25,7 @@ grid:
   epochs: 400
   dim_embedding: 5
   mlwiz_tests: true
+  plotter:
+    - class_name: mlwiz.training.callback.plotter.WidthPlotter
+      args:
+        store_on_disk: true

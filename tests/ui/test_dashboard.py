@@ -135,6 +135,91 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     ]
 
 
+def test_model_selection_analysis_discovers_varying_hyperparameters_and_curves(
+    tmp_path,
+):
+    """Analysis should expose only varied parameters and transpose layer curves."""
+    experiment, first_config, first_run, _ = _write_fixture_results(tmp_path)
+    selection = first_config.parent
+    second_config = selection / "config_3"
+    second_run = second_config / "INNER_FOLD_1" / "run_1"
+    second_run.mkdir(parents=True)
+    (first_config / "config_results.json").write_text(
+        json.dumps({"config": {"lr": 0.01, "batch_size": 32}})
+    )
+    (second_config / "config_results.json").write_text(
+        json.dumps({"config": {"lr": 0.1, "batch_size": 32}})
+    )
+    torch.save(
+        {
+            "losses": {"validation_main_loss": [1.2, 0.8]},
+            "model_widths": [[8, 16], [10, 18]],
+        },
+        second_run / "metrics_data.torch",
+    )
+    first_metrics = torch.load(first_run / "metrics_data.torch", weights_only=True)
+    first_metrics["model_widths"] = [[4, 12], [6, 14], [8, 16]]
+    torch.save(first_metrics, first_run / "metrics_data.torch")
+    torch.save(
+        {
+            "best_epoch": 1,
+            "scores": {"validation_main_score": 0.77},
+        },
+        first_run / "best_checkpoint.pth",
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    analysis = repository.model_selection_analysis(experiment.name, 1, 1)
+
+    assert [item["id"] for item in analysis["hyperparameters"]] == ["lr"]
+    assert analysis["hyperparameters"][0]["values"] == [0.01, 0.1]
+    quantity_ids = {item["id"] for item in analysis["quantities"]}
+    assert "model_widths:layer_1" in quantity_ids
+    assert "model_widths:layer_2" in quantity_ids
+    width = next(
+        item
+        for item in analysis["series"]
+        if item["configuration"] == 3
+        and item["quantity_id"] == "model_widths:layer_2"
+    )
+    assert width["values"] == [16.0, 18.0]
+    best_score = next(
+        item
+        for item in analysis["series"]
+        if item["configuration"] == 2
+        and item["quantity_id"] == "scores:validation_main_score"
+    )
+    assert best_score["selected_value"] == pytest.approx(0.77)
+    assert best_score["selected_value_source"] == "best_checkpoint"
+    last_width = next(
+        item
+        for item in analysis["series"]
+        if item["configuration"] == 3
+        and item["quantity_id"] == "model_widths:layer_2"
+    )
+    assert last_width["selected_value"] == pytest.approx(18.0)
+    assert last_width["selected_value_source"] == "last_epoch"
+    second = next(
+        item for item in analysis["configurations"] if item["number"] == 3
+    )
+    assert second["hyperparameters"]["batch_size"] == 32
+    assert analysis["metrics_file_count"] == 2
+
+
+def test_model_selection_analysis_uses_live_manifest_configuration(tmp_path):
+    """Running configurations should be comparable before aggregation finishes."""
+    experiment, config, selection_run, _ = _write_fixture_results(tmp_path)
+    (config / "config_results.json").unlink()
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps({"config": {"optimizer": {"lr": 0.02}}})
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    analysis = repository.model_selection_analysis(experiment.name, 1, 1)
+
+    assert analysis["configurations"][0]["hyperparameters"]["optimizer.lr"] == 0.02
+
+
 def test_details_loads_oversized_selection_without_caching(tmp_path):
     """The cache ceiling must never prevent an active selection from loading."""
     experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
@@ -685,6 +770,12 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             f"{base_url}/api/experiment-filter?path=mlp_MNIST", timeout=3
         ) as response:
             filter_data = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/model-selection-analysis?path=mlp_MNIST"
+            "&outer_fold=1&inner_fold=1",
+            timeout=3,
+        ) as response:
+            analysis_data = json.loads(response.read())
         graph_path = selection_run.relative_to(experiment.parent).as_posix()
         with urlopen(
             f"{base_url}/api/model-graph?path={graph_path}", timeout=3
@@ -718,6 +809,15 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
+        assert 'id="analysis-tab"' in page
+        assert 'id="analysis-plot-type"' in page
+        assert 'id="analysis-hyperparameter"' in page
+        assert 'id="analysis-quantity"' in page
+        assert 'id="analysis-second-quantity"' in page
+        assert 'id="analysis-metric-quantity"' in page
+        assert 'id="analysis-add-quantity"' in page
+        assert 'id="analysis-selected-quantities"' in page
+        assert 'id="analysis-chart-grid"' in page
         assert 'id="cache-reset"' in page
         assert 'id="export-button"' in page
         assert 'id="plot-mode-select"' in page
@@ -751,6 +851,38 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'postJson("/api/cache"' in app_script
         assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
+        assert "/api/model-selection-analysis" in app_script
+        assert "analysisQuantityOptions" in app_script
+        assert "renderAnalysisCharts" in app_script
+        assert "analysisQuantities" in app_script
+        assert "analysisPlots" in app_script
+        assert "plotGroupingControl" in app_script
+        assert "plotSecondaryGroupingControl" in app_script
+        assert "plotDimensionControl" in app_script
+        assert "plot3DAlignmentControl" in app_script
+        assert "Look along the ${axis} axis" in app_script
+        assert "plotRemoveButton" in app_script
+        assert "renderAnalysisPreservingScroll" in app_script
+        assert "Grouped by ${plot.hyperparameter}" in app_script
+        assert "appendCombinedTrendPlot" in app_script
+        assert "drawAnalysis3DChart" in app_script
+        assert "drawAnalysis3DAxisValues" in app_script
+        assert "attachAnalysisHover" in app_script
+        assert "metricHoverRegion" in app_script
+        assert "drawAnalysis3DHoverDot" in app_script
+        assert "plotExpandButton" in app_script
+        assert "camera.zoom" in app_script
+        assert "drawMetricViolinChart" in app_script
+        assert "Raw points" in app_script
+        assert "metricHeatmapLegend" in app_script
+        assert "drawMetric3DHeatmap" in app_script
+        assert "bottomCorners" in app_script
+        assert 'plot.secondaryHyperparameter ? "Heatmap" : "Histogram"' in app_script
+        assert "appendMetricVsHyperparameter" in app_script
+        assert "appendMetricQuantity" in app_script
+        assert "metricHyperparameterBars(plot, quantity.id)" in app_script
+        assert "analysis-metric-card-controls" in app_script
+        assert "drawMetricBarChart" in app_script
         assert "/api/model-graph" in app_script
         assert "/api/model-graph-info" in app_script
         assert "renderModelGraph" in app_script
@@ -818,6 +950,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert operator_graph["graph_mode"] == "operators"
         assert operator_graph["summary"]["operators"] >= 3
         assert filter_data["default_metric"] == "scores:main_score"
+        assert analysis_data["outer_fold"] == 1
+        assert analysis_data["inner_fold"] == 1
+        assert analysis_data["metrics_file_count"] == 1
     finally:
         server.shutdown()
         server.server_close()
@@ -844,6 +979,9 @@ def test_snapshot_round_trip_contains_normalized_dashboard_data(tmp_path):
     assert repository.tree()["root"] == "Portable dashboard snapshot"
     assert repository.details(selected_path)["metrics_file_count"] == 1
     assert repository.details(selected_path)["series"]
+    assert repository.model_selection_analysis(experiment.name, 1, 1)[
+        "metrics_file_count"
+    ] == 1
     with zipfile.ZipFile(archive_path) as archive:
         assert archive.namelist() == [SNAPSHOT_MEMBER]
         assert "metrics_data.torch" not in archive.read(SNAPSHOT_MEMBER).decode()

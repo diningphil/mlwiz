@@ -69,6 +69,11 @@
       </aside>
 
       <section class="content" id="content" aria-live="polite">
+        <nav class="dashboard-tabs" aria-label="Dashboard views">
+          <button id="runs-tab" class="active" type="button" aria-selected="true">Run explorer</button>
+          <button id="analysis-tab" type="button" aria-selected="false">Model selection analysis</button>
+        </nav>
+        <div id="runs-panel">
         <div class="welcome" id="welcome">
           <div class="welcome-graphic" aria-hidden="true">
             <span class="axis axis-y"></span><span class="axis axis-x"></span>
@@ -241,6 +246,32 @@
             <div id="metadata-list" class="metadata-list"></div>
           </section>
         </div>
+        </div>
+
+        <section class="analysis-view" id="analysis-view" hidden>
+          <div class="analysis-head">
+            <div>
+              <p class="eyebrow">Live comparison</p>
+              <h2>Model selection analysis</h2>
+              <p>Build a mixed collection of training trends and checkpoint-aware metric comparisons.</p>
+            </div>
+            <span class="freshness" id="analysis-freshness">Waiting for data</span>
+          </div>
+          <div class="analysis-controls">
+            <label><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option></select></label>
+            <label><span>Experiment</span><select id="analysis-experiment"></select></label>
+            <label><span>Outer fold</span><select id="analysis-outer-fold"></select></label>
+            <label><span>Inner fold</span><select id="analysis-inner-fold"></select></label>
+            <label><span>Group by (next plot)</span><select id="analysis-hyperparameter"></select></label>
+            <label class="analysis-quantity" id="analysis-trend-quantity"><span>Quantity of interest</span><select id="analysis-quantity"></select></label>
+            <label class="analysis-quantity" id="analysis-second-trend-quantity" hidden><span>Second trend</span><select id="analysis-second-quantity"></select></label>
+            <label class="analysis-quantity" id="analysis-metric-quantity-field" hidden><span>Metric</span><select id="analysis-metric-quantity"></select></label>
+            <button class="analysis-add-quantity" id="analysis-add-quantity" type="button">+ Add plot</button>
+          </div>
+          <div class="analysis-selected-quantities" id="analysis-selected-quantities" aria-label="Selected analysis plots"></div>
+          <div class="notice" id="analysis-notice" hidden></div>
+          <div class="chart-grid analysis-chart-grid" id="analysis-chart-grid" hidden></div>
+        </section>
       </section>
     </main>
   </body>

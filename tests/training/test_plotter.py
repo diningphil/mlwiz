@@ -6,7 +6,7 @@ import pytest
 import torch
 
 from mlwiz.static import LOSSES, SCORES
-from mlwiz.training.callback.plotter import Plotter
+from mlwiz.training.callback.plotter import Plotter, WidthPlotter
 
 
 def _state(epoch: int = 0):
@@ -56,6 +56,26 @@ def test_plotter_periodically_flushes_and_resumes_histories(tmp_path):
     resumed.on_termination(_state(2))
     metrics = torch.load(metrics_path, weights_only=True)
     assert metrics["scores"]["training_main_score"] == pytest.approx([0.6, 0.7, 0.8])
+
+
+def test_width_plotter_records_one_curve_per_learnable_layer(tmp_path):
+    """WidthPlotter should persist an epochs-by-layers history matrix."""
+    model = torch.nn.Sequential(
+        torch.nn.Linear(4, 8),
+        torch.nn.ReLU(),
+        torch.nn.Linear(8, 3),
+    )
+    plotter = WidthPlotter(str(tmp_path))
+    first = _state(0)
+    first.model = model
+    second = _state(1)
+    second.model = model
+
+    plotter.on_epoch_end(first)
+    plotter.on_epoch_end(second)
+
+    metrics = torch.load(tmp_path / "metrics_data.torch", weights_only=True)
+    assert metrics["model_widths"] == [[8, 3], [8, 3]]
 
 
 @pytest.mark.parametrize("value", [0, -1, 1.5, "2"])

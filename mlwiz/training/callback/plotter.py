@@ -123,3 +123,42 @@ class Plotter(EventHandler):
         """
         if self.main_process and self.store_on_disk:
             self._store_metrics()
+
+
+class WidthPlotter(Plotter):
+    """Example plotter that records the output width of every model layer.
+
+    The resulting ``model_widths`` entry is an ``epochs × layers`` matrix.
+    It is intentionally simple: fixed-width models such as :class:`MLP`
+    produce flat trends, while models that replace or resize layers during
+    training produce changing curves.
+    """
+
+    @staticmethod
+    def _model_widths(model: torch.nn.Module) -> list[int]:
+        """Return output dimensions for common learnable layer types."""
+        model = getattr(model, "module", model)
+        widths = []
+        for layer in model.modules():
+            width = getattr(layer, "out_features", None)
+            if width is None:
+                width = getattr(layer, "out_channels", None)
+            if isinstance(width, int):
+                widths.append(width)
+        return widths
+
+    def on_epoch_end(self, state: State):
+        """Store regular metrics followed by one width vector for this epoch."""
+        super().on_epoch_end(state)
+        if not self.main_process or not self.store_on_disk:
+            return
+        widths = self._model_widths(state.model)
+        if not widths:
+            return
+        self.stored_metrics.setdefault("model_widths", []).append(widths)
+        if self.store_every_N_epochs is not None and (
+            (state.epoch + 1) % self.store_every_N_epochs == 0
+        ):
+            # ``Plotter.on_epoch_end`` flushes regular metrics first. Re-flush
+            # so this epoch's width vector is included in the same artifact.
+            self._store_metrics()

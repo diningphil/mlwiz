@@ -152,6 +152,67 @@ def _numeric_series(value: Any) -> Optional[list[Optional[float]]]:
     return output
 
 
+def _configuration_leaves(
+    value: Any, prefix: str = ""
+) -> dict[str, Any]:
+    """Flatten nested configuration mappings while retaining atomic values."""
+    value = _json_safe(value)
+    if not isinstance(value, dict):
+        return {prefix: value} if prefix else {}
+    leaves = {}
+    for key, item in value.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(item, dict):
+            leaves.update(_configuration_leaves(item, path))
+        else:
+            leaves[path] = item
+    return leaves
+
+
+def _history_series(value: Any, prefix: str = "") -> list[tuple[str, list]]:
+    """Discover scalar histories, including epoch-by-layer curve matrices."""
+    value = _json_safe(value)
+    if isinstance(value, dict):
+        output = []
+        for key, item in value.items():
+            path = f"{prefix}/{key}" if prefix else str(key)
+            output.extend(_history_series(item, path))
+        return output
+
+    normalized = _numeric_series(value)
+    if normalized is not None:
+        return [(prefix, normalized)]
+
+    if not isinstance(value, list) or not value:
+        return []
+
+    # Histories such as ``[{layer: value}, ...]`` are common in custom
+    # plotters. Transpose their stable keys into one epoch curve per leaf.
+    if all(isinstance(item, dict) for item in value):
+        shared_keys = set(value[0])
+        for item in value[1:]:
+            shared_keys.intersection_update(item)
+        output = []
+        for key in sorted(shared_keys, key=str):
+            path = f"{prefix}/{key}" if prefix else str(key)
+            output.extend(_history_series([item[key] for item in value], path))
+        return output
+
+    # WidthPlotter-style data is stored as epochs × layers. A rectangular
+    # numeric matrix becomes one curve per layer (and higher dimensions are
+    # handled recursively as components).
+    if all(isinstance(item, list) for item in value):
+        width = len(value[0])
+        if width and all(len(item) == width for item in value):
+            output = []
+            for index in range(width):
+                label = "layer" if not prefix.endswith("stats") else "component"
+                path = f"{prefix}/{label}_{index + 1}" if prefix else f"{label}_{index + 1}"
+                output.extend(_history_series([item[index] for item in value], path))
+            return output
+    return []
+
+
 def _deep_size(value: Any, seen: Optional[set[int]] = None) -> int:
     """Estimate the resident size of a normalized cache value in bytes."""
     if seen is None:
@@ -1119,6 +1180,201 @@ class ResultsRepository:
             "cache": self.cache_status(),
         }
 
+    def model_selection_analysis(
+        self, relative_path: str, outer_fold: int, inner_fold: int
+    ) -> dict[str, Any]:
+        """Return live histories and varying hyperparameters for one fold pair."""
+        experiment = self.resolve(relative_path)
+        assessment = experiment / MODEL_ASSESSMENT
+        if not experiment.is_dir() or not assessment.is_dir():
+            raise ValueError("Select an experiment containing MODEL_ASSESSMENT.")
+        if outer_fold <= 0 or inner_fold <= 0:
+            raise ValueError("Fold numbers must be positive integers.")
+
+        outer = assessment / f"OUTER_FOLD_{outer_fold}"
+        selection = outer / "MODEL_SELECTION"
+        if not selection.is_dir():
+            raise FileNotFoundError(self._relative(selection))
+
+        configurations = []
+        all_series = []
+        errors = []
+        modified_at = None
+        metrics_file_count = 0
+        for config_number, config_folder in _numbered_directories(
+            selection, _CONFIG_PATTERN
+        ):
+            inner = config_folder / f"INNER_FOLD_{inner_fold}"
+            if not inner.is_dir():
+                continue
+            config = self._analysis_configuration(config_folder, inner)
+            leaves = _configuration_leaves(config)
+            config_record = {
+                "number": config_number,
+                "path": self._relative(config_folder),
+                "hyperparameters": leaves,
+            }
+            configurations.append(config_record)
+            for run_number, run_folder in _numbered_directories(inner, _RUN_PATTERN):
+                metrics_file = run_folder / "metrics_data.torch"
+                if not metrics_file.is_file():
+                    continue
+                if metrics_file_count >= _MAX_METRICS_FILES_PER_SELECTION:
+                    break
+                metrics_file_count += 1
+                try:
+                    file_series, file_stat = self._metrics_file_series(metrics_file)
+                    best_values, best_epoch = self._best_checkpoint_metrics(
+                        run_folder
+                    )
+                    modified_at = max(modified_at or file_stat.st_mtime, file_stat.st_mtime)
+                    for item in file_series:
+                        quantity_id = f"{item['group']}:{item['name']}"
+                        selected_value = best_values.get(
+                            (item["group"], item["name"])
+                        )
+                        selection_source = "best_checkpoint"
+                        if selected_value is None and isinstance(best_epoch, int):
+                            if 0 <= best_epoch < len(item["values"]):
+                                selected_value = item["values"][best_epoch]
+                        if selected_value is None:
+                            selected_value = next(
+                                (
+                                    value
+                                    for value in reversed(item["values"])
+                                    if value is not None
+                                ),
+                                None,
+                            )
+                            selection_source = "last_epoch"
+                        all_series.append(
+                            {
+                                **item,
+                                "quantity_id": quantity_id,
+                                "configuration": config_number,
+                                "run": run_number,
+                                "source": self._relative(run_folder),
+                                "selected_value": selected_value,
+                                "selected_value_source": selection_source,
+                            }
+                        )
+                except (
+                    OSError,
+                    RuntimeError,
+                    ValueError,
+                    TypeError,
+                    EOFError,
+                    pickle.UnpicklingError,
+                ) as error:
+                    errors.append(
+                        {"file": self._relative(metrics_file), "message": str(error)}
+                    )
+
+        hyperparameters = []
+        names = sorted(
+            {name for config in configurations for name in config["hyperparameters"]},
+            key=str.lower,
+        )
+        for name in names:
+            unique = {}
+            for config in configurations:
+                if name not in config["hyperparameters"]:
+                    continue
+                value = config["hyperparameters"][name]
+                key = json.dumps(value, sort_keys=True, ensure_ascii=False)
+                unique.setdefault(key, value)
+            if len(unique) > 1:
+                hyperparameters.append(
+                    {"id": name, "label": name.replace("_", " "), "values": list(unique.values())}
+                )
+
+        quantity_counts: dict[str, set[tuple[int, int]]] = {}
+        quantity_records = {}
+        for item in all_series:
+            identifier = item["quantity_id"]
+            quantity_counts.setdefault(identifier, set()).add(
+                (item["configuration"], item["run"])
+            )
+            quantity_records[identifier] = {
+                "id": identifier,
+                "group": item["group"],
+                "name": item["name"],
+                "label": item["name"].replace("/", " · ").replace("_", " "),
+            }
+        quantities = []
+        for identifier, record in quantity_records.items():
+            quantities.append(
+                {**record, "run_count": len(quantity_counts[identifier])}
+            )
+        quantities.sort(
+            key=lambda item: (
+                item["id"] != "scores:validation_main_score",
+                item["id"] != "losses:validation_main_loss",
+                item["group"] not in {"scores", "losses"},
+                item["group"],
+                item["name"],
+            )
+        )
+        return {
+            "experiment": self._relative(experiment),
+            "outer_fold": outer_fold,
+            "inner_fold": inner_fold,
+            "hyperparameters": hyperparameters,
+            "quantities": quantities,
+            "configurations": configurations,
+            "series": all_series,
+            "metrics_file_count": metrics_file_count,
+            "modified_at": modified_at,
+            "errors": errors,
+            "cache": self.cache_status(),
+        }
+
+    @staticmethod
+    def _analysis_configuration(config_folder: Path, inner_folder: Path) -> dict:
+        """Read a completed config or fall back to a live run manifest."""
+        results = _read_json(config_folder / "config_results.json")
+        if isinstance(results, dict) and isinstance(results.get("config"), dict):
+            return results["config"]
+        for manifest_path in sorted(inner_folder.glob("run_*/model_manifest.json")):
+            manifest = _read_json(manifest_path)
+            if isinstance(manifest, dict) and isinstance(manifest.get("config"), dict):
+                return manifest["config"]
+        return {}
+
+    @staticmethod
+    def _best_checkpoint_metrics(
+        run_folder: Path,
+    ) -> tuple[dict[tuple[str, str], float], Optional[int]]:
+        """Read checkpoint metric snapshots, falling back safely when absent."""
+        checkpoint = run_folder / BEST_CHECKPOINT_FILENAME
+        if not checkpoint.is_file():
+            return {}, None
+        try:
+            payload = torch.load(checkpoint, map_location="cpu", weights_only=True)
+        except (
+            OSError,
+            RuntimeError,
+            ValueError,
+            TypeError,
+            EOFError,
+            pickle.UnpicklingError,
+        ):
+            return {}, None
+        if not isinstance(payload, dict):
+            return {}, None
+        best_epoch = payload.get(BEST_EPOCH)
+        best_epoch = best_epoch if isinstance(best_epoch, int) else None
+        metrics = {}
+        for group in ("losses", "scores"):
+            group_metrics = payload.get(group)
+            if not isinstance(group_metrics, dict):
+                continue
+            for name, value in group_metrics.items():
+                normalized = _numeric_series(value)
+                if normalized and normalized[0] is not None:
+                    metrics[(str(group), str(name))] = normalized[0]
+        return metrics, best_epoch
+
     def _completed_filter_values(
         self, config_folder: Path, options: dict[str, dict[str, str]]
     ) -> dict[str, float]:
@@ -1581,20 +1837,16 @@ class ResultsRepository:
         if not isinstance(stored, dict):
             raise ValueError("Expected a dictionary at the file root.")
         series = []
-        for group in ("losses", "scores"):
-            metrics = stored.get(group, {})
-            if not isinstance(metrics, dict):
-                continue
-            for name, values in metrics.items():
-                normalized = _numeric_series(values)
-                if normalized is not None:
-                    series.append(
-                        {
-                            "group": group,
-                            "name": str(name),
-                            "values": normalized,
-                        }
-                    )
+        for group, metrics in stored.items():
+            group_name = str(group)
+            for name, values in _history_series(metrics):
+                series.append(
+                    {
+                        "group": group_name,
+                        "name": name or group_name,
+                        "values": values,
+                    }
+                )
         return series
 
     def _selection_kind(self, target: Path) -> str:
@@ -1754,6 +2006,30 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     self.server.repository.experiment_filter_data(relative_path)
                 )
                 return
+            if parsed.path == "/api/model-selection-analysis":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                try:
+                    outer_fold = int(query.get("outer_fold", ["1"])[0])
+                    inner_fold = int(query.get("inner_fold", ["1"])[0])
+                except ValueError as error:
+                    raise ValueError("Fold numbers must be integers.") from error
+                analyzer = getattr(
+                    self.server.repository, "model_selection_analysis", None
+                )
+                if analyzer is None:
+                    raise ValueError(
+                        "Model selection analysis is available only for live dashboards."
+                    )
+                self._send_json(
+                    analyzer(relative_path, outer_fold, inner_fold)
+                )
+                return
             if parsed.path in ("/", "/index.html"):
                 self._send_file(_ASSET_DIRECTORY / "index.html")
                 return
@@ -1800,7 +2076,11 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
         if parsed.path == "/api/cache/reset":
-            self._send_json(self.server.repository.reset_cache())
+            try:
+                self._read_json_body()
+                self._send_json(self.server.repository.reset_cache())
+            except (ValueError, json.JSONDecodeError) as error:
+                self._send_error(HTTPStatus.BAD_REQUEST, str(error))
             return
         if parsed.path != "/api/cache":
             self._send_error(HTTPStatus.NOT_FOUND, "Page not found.")

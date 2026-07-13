@@ -71,6 +71,7 @@ def build_snapshot(
 
     details: dict[str, Any] = {}
     filters: dict[str, Any] = {}
+    analyses: dict[str, Any] = {}
     for experiment in experiments:
         for path in _selection_paths(experiment):
             details[path] = repository.details(path)
@@ -81,6 +82,20 @@ def build_snapshot(
                 )
         experiment_path = experiment["path"]
         filters[experiment_path] = repository.experiment_filter_data(experiment_path)
+        for outer_fold in experiment.get("outer_folds", []):
+            inner_numbers = {
+                inner_fold["number"]
+                for config in outer_fold.get("model_selection", [])
+                for inner_fold in config.get("inner_folds", [])
+            }
+            for inner_number in sorted(inner_numbers):
+                key = (
+                    f"{experiment_path}?outer={outer_fold['number']}"
+                    f"&inner={inner_number}"
+                )
+                analyses[key] = repository.model_selection_analysis(
+                    experiment_path, outer_fold["number"], inner_number
+                )
 
     snapshot_tree = {
         "root": "Portable dashboard snapshot",
@@ -95,6 +110,7 @@ def build_snapshot(
         "tree": snapshot_tree,
         "details": details,
         "filters": filters,
+        "analyses": analyses,
     }
 
 
@@ -203,6 +219,18 @@ class SnapshotRepository:
         payload = self.snapshot["filters"].get(relative_path)
         if payload is None:
             raise FileNotFoundError(relative_path)
+        return copy.deepcopy(payload)
+
+    def model_selection_analysis(
+        self, relative_path: str, outer_fold: int, inner_fold: int
+    ) -> dict[str, Any]:
+        """Return a captured fold comparison when the snapshot includes it."""
+        key = f"{relative_path}?outer={outer_fold}&inner={inner_fold}"
+        payload = self.snapshot.get("analyses", {}).get(key)
+        if payload is None:
+            raise FileNotFoundError(
+                "Model selection analysis was not captured in this snapshot."
+            )
         return copy.deepcopy(payload)
 
     def snapshot_state(self) -> dict[str, Any]:
