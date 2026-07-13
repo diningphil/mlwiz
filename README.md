@@ -28,6 +28,7 @@ MLWiz helps you run end-to-end research experiments with minimal boilerplate:
 - 🎛️ Expand a hyperparameter search space (grid, random, or Bayesian search)
 - ⚡ Run model selection + risk assessment in parallel with Ray (CPU/GPU or cluster)
 - 📈 Log dashboard-ready metric histories and checkpoints in a consistent folder structure
+- 🐍 Export every dashboard plot as reproducible Matplotlib + `tueplots` Python code
 
 Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil/PyDGN).
 
@@ -39,7 +40,7 @@ Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil
 | Automatic Split Generation | Dataset preparation + `.splits` generation for hold-out / (nested) CV |
 | Automatic and Robust Evaluation | Nested model selection (inner folds) + risk assessment (outer folds) |
 | Parallelism | Ray-based execution across CPU/GPU (or a Ray cluster) |
-| Visualization Dashboard | Explore experiment progress, metric histories, configurations, and model graphs in a local web UI |
+| Visualization Dashboard | Explore experiment progress, metric histories, configurations, and model graphs, then export plots as publication-styled Python code |
 
 
 ## 🚀 Getting Started
@@ -69,7 +70,8 @@ and completed experiments. It mirrors the model-selection and risk-assessment
 hierarchy, plots score and loss histories, summarizes run progress and timing,
 provides checkpoint-based model graph views, and includes a dedicated live
 model-selection analysis workspace for comparing metrics across tried
-hyperparameters. Start it with:
+hyperparameters. Every rendered chart has a **</> Python** action that generates
+standalone Matplotlib + `tueplots` code with the displayed data. Start it with:
 
 ```bash
 mlwiz-dashboard --logdir RESULTS
@@ -396,8 +398,32 @@ expand/shrink controls. See the
 [model-selection analysis tutorial](docs/tutorial.rst#model-selection-analysis)
 for the aggregation rules, plot semantics, and custom `WidthPlotter` example.
 
+#### Exporting reproducible plot code
+
+Every rendered metric or model-selection chart includes a **</> Python** button.
+Click it to open a live preview of a standalone script containing the normalized
+data currently displayed by that chart. The generated code uses Matplotlib and
+[`tueplots`](https://github.com/pnkraemer/tueplots) to reproduce line and
+uncertainty-band charts, histograms, violin plots, heatmap bars, and 3D views.
+
+The export dialog lets you choose a conference or journal bundle, single-column
+or full-width sizing, PDF/PNG/SVG/PGF output, grid/title/legend visibility, and
+LaTeX or standard Matplotlib text rendering. Paul Tol muted is the default
+colorblind-safe palette; other colorblind-safe and `tueplots` palettes are
+available. These choices persist across browser sessions. Use **Copy code** or
+**Download .py**, then install the script dependencies if needed:
+
+```bash
+python -m pip install matplotlib numpy tueplots
+```
+
+LaTeX rendering is disabled by default and requires a working local TeX
+installation when enabled. The script saves the figure in the selected format
+and also opens it with `plt.show()`.
+
 The header also provides a persistent refresh-interval setting and a day/dark
-theme toggle. Dark mode is the default.
+theme toggle, plus persistent font-family and font-size controls. Dark mode is
+the default.
 
 Above the selected configuration or run, a collapsible overview summarizes its
 parent experiment only: completed, running, queued, and failed runs; aggregated

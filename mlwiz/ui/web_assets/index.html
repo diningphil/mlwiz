@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0f172a" />
     <title>MLWiz Dashboard</title>
     <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/plot_export.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
   <body>
@@ -40,6 +41,25 @@
             <span>s</span>
           </label>
           <button id="refresh-apply" type="button">Apply</button>
+        </div>
+        <div class="font-control" title="Change the application font and size">
+          <label class="font-family-control">
+            <span aria-hidden="true">Aa</span>
+            <span class="sr-only">Application font</span>
+            <select id="font-select" aria-label="Application font">
+              <option value="mlwiz">MLWiz</option>
+              <option value="system">System</option>
+              <option value="humanist">Humanist</option>
+              <option value="serif">Serif</option>
+              <option value="rounded">Rounded</option>
+              <option value="monospace">Monospace</option>
+            </select>
+          </label>
+          <label class="font-size-control">
+            <span class="sr-only">Application font size in pixels</span>
+            <input id="font-size-input" type="number" min="12" max="24" step="1" value="16" aria-label="Application font size in pixels" />
+            <span>px</span>
+          </label>
         </div>
         <button class="icon-button" id="theme-toggle" type="button" aria-label="Switch to day mode" aria-pressed="true">
           ☀ Day
@@ -274,5 +294,87 @@
         </section>
       </section>
     </main>
+
+    <dialog class="plot-code-dialog" id="plot-code-dialog" aria-labelledby="plot-code-title">
+      <form method="dialog" class="plot-code-shell">
+        <header class="plot-code-head">
+          <div>
+            <p class="eyebrow">Reproducible figure</p>
+            <h2 id="plot-code-title">Export Python code</h2>
+            <p id="plot-code-description">Configure a tueplots publication style for this plot.</p>
+          </div>
+          <button class="plot-code-close" value="cancel" aria-label="Close Python export">×</button>
+        </header>
+        <div class="plot-code-body">
+          <aside class="plot-code-options" aria-label="Python plot export options">
+            <label>
+              <span>Conference or journal</span>
+              <select id="plot-code-bundle">
+                <option value="neurips2024">NeurIPS 2024</option>
+                <option value="icml2024">ICML 2024</option>
+                <option value="iclr2024">ICLR 2024</option>
+                <option value="aistats2025">AISTATS 2025</option>
+                <option value="cvpr2024">CVPR 2024</option>
+                <option value="eccv2024">ECCV 2024</option>
+                <option value="aaai2024">AAAI 2024</option>
+                <option value="uai2023">UAI 2023</option>
+                <option value="tmlr2023">TMLR 2023</option>
+                <option value="jmlr2001">JMLR</option>
+                <option value="probnum2025">ProbNum 2025</option>
+                <option value="colm2026">COLM 2026</option>
+                <option value="tue_ai_thesis">Tübingen AI thesis</option>
+              </select>
+            </label>
+            <label>
+              <span>Color palette</span>
+              <select id="plot-code-palette">
+                <option value="paultol_muted">Paul Tol muted · colorblind-safe</option>
+                <option value="paultol_bright">Paul Tol bright · colorblind-safe</option>
+                <option value="paultol_high_contrast">Paul Tol high contrast</option>
+                <option value="paultol_vibrant">Paul Tol vibrant</option>
+                <option value="tue_plot">Tübingen</option>
+                <option value="tue_ai">Tübingen AI</option>
+                <option value="pn">ProbNum</option>
+              </select>
+            </label>
+            <div class="plot-code-option-row">
+              <label>
+                <span>Figure width</span>
+                <select id="plot-code-width">
+                  <option value="half">Single column</option>
+                  <option value="full">Full width</option>
+                </select>
+              </label>
+              <label>
+                <span>Save as</span>
+                <select id="plot-code-format">
+                  <option value="pdf">PDF</option>
+                  <option value="png">PNG</option>
+                  <option value="svg">SVG</option>
+                  <option value="pgf">PGF</option>
+                </select>
+              </label>
+            </div>
+            <label class="plot-code-check"><input id="plot-code-latex" type="checkbox" /><span>Use LaTeX text rendering</span></label>
+            <label class="plot-code-check"><input id="plot-code-grid" type="checkbox" checked /><span>Show grid</span></label>
+            <label class="plot-code-check"><input id="plot-code-title-toggle" type="checkbox" checked /><span>Include plot title</span></label>
+            <label class="plot-code-check"><input id="plot-code-legend" type="checkbox" checked /><span>Include legend</span></label>
+          </aside>
+          <section class="plot-code-preview-wrap">
+            <div class="plot-code-preview-head">
+              <span>Generated script</span>
+              <code>matplotlib + tueplots</code>
+            </div>
+            <textarea id="plot-code-preview" readonly spellcheck="false" aria-label="Generated Python code"></textarea>
+          </section>
+        </div>
+        <footer class="plot-code-actions">
+          <span id="plot-code-status" role="status" aria-live="polite"></span>
+          <button id="plot-code-copy" type="button">Copy code</button>
+          <button id="plot-code-download" type="button" class="primary">Download .py</button>
+          <button value="cancel">Done</button>
+        </footer>
+      </form>
+    </dialog>
   </body>
 </html>

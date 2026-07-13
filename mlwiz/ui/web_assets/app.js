@@ -3,6 +3,37 @@
 
   const storageKey = "mlwiz-dashboard-navigation-v1";
   const themeStorageKey = "mlwiz-dashboard-theme-v1";
+  const fontStorageKey = "mlwiz-dashboard-font-v1";
+  const fontSizeStorageKey = "mlwiz-dashboard-font-size-v1";
+  const defaultFontSize = 16;
+  const minimumFontSize = 12;
+  const maximumFontSize = 24;
+  const fontPresets = {
+    mlwiz: {
+      app: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      display: 'Georgia, "Times New Roman", serif',
+    },
+    system: {
+      app: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      display: 'ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    },
+    humanist: {
+      app: '"Trebuchet MS", Candara, Calibri, sans-serif',
+      display: '"Trebuchet MS", Candara, Calibri, sans-serif',
+    },
+    serif: {
+      app: 'Georgia, "Times New Roman", serif',
+      display: 'Georgia, "Times New Roman", serif',
+    },
+    rounded: {
+      app: 'Avenir, "Avenir Next", "Segoe UI", sans-serif',
+      display: 'Avenir, "Avenir Next", "Segoe UI", sans-serif',
+    },
+    monospace: {
+      app: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      display: '"SFMono-Regular", Consolas, "Liberation Mono", monospace',
+    },
+  };
 
   function readStoredState() {
     try {
@@ -20,8 +51,33 @@
     }
   }
 
+  function readStoredFont() {
+    try {
+      return localStorage.getItem(fontStorageKey);
+    } catch (_error) {
+      return null;
+    }
+  }
+
+  function normalizedFontSize(value, fallback = defaultFontSize) {
+    if (value === null || value === undefined || value === "") return fallback;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return fallback;
+    return Math.min(maximumFontSize, Math.max(minimumFontSize, Math.round(number)));
+  }
+
+  function readStoredFontSize() {
+    try {
+      return localStorage.getItem(fontSizeStorageKey);
+    } catch (_error) {
+      return null;
+    }
+  }
+
   const storedState = readStoredState();
   const storedTheme = readStoredTheme();
+  const storedFont = readStoredFont();
+  const storedFontSize = readStoredFontSize();
   const storedRefreshSeconds = Number(storedState.refreshSeconds);
   const state = {
     tree: null,
@@ -69,6 +125,12 @@
     theme: ["dark", "day"].includes(storedTheme)
       ? storedTheme
       : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
+    font: Object.hasOwn(fontPresets, storedFont)
+      ? storedFont
+      : (Object.hasOwn(fontPresets, storedState.font) ? storedState.font : "mlwiz"),
+    fontSize: storedFontSize === null
+      ? normalizedFontSize(storedState.fontSize)
+      : normalizedFontSize(storedFontSize),
     refreshSeconds: Number.isFinite(storedRefreshSeconds)
       && storedRefreshSeconds >= 2
       && storedRefreshSeconds <= 3600
@@ -124,6 +186,8 @@
     }
     try {
       localStorage.setItem(themeStorageKey, state.theme);
+      localStorage.setItem(fontStorageKey, state.font);
+      localStorage.setItem(fontSizeStorageKey, String(state.fontSize));
     } catch (_error) {
       // Keep the theme session-scoped when persistent browser storage is disabled.
     }
@@ -157,6 +221,8 @@
         query: state.query,
         scale: state.scale,
         theme: state.theme,
+        font: state.font,
+        fontSize: state.fontSize,
         refreshSeconds: state.refreshSeconds,
         experimentFilters: state.experimentFilters,
         metadataModes: state.metadataModes,
@@ -215,6 +281,62 @@
     if (className) element.className = className;
     if (text !== undefined) element.textContent = text;
     return element;
+  }
+
+  function plotCodeButton(specOrFactory) {
+    return window.MLWizPlotExport.createButton(specOrFactory);
+  }
+
+  function exportedLines(lines) {
+    return lines.map((line) => ({
+      label: line.label,
+      values: line.values,
+      lower: line.band?.lower || null,
+      upper: line.band?.upper || null,
+      dash: line.dash || [],
+      primary: line.primaryValue,
+      secondary: line.secondaryValue,
+    }));
+  }
+
+  function linePlotExportSpec({ title, subtitle, yLabel, lines, kind = "line", zLabel = null }) {
+    return {
+      kind,
+      title,
+      subtitle,
+      xLabel: "epoch",
+      yLabel,
+      zLabel,
+      scale: state.scale,
+      series: exportedLines(lines),
+    };
+  }
+
+  function metricPlotExportSpec(plot, quantity, bars, useLog) {
+    const is3D = Boolean(plot.secondaryHyperparameter);
+    const violin = plot.shape === "violin";
+    return {
+      kind: violin ? (is3D ? "violin3d" : "violin") : (is3D ? "bar3d" : "bar"),
+      title: quantity.label,
+      subtitle: `Grouped by ${plot.hyperparameter}${is3D ? ` × ${plot.secondaryHyperparameter}` : ""}`,
+      xLabel: plot.hyperparameter,
+      yLabel: quantity.label,
+      zLabel: plot.secondaryHyperparameter,
+      scale: useLog ? "log" : "linear",
+      showPoints: Boolean(plot.showPoints),
+      series: bars.map((bar) => ({
+        label: [
+          `${plot.hyperparameter} = ${analysisValueLabel(bar.value)}`,
+          is3D ? `${plot.secondaryHyperparameter} = ${analysisValueLabel(bar.secondaryValue)}` : null,
+        ].filter(Boolean).join(" · "),
+        primary: bar.value,
+        secondary: bar.secondaryValue,
+        samples: bar.samples,
+        mean: bar.mean,
+        std: bar.std,
+        count: bar.count,
+      })),
+    };
   }
 
   function formatNumber(value) {
@@ -340,6 +462,31 @@
     button.textContent = dark ? "☀ Day" : "◐ Dark";
     button.setAttribute("aria-label", dark ? "Switch to day mode" : "Switch to dark mode");
     button.setAttribute("aria-pressed", String(dark));
+  }
+
+  function redrawVisuals() {
+    state.charts.forEach((chart) => drawChart(chart));
+    state.metricBarCharts.forEach((chart) => drawMetricBarChart(chart));
+    state.analysis3DCharts.forEach((chart) => drawAnalysis3DChart(chart));
+    if (state.modelGraphData) renderModelGraphCanvas();
+  }
+
+  function applyFont() {
+    if (!Object.hasOwn(fontPresets, state.font)) state.font = "mlwiz";
+    state.fontSize = normalizedFontSize(state.fontSize);
+    const preset = fontPresets[state.font];
+    document.documentElement.style.setProperty("--app-font", preset.app);
+    document.documentElement.style.setProperty("--display-font", preset.display);
+    document.documentElement.style.fontSize = `${state.fontSize}px`;
+    el("font-select").value = state.font;
+    el("font-size-input").value = String(state.fontSize);
+    requestAnimationFrame(redrawVisuals);
+  }
+
+  function canvasFont(size = 9) {
+    const family = getComputedStyle(document.documentElement)
+      .getPropertyValue("--app-font").trim() || fontPresets.mlwiz.app;
+    return `${(size * state.fontSize) / defaultFontSize}px ${family}`;
   }
 
   function setActiveTab(tab, { load = true } = {}) {
@@ -1079,13 +1226,11 @@
         const head = node("div", "chart-head");
         const title = node("div", "chart-title");
         const familyLabel = plotOption.label.replace(/ \(\d+ (layers|components)\)$/, "");
+        const chartTitle = plotOption.quantities.length > 1
+          ? `${familyLabel} · ${quantity.label}`
+          : plotOption.label;
         title.append(
-          node(
-            "h3", "",
-            plotOption.quantities.length > 1
-              ? `${familyLabel} · ${quantity.label}`
-              : plotOption.label,
-          ),
+          node("h3", "", chartTitle),
           node("p", "", `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`),
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
@@ -1093,6 +1238,14 @@
         headMeta.append(
           epochLabel,
           node("span", "chart-type", plot.secondaryHyperparameter ? "3D · mean ± std" : "mean ± std"),
+          plotCodeButton(() => linePlotExportSpec({
+            title: chartTitle,
+            subtitle: `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}`,
+            yLabel: quantity.label,
+            lines,
+            kind: plot.secondaryHyperparameter ? "trend3d" : "line",
+            zLabel: plot.secondaryHyperparameter,
+          })),
           plotExpandButton(card, `trend:${plot.id}:${quantity.id}`),
           plotRemoveButton(plot),
         );
@@ -1240,6 +1393,21 @@
       const headMeta = node("div", "chart-head-meta");
       headMeta.append(
         node("span", "chart-type", "3D trajectory"),
+        plotCodeButton(() => ({
+          kind: "trajectory3d",
+          title: `${leftQuantity.label} × ${rightQuantity.label}`,
+          subtitle: `3D epoch trajectory grouped by ${plot.hyperparameter}`,
+          xLabel: "epoch",
+          yLabel: leftQuantity.label,
+          zLabel: rightQuantity.label,
+          series: lines.map((line) => ({
+            label: line.label,
+            leftValues: line.leftValues,
+            rightValues: line.rightValues,
+            leftStd: line.leftStd,
+            rightStd: line.rightStd,
+          })),
+        })),
         plotExpandButton(
           card,
           `combined:${plot.id}:${leftQuantity.id}:${rightQuantity.id}`,
@@ -1426,8 +1594,13 @@
       `${sources.best} best · ${sources.last} last`,
     );
     const headMeta = node("div", "chart-head-meta");
+    headMeta.append(meta);
+    if (plot.view === "chart") {
+      headMeta.append(plotCodeButton(
+        () => metricPlotExportSpec(plot, quantity, bars, useLog),
+      ));
+    }
     headMeta.append(
-      meta,
       plotExpandButton(card, `metric:${plot.id}:${quantity.id}`),
       plotRemoveButton(plot),
     );
@@ -1596,7 +1769,7 @@
     const padding = (max - min) * 0.08;
     min -= log ? 0 : padding;
     max += padding;
-    ctx.font = '9px Inter, -apple-system, sans-serif';
+    ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const transformed = min + ((max - min) * tick) / 4;
       return log ? 10 ** transformed : transformed;
@@ -1682,7 +1855,7 @@
     const padding = (max - min) * 0.08;
     min -= padding;
     max += padding;
-    ctx.font = '9px Inter, -apple-system, sans-serif';
+    ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const value = min + ((max - min) * tick) / 4;
       return log ? 10 ** value : value;
@@ -1899,7 +2072,7 @@
       { end: project(0, 1, 0), label: labels.y },
       { end: project(0, 0, 1), label: labels.z },
     ];
-    ctx.font = '9px Inter, -apple-system, sans-serif';
+    ctx.font = canvasFont();
     ctx.strokeStyle = gridColor; ctx.lineWidth = 1;
     for (const axis of axes) {
       ctx.beginPath(); ctx.moveTo(origin.x, origin.y); ctx.lineTo(axis.end.x, axis.end.y); ctx.stroke();
@@ -3121,10 +3294,20 @@
       const card = node("article", "chart-card");
       const head = node("div", "chart-head");
       const title = node("div", "chart-title");
-      title.append(node("h3", "", group.metric.replaceAll("_", " ")), node("p", "", group.source));
+      const chartTitle = group.metric.replaceAll("_", " ");
+      title.append(node("h3", "", chartTitle), node("p", "", group.source));
       const headMeta = node("div", "chart-head-meta");
       const epochLabel = node("span", "chart-epoch", "Latest");
-      headMeta.append(epochLabel, node("span", "chart-type", group.group));
+      headMeta.append(
+        epochLabel,
+        node("span", "chart-type", group.group),
+        plotCodeButton(() => linePlotExportSpec({
+          title: chartTitle,
+          subtitle: group.source,
+          yLabel: chartTitle,
+          lines: group.lines,
+        })),
+      );
       head.append(title, headMeta);
       const wrap = node("div", "chart-wrap");
       const canvas = document.createElement("canvas");
@@ -4392,7 +4575,7 @@
     const padding = (max - min) * 0.08;
     min -= padding;
     max += padding;
-    ctx.font = '9px Inter, -apple-system, sans-serif';
+    ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const transformed = min + ((max - min) * tick) / 4;
       return valueScale.invert(transformed);
@@ -4692,10 +4875,24 @@
     state.theme = state.theme === "dark" ? "day" : "dark";
     persistState();
     applyTheme();
-    state.charts.forEach((chart) => drawChart(chart));
-    state.metricBarCharts.forEach((chart) => drawMetricBarChart(chart));
-    state.analysis3DCharts.forEach((chart) => drawAnalysis3DChart(chart));
-    if (state.modelGraphData) renderModelGraphCanvas();
+    redrawVisuals();
+  });
+  el("font-select").addEventListener("change", (event) => {
+    state.font = event.target.value;
+    persistState();
+    applyFont();
+  });
+  el("font-size-input").addEventListener("input", (event) => {
+    const value = Number(event.target.value);
+    if (!Number.isFinite(value) || value < minimumFontSize || value > maximumFontSize) return;
+    state.fontSize = normalizedFontSize(value);
+    persistState();
+    applyFont();
+  });
+  el("font-size-input").addEventListener("change", () => {
+    state.fontSize = normalizedFontSize(el("font-size-input").value, state.fontSize);
+    persistState();
+    applyFont();
   });
   el("metric-search").addEventListener("input", (event) => {
     state.query = event.target.value.trim().toLowerCase();
@@ -4785,6 +4982,7 @@
   el("refresh-interval").value = String(state.refreshSeconds);
   updateRefreshStatus();
   applyTheme();
+  applyFont();
   document.querySelectorAll("[data-group]").forEach((button) => {
     button.classList.toggle("active", button.dataset.group === state.group);
   });
@@ -4867,6 +5065,7 @@
         el("metric-search").value = state.query || "";
         el("refresh-interval").value = String(state.refreshSeconds || 15);
         applyTheme();
+        applyFont();
         syncScaleButton();
         persistState();
       }

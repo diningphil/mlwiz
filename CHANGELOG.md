@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.7.1]
+
+## Added
+
+- added a per-plot **</> Python** action to the dashboard that generates a standalone Matplotlib script containing the displayed plot data and reproducing the corresponding line, uncertainty-band, histogram, violin, heatmap-bar, or 3D visualization with `tueplots`
+- added a plot-code configuration dialog with conference and journal bundles, single-column or full-width sizing, PDF/PNG/SVG/PGF output, optional LaTeX rendering, grid/title/legend controls, a live source preview, clipboard copy, and `.py` download
+- added Paul Tol colorblind-safe palettes as the default plot-code export schemes, plus additional `tueplots` palettes; plot export preferences persist across browser sessions
+- added persistent dashboard font-family and font-size controls that update both interface text and canvas-rendered plot labels dynamically
+
+## Changed
+
+- bumped the package version to 1.7.1
+
 ## [1.7.0]
 
 ## Added
