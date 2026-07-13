@@ -970,6 +970,11 @@ fold**, and **Inner fold**. MLWiz recursively flattens each configuration into
 dotted leaf names such as ``engine.args.eval_training``. A leaf is offered in
 **Group by** only when at least two distinct values occur in the selected fold
 pair; a constant setting cannot explain a difference and is therefore hidden.
+For a 2D Trend or Metric vs Hyper-Parameter plot, **None — average all runs**
+creates one aggregate from every available run in the selected fold pair.
+Combined Trends and all 3D views require real grouping parameters, so None is
+not offered there. Switching an ungrouped card to 3D automatically selects two
+available hyperparameters.
 
 The grouping operation is intentionally marginal. With one selected
 hyperparameter, each curve, bar, or distribution averages all available runs
@@ -1016,14 +1021,22 @@ The available plot types have different aggregation semantics:
   deviation and number of contributing runs. Choose **3D** and a **Second
   parameter** to separate curves by a second hyperparameter while retaining
   epoch and the recorded quantity as the other axes. The default **2D** view
-  remains available.
+  remains available. Enable the per-card **Log scale** control to transform
+  values as ``sign(x) * log10(1 + abs(x))`` in either view. Unlike a conventional
+  logarithmic axis, this keeps zero and negative observations and
+  uncertainty-band bounds visible while compressing large magnitudes. The
+  choice persists with the plot and is included in exported Python code. In
+  2D, selecting **None — average all runs** produces one mean curve and
+  standard-deviation band from all runs.
 
 **Combined Trends**
   This always-3D view combines two epoch histories. Its axes are epoch, the
   first quantity, and the second quantity; one trajectory is drawn for each
   value of the selected hyperparameter. Compatible multi-layer/component
   families are paired automatically, so related information is rendered
-  together rather than hidden behind another selector.
+  together rather than hidden behind another selector. Its persistent **Log
+  scale** control applies ``sign(x) * log10(1 + abs(x))`` to both recorded-
+  quantity axes, including zero and negative values.
 
 **Metric vs Hyper-Parameter**
   This view reduces every run to one value before grouping it. MLWiz first uses
@@ -1031,7 +1044,8 @@ The available plot types have different aggregation semantics:
   is absent but the checkpoint records its best epoch, the value at that epoch
   is used; otherwise the last finite recorded epoch is used. The resulting run
   values are grouped by hyperparameter value (or value pair), and their mean
-  and population standard deviation are displayed.
+  and population standard deviation are displayed. In 2D, Group by None
+  instead produces one summary distribution or bar across every run.
 
   In 2D, **Histogram** draws one mean bar and deviation whisker per
   hyperparameter value. **Violin** displays the run distribution and can
@@ -1039,8 +1053,10 @@ The available plot types have different aggregation semantics:
   heatmap-bar grid: the two horizontal axes contain the tried hyperparameter
   values, while bar height and heatmap color both encode the mean metric.
   Missing combinations remain gaps. Violin remains available in 3D. Enable
-  **Log scale** for strictly positive values, or switch the individual plot to
-  **Markdown table** to copy exact means, deviations, run counts, and value
+  **Log scale** to apply ``sign(x) * log10(1 + abs(x))`` consistently to bars,
+  heatmap colors, violins, raw points, and their axes. Positive, zero, and
+  negative values are all retained. Alternatively, switch the individual plot
+  to **Markdown table** to copy exact means, deviations, run counts, and value
   sources.
 
 Exporting reproducible Python code

@@ -8,6 +8,9 @@
 - added a plot-code configuration dialog with conference and journal bundles, single-column or full-width sizing, PDF/PNG/SVG/PGF output, optional LaTeX rendering, grid/title/legend controls, a live source preview, clipboard copy, and `.py` download
 - added Paul Tol colorblind-safe palettes as the default plot-code export schemes, plus additional `tueplots` palettes; plot export preferences persist across browser sessions
 - added persistent dashboard font-family and font-size controls that update both interface text and canvas-rendered plot labels dynamically
+- all dashboard plot types now use one consistently named **Log scale** based on the sign-preserving log-modulus transform; it supports positive, zero, and negative values in run charts, 2D/3D trends, combined trajectories, histograms, heatmap bars and colors, violins, and generated Python code
+- Combined Trends now provide a persistent per-card **Log scale** control that transforms both recorded-quantity axes
+- 2D Trend and Metric-vs-Hyperparameter plots can now use **None — average all runs** instead of grouping by a hyperparameter; ungrouped aggregation is unavailable for Combined Trends and all 3D plots
 
 ## Changed
 

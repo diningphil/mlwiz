@@ -363,8 +363,9 @@ by default. Set `store_every_N_epochs` to a larger value to reduce the write
 frequency.
 
 Hover over a chart to inspect the training, validation, and test values at one
-epoch. The `± Log scale` control uses a symmetric logarithmic transform, so it
-also supports zero and negative values. Each experiment has its own lazy-loaded
+epoch. The **Log scale** control applies the sign-preserving log-modulus
+transform `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values
+remain visible. Each experiment has its own lazy-loaded
 configuration filter: choose any discovered score or loss, compare it with a
 threshold using `≥` or `≤`, choose training or validation values, and combine
 multiple conditions with AND or OR. Completed experiments use their aggregated
@@ -379,15 +380,24 @@ inside one selected outer-fold/inner-fold pair. It offers only hyperparameters
 for which more than one value was actually tried. Add any number of plots to the
 workspace: each plot retains its own grouping, dimensionality, output, display,
 expansion, and camera controls, and can be removed directly from its card.
+For a 2D Trend or Metric-vs-Hyperparameter plot, choose **None — average all
+runs** under **Group by** to collapse every run into one aggregate. Combined
+Trends and 3D plots require real grouping parameters and do not offer None.
 
 - **Trend Plots** show epoch-wise mean ± standard deviation for runs sharing a
-  hyperparameter value. Add a second hyperparameter for a 3D view.
+  hyperparameter value. Add a second hyperparameter for a 3D view, or enable
+  the persistent per-card **Log scale** control. It applies
+  `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values remain
+  visible in both dimensions. In 2D, Group by None produces one mean curve and
+  deviation band across every run.
 - **Combined Trends** place epoch and two recorded quantities on a 3D trajectory
-  grouped by one hyperparameter.
+  grouped by one hyperparameter. Their **Log scale** control applies the same
+  sign-preserving transform to both recorded-quantity axes.
 - **Metric vs Hyper-Parameter** compares each run's best-checkpoint metric value,
   falling back to its last recorded value. It supports 2D histograms, 3D
   heatmap bars for two hyperparameters, violin distributions with optional raw
-  points, logarithmic scaling, and Markdown tables.
+  points, sign-preserving logarithmic scaling, Markdown tables, and a 2D
+  all-runs aggregate.
 
 Numeric custom histories in `metrics_data.torch` are discovered alongside
 losses and scores. Rectangular epoch-by-layer/component data is treated as one

@@ -8,6 +8,7 @@
   const defaultFontSize = 16;
   const minimumFontSize = 12;
   const maximumFontSize = 24;
+  const noAnalysisGroupingValue = "__all_runs__";
   const fontPresets = {
     mlwiz: {
       app: 'Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -66,6 +67,10 @@
     return Math.min(maximumFontSize, Math.max(minimumFontSize, Math.round(number)));
   }
 
+  function normalizedScale(value) {
+    return ["log-modulus", "symlog"].includes(value) ? "log-modulus" : "linear";
+  }
+
   function readStoredFontSize() {
     try {
       return localStorage.getItem(fontSizeStorageKey);
@@ -121,7 +126,7 @@
     focusedRun: storedState.focusedRun || null,
     showAllPlots: Boolean(storedState.showAllPlots),
     query: storedState.query || "",
-    scale: storedState.scale || "linear",
+    scale: normalizedScale(storedState.scale),
     theme: ["dark", "day"].includes(storedTheme)
       ? storedTheme
       : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
@@ -299,7 +304,9 @@
     }));
   }
 
-  function linePlotExportSpec({ title, subtitle, yLabel, lines, kind = "line", zLabel = null }) {
+  function linePlotExportSpec({
+    title, subtitle, yLabel, lines, kind = "line", zLabel = null, scale = state.scale,
+  }) {
     return {
       kind,
       title,
@@ -307,7 +314,7 @@
       xLabel: "epoch",
       yLabel,
       zLabel,
-      scale: state.scale,
+      scale,
       series: exportedLines(lines),
     };
   }
@@ -315,18 +322,23 @@
   function metricPlotExportSpec(plot, quantity, bars, useLog) {
     const is3D = Boolean(plot.secondaryHyperparameter);
     const violin = plot.shape === "violin";
+    const ungrouped = !plot.hyperparameter;
     return {
       kind: violin ? (is3D ? "violin3d" : "violin") : (is3D ? "bar3d" : "bar"),
       title: quantity.label,
-      subtitle: `Grouped by ${plot.hyperparameter}${is3D ? ` × ${plot.secondaryHyperparameter}` : ""}`,
-      xLabel: plot.hyperparameter,
+      subtitle: ungrouped
+        ? "Averaged across all runs"
+        : `Grouped by ${plot.hyperparameter}${is3D ? ` × ${plot.secondaryHyperparameter}` : ""}`,
+      xLabel: ungrouped ? "runs" : plot.hyperparameter,
       yLabel: quantity.label,
       zLabel: plot.secondaryHyperparameter,
-      scale: useLog ? "log" : "linear",
+      scale: useLog ? "log-modulus" : "linear",
       showPoints: Boolean(plot.showPoints),
       series: bars.map((bar) => ({
         label: [
-          `${plot.hyperparameter} = ${analysisValueLabel(bar.value)}`,
+          ungrouped
+            ? "All runs"
+            : `${plot.hyperparameter} = ${analysisValueLabel(bar.value)}`,
           is3D ? `${plot.secondaryHyperparameter} = ${analysisValueLabel(bar.secondaryValue)}` : null,
         ].filter(Boolean).join(" · "),
         primary: bar.value,
@@ -586,17 +598,44 @@
     }
   }
 
+  function normalizedAnalysisGrouping(plot, hyperIds, fallback, allowNone = true) {
+    let secondaryHyperparameter = hyperIds.includes(plot.secondaryHyperparameter)
+      ? plot.secondaryHyperparameter
+      : null;
+    let hyperparameter = hyperIds.includes(plot.hyperparameter)
+      ? plot.hyperparameter
+      : null;
+    const explicitlyUngrouped = Object.hasOwn(plot, "hyperparameter")
+      && plot.hyperparameter === null;
+    if (!hyperparameter && !(allowNone && !secondaryHyperparameter && explicitlyUngrouped)) {
+      hyperparameter = hyperIds.includes(fallback) ? fallback : (hyperIds[0] || null);
+    }
+    if (secondaryHyperparameter === hyperparameter) secondaryHyperparameter = null;
+    if (secondaryHyperparameter && !hyperparameter) {
+      hyperparameter = hyperIds.find((id) => id !== secondaryHyperparameter) || null;
+      if (!hyperparameter) secondaryHyperparameter = null;
+    }
+    return { hyperparameter, secondaryHyperparameter };
+  }
+
   function renderAnalysis() {
     const data = state.analysisData;
     const notice = el("analysis-notice");
     el("analysis-freshness").textContent = formatTime(data.modified_at);
     const hyperIds = data.hyperparameters.map((item) => item.id);
-    if (!hyperIds.includes(state.analysisHyperparameter)) {
-      state.analysisHyperparameter = hyperIds[0] || null;
+    const allowNoGrouping = state.analysisPlotType !== "combined-trends";
+    const groupingOptions = allowNoGrouping
+      ? [noAnalysisGroupingValue, ...hyperIds]
+      : hyperIds;
+    if (!groupingOptions.includes(state.analysisHyperparameter)) {
+      state.analysisHyperparameter = hyperIds[0]
+        || (allowNoGrouping ? noAnalysisGroupingValue : null);
     }
     setSelectOptions(
-      el("analysis-hyperparameter"), hyperIds, state.analysisHyperparameter,
-      (id) => data.hyperparameters.find((item) => item.id === id)?.label || id,
+      el("analysis-hyperparameter"), groupingOptions, state.analysisHyperparameter,
+      (id) => id === noAnalysisGroupingValue
+        ? "None — average all runs"
+        : (data.hyperparameters.find((item) => item.id === id)?.label || id),
     );
     const quantityOptions = analysisQuantityOptions(data.quantities);
     const quantityIds = quantityOptions.map((item) => item.id);
@@ -626,17 +665,14 @@
     state.analysisPlots = state.analysisPlots.flatMap((plot) => {
       if (plot.type === "metric-vs-hyperparameter") {
         const quantity = resolveAnalysisQuantityId(plot.quantity, metricOptions);
+        const grouping = normalizedAnalysisGrouping(
+          plot, hyperIds, state.analysisHyperparameter, true,
+        );
         return quantity ? [{
           id: plot.id || newAnalysisPlotId(),
           type: "metric-vs-hyperparameter",
           quantity,
-          hyperparameter: hyperIds.includes(plot.hyperparameter)
-            ? plot.hyperparameter
-            : state.analysisHyperparameter,
-          secondaryHyperparameter: hyperIds.includes(plot.secondaryHyperparameter)
-            && plot.secondaryHyperparameter !== plot.hyperparameter
-            ? plot.secondaryHyperparameter
-            : null,
+          ...grouping,
           view: plot.view === "table" ? "table" : "chart",
           log: plot.view !== "table" && Boolean(plot.log),
           shape: plot.shape === "violin" ? "violin" : "histogram",
@@ -646,28 +682,28 @@
       if (plot.type === "combined-trends") {
         const first = resolveAnalysisQuantityId(plot.quantity, quantityOptions);
         const second = resolveAnalysisQuantityId(plot.quantity2, quantityOptions);
-        return first && second && first !== second ? [{
+        const grouping = normalizedAnalysisGrouping(
+          plot, hyperIds, state.analysisHyperparameter, false,
+        );
+        return first && second && first !== second && grouping.hyperparameter ? [{
           id: plot.id || newAnalysisPlotId(),
           type: "combined-trends",
           quantity: first,
           quantity2: second,
-          hyperparameter: hyperIds.includes(plot.hyperparameter)
-            ? plot.hyperparameter
-            : state.analysisHyperparameter,
+          hyperparameter: grouping.hyperparameter,
+          log: Boolean(plot.log),
         }] : [];
       }
       const quantity = resolveAnalysisQuantityId(plot.quantity, quantityOptions);
+      const grouping = normalizedAnalysisGrouping(
+        plot, hyperIds, state.analysisHyperparameter, true,
+      );
       return quantity ? [{
         id: plot.id || newAnalysisPlotId(),
         type: "trends",
         quantity,
-        hyperparameter: hyperIds.includes(plot.hyperparameter)
-          ? plot.hyperparameter
-          : state.analysisHyperparameter,
-        secondaryHyperparameter: hyperIds.includes(plot.secondaryHyperparameter)
-          && plot.secondaryHyperparameter !== plot.hyperparameter
-          ? plot.secondaryHyperparameter
-          : null,
+        log: Boolean(plot.log),
+        ...grouping,
       }] : [];
     }).map((plot) => plot.secondaryHyperparameter === plot.hyperparameter
       ? { ...plot, secondaryHyperparameter: null }
@@ -677,7 +713,10 @@
         id: newAnalysisPlotId(),
         type: "trends",
         quantity: state.analysisQuantity,
-        hyperparameter: state.analysisHyperparameter,
+        hyperparameter: state.analysisHyperparameter === noAnalysisGroupingValue
+          ? null
+          : state.analysisHyperparameter,
+        log: false,
       }];
     }
     state.analysisQuantities = state.analysisPlots
@@ -687,7 +726,7 @@
       el("analysis-metric-quantity"), metricIds, state.analysisMetricQuantity,
       (id) => metricOptions.find((item) => item.id === id)?.label || id,
     );
-    el("analysis-hyperparameter").disabled = !hyperIds.length;
+    el("analysis-hyperparameter").disabled = !groupingOptions.length;
     el("analysis-quantity").disabled = !quantityIds.length;
     el("analysis-second-quantity").disabled = quantityIds.length < 2;
     el("analysis-metric-quantity").disabled = !metricIds.length;
@@ -700,13 +739,6 @@
     el("analysis-metric-quantity-field").hidden = state.analysisPlotType !== "metric-vs-hyperparameter";
     persistState();
 
-    if (!hyperIds.length) {
-      notice.hidden = false;
-      notice.className = "notice";
-      notice.textContent = "No hyperparameter with more than one tried value is available for this fold.";
-      clearAnalysisCharts();
-      return;
-    }
     if (!quantityIds.length) {
       notice.hidden = false;
       notice.className = "notice";
@@ -741,14 +773,22 @@
     return `metric:${plot.quantity}:${plot.hyperparameter}:${plot.secondaryHyperparameter || ""}`;
   }
 
+  function selectedAnalysisGrouping() {
+    return state.analysisHyperparameter === noAnalysisGroupingValue
+      ? null
+      : state.analysisHyperparameter;
+  }
+
   function draftAnalysisPlot() {
+    const hyperparameter = selectedAnalysisGrouping();
     if (state.analysisPlotType === "trends") {
       return state.analysisQuantity
         ? {
           type: "trends",
           quantity: state.analysisQuantity,
-          hyperparameter: state.analysisHyperparameter,
+          hyperparameter,
           secondaryHyperparameter: null,
+          log: false,
         }
         : null;
     }
@@ -756,18 +796,20 @@
       return state.analysisQuantity
         && state.analysisSecondQuantity
         && state.analysisQuantity !== state.analysisSecondQuantity
+        && hyperparameter
         ? {
           type: "combined-trends",
           quantity: state.analysisQuantity,
           quantity2: state.analysisSecondQuantity,
-          hyperparameter: state.analysisHyperparameter,
+          hyperparameter,
+          log: false,
         }
         : null;
     }
     return state.analysisMetricQuantity ? {
       type: "metric-vs-hyperparameter",
       quantity: state.analysisMetricQuantity,
-      hyperparameter: state.analysisHyperparameter,
+      hyperparameter,
       secondaryHyperparameter: null,
       view: "chart",
       log: false,
@@ -889,21 +931,32 @@
     const control = node("label", "analysis-plot-group-control");
     control.append(node("span", "", "Group by"));
     const select = document.createElement("select");
+    const allowNone = plot.type !== "combined-trends" && !plot.secondaryHyperparameter;
+    if (allowNone) {
+      const option = node("option", "", "None — average all runs");
+      option.value = noAnalysisGroupingValue;
+      select.append(option);
+    }
     for (const hyperparameter of state.analysisData.hyperparameters) {
       const option = node("option", "", hyperparameter.label);
       option.value = hyperparameter.id;
       select.append(option);
     }
-    select.value = plot.hyperparameter;
+    select.value = plot.hyperparameter || noAnalysisGroupingValue;
     select.addEventListener("change", () => {
+      const hyperparameter = select.value === noAnalysisGroupingValue
+        ? null
+        : select.value;
       const replacement = state.analysisData.hyperparameters.find(
-        (hyperparameter) => hyperparameter.id !== select.value,
+        (candidate) => candidate.id !== hyperparameter,
       )?.id || null;
       updateAnalysisPlot(plot, {
-        hyperparameter: select.value,
-        secondaryHyperparameter: plot.secondaryHyperparameter === select.value
-          ? replacement
-          : plot.secondaryHyperparameter,
+        hyperparameter,
+        secondaryHyperparameter: hyperparameter === null
+          ? null
+          : (plot.secondaryHyperparameter === hyperparameter
+            ? replacement
+            : plot.secondaryHyperparameter),
       });
     });
     control.append(select);
@@ -946,17 +999,33 @@
       updateAnalysisPlot(plot, { secondaryHyperparameter: null });
     });
     threeD.addEventListener("click", () => {
+      const hyperparameter = plot.hyperparameter
+        || state.analysisData.hyperparameters[0]?.id
+        || null;
       const secondaryHyperparameter = plot.secondaryHyperparameter
         || state.analysisData.hyperparameters.find(
-          (hyperparameter) => hyperparameter.id !== plot.hyperparameter,
+          (candidate) => candidate.id !== hyperparameter,
         )?.id
         || null;
-      if (secondaryHyperparameter) {
-        updateAnalysisPlot(plot, { secondaryHyperparameter });
+      if (hyperparameter && secondaryHyperparameter) {
+        updateAnalysisPlot(plot, { hyperparameter, secondaryHyperparameter });
       }
     });
     choices.append(twoD, threeD);
     control.append(choices);
+    return control;
+  }
+
+  function plotTrendLogControl(plot) {
+    const control = node("label", "aggregation-toggle");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(plot.log);
+    control.title = "Use a sign-preserving log-modulus axis for positive, zero, and negative values";
+    input.addEventListener("change", () => {
+      updateAnalysisPlot(plot, { log: input.checked });
+    });
+    control.append(input, node("span", "", "Log scale"));
     return control;
   }
 
@@ -1111,12 +1180,14 @@
   }
 
   function metricHoverRegion(chart, bar, geometry) {
-    const groups = [
-      `${chart.hyperparameter} = ${analysisValueLabel(bar.value)}`,
-      chart.secondaryHyperparameter
-        ? `${chart.secondaryHyperparameter} = ${analysisValueLabel(bar.secondaryValue)}`
-        : null,
-    ].filter(Boolean).join(" · ");
+    const groups = chart.ungrouped
+      ? "All runs"
+      : [
+        `${chart.hyperparameter} = ${analysisValueLabel(bar.value)}`,
+        chart.secondaryHyperparameter
+          ? `${chart.secondaryHyperparameter} = ${analysisValueLabel(bar.secondaryValue)}`
+          : null,
+      ].filter(Boolean).join(" · ");
     return {
       ...geometry,
       title: groups,
@@ -1128,10 +1199,11 @@
   }
 
   function metricHeatmapRange(bars, log) {
+    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
     const values = bars
       .map((bar) => bar.mean)
-      .filter((value) => Number.isFinite(value) && (!log || value > 0))
-      .map((value) => log ? Math.log10(value) : value);
+      .filter(Number.isFinite)
+      .map(valueScale.transform);
     if (!values.length) return { min: 0, max: 1 };
     return { min: Math.min(...values), max: Math.max(...values) };
   }
@@ -1157,10 +1229,11 @@
 
   function metricHeatmapLegend(bars, log) {
     const range = metricHeatmapRange(bars, log);
-    const display = (value) => formatNumber(log ? 10 ** value : value);
+    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
+    const display = (value) => formatNumber(valueScale.invert(value));
     const legend = node("div", "analysis-heatmap-legend");
     legend.append(
-      node("span", "analysis-heatmap-legend-title", log ? "Mean · log color" : "Mean"),
+      node("span", "analysis-heatmap-legend-title", log ? "Mean · log scale" : "Mean"),
       node("span", "", display(range.min)),
       node("span", "analysis-heatmap-gradient"),
       node("span", "", display(range.max)),
@@ -1188,8 +1261,8 @@
         for (const series of data.series) {
           if (series.quantity_id !== quantity.id) continue;
           const hyperparameters = configurations.get(series.configuration) || {};
-          if (!Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
-          const value = hyperparameters[plot.hyperparameter];
+          if (plot.hyperparameter && !Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
+          const value = plot.hyperparameter ? hyperparameters[plot.hyperparameter] : null;
           if (
             plot.secondaryHyperparameter
             && !Object.hasOwn(hyperparameters, plot.secondaryHyperparameter)
@@ -1210,7 +1283,9 @@
             split: "other",
             color: palette[index % palette.length],
             label: [
-              `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)}`,
+              plot.hyperparameter
+                ? `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)}`
+                : "All runs",
               plot.secondaryHyperparameter
                 ? `${plot.secondaryHyperparameter} = ${analysisValueLabel(bucket.secondaryValue)}`
                 : null,
@@ -1222,6 +1297,7 @@
           };
         });
         if (!lines.length) continue;
+        const useLog = Boolean(plot.log);
         const card = node("article", "chart-card analysis-chart-card");
         const head = node("div", "chart-head");
         const title = node("div", "chart-title");
@@ -1229,9 +1305,12 @@
         const chartTitle = plotOption.quantities.length > 1
           ? `${familyLabel} · ${quantity.label}`
           : plotOption.label;
+        const groupingSummary = plot.hyperparameter
+          ? `averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`
+          : "averaged across all runs";
         title.append(
           node("h3", "", chartTitle),
-          node("p", "", `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`),
+          node("p", "", `${useLog ? "Log scale · " : ""}Outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
         const headMeta = node("div", "chart-head-meta");
@@ -1245,6 +1324,7 @@
             lines,
             kind: plot.secondaryHyperparameter ? "trend3d" : "line",
             zLabel: plot.secondaryHyperparameter,
+            scale: useLog ? "log-modulus" : "linear",
           })),
           plotExpandButton(card, `trend:${plot.id}:${quantity.id}`),
           plotRemoveButton(plot),
@@ -1254,7 +1334,12 @@
         if (plot.secondaryHyperparameter) wrap.classList.add("analysis-chart-3d");
         const canvas = document.createElement("canvas");
         canvas.setAttribute("role", "img");
-        canvas.setAttribute("aria-label", `${quantity.label} over epochs by hyperparameter value`);
+        canvas.setAttribute(
+          "aria-label",
+          plot.hyperparameter
+            ? `${quantity.label} over epochs by hyperparameter value`
+            : `${quantity.label} over epochs averaged across all runs`,
+        );
         wrap.append(canvas);
         const legend = node("div", "chart-legend analysis-legend");
         const legendValues = new Map();
@@ -1272,6 +1357,7 @@
         controls.append(
           plotGroupingControl(plot),
           plotDimensionControl(plot),
+          plotTrendLogControl(plot),
         );
         if (plot.secondaryHyperparameter) {
           controls.append(
@@ -1290,6 +1376,7 @@
             yLabel: quantity.label,
             zLabel: plot.secondaryHyperparameter,
             cameraKey,
+            scale: useLog ? "log-modulus" : "linear",
           };
           attachAnalysis3DInteraction(chart);
           attachAnalysisHover(chart, wrap);
@@ -1301,6 +1388,7 @@
             legendValues,
             epochLabel,
             hoverIndex: null,
+            scale: useLog ? "log-modulus" : "linear",
           };
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
           canvas.addEventListener("pointerleave", () => {
@@ -1388,7 +1476,7 @@
       const title = node("div", "chart-title");
       title.append(
         node("h3", "", `${leftQuantity.label} × ${rightQuantity.label}`),
-        node("p", "", `3D epoch trajectory grouped by ${plot.hyperparameter}`),
+        node("p", "", `${plot.log ? "Log scale · " : ""}3D epoch trajectory grouped by ${plot.hyperparameter}`),
       );
       const headMeta = node("div", "chart-head-meta");
       headMeta.append(
@@ -1400,6 +1488,7 @@
           xLabel: "epoch",
           yLabel: leftQuantity.label,
           zLabel: rightQuantity.label,
+          scale: plot.log ? "log-modulus" : "linear",
           series: lines.map((line) => ({
             label: line.label,
             leftValues: line.leftValues,
@@ -1419,6 +1508,7 @@
       const cameraKey = `${plot.id}:${leftQuantity.id}:${rightQuantity.id}`;
       controls.append(
         plotGroupingControl(plot),
+        plotTrendLogControl(plot),
         plot3DAlignmentControl(cameraKey),
       );
       const wrap = node("div", "chart-wrap analysis-chart-wrap analysis-chart-3d");
@@ -1447,6 +1537,7 @@
         yLabel: leftQuantity.label,
         zLabel: rightQuantity.label,
         cameraKey,
+        scale: plot.log ? "log-modulus" : "linear",
       };
       attachAnalysis3DInteraction(chart);
       attachAnalysisHover(chart, wrap);
@@ -1497,8 +1588,10 @@
         || !Number.isFinite(series.selected_value)
       ) continue;
       const hyperparameters = configurations.get(series.configuration) || {};
-      if (!Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
-      const value = hyperparameters[plot.hyperparameter];
+      if (plot.hyperparameter && !Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
+      const value = plot.hyperparameter
+        ? hyperparameters[plot.hyperparameter]
+        : "All runs";
       if (
         plot.secondaryHyperparameter
         && !Object.hasOwn(hyperparameters, plot.secondaryHyperparameter)
@@ -1536,8 +1629,9 @@
   }
 
   function metricMarkdownTable(bars, plot) {
+    const groupingLabel = plot.hyperparameter || "runs";
     const rows = [
-      `| ${plot.hyperparameter} |${plot.secondaryHyperparameter ? ` ${plot.secondaryHyperparameter} |` : ""} mean | std | runs | source |`,
+      `| ${groupingLabel} |${plot.secondaryHyperparameter ? ` ${plot.secondaryHyperparameter} |` : ""} mean | std | runs | source |`,
       `| --- |${plot.secondaryHyperparameter ? " --- |" : ""} ---: | ---: | ---: | --- |`,
     ];
     for (const bar of bars) {
@@ -1567,7 +1661,8 @@
     if (!bars.length) {
       return false;
     }
-    const useLog = Boolean(plot.log) && bars.every((bar) => bar.mean > 0);
+    const useLog = Boolean(plot.log);
+    const ungrouped = !plot.hyperparameter;
     const cameraKey = `${plot.id}:metric:${quantity.id}`;
     const card = node("article", "chart-card analysis-chart-card");
     const head = node("div", "chart-head");
@@ -1582,7 +1677,7 @@
       ),
       node(
         "p", "",
-        `${useLog ? "Log scale · " : ""}Grouped by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""} · best checkpoint value when available; otherwise last recorded epoch`,
+        `${useLog ? "Log scale · " : ""}${ungrouped ? "Averaged across all runs" : `Grouped by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`} · best checkpoint value when available; otherwise last recorded epoch`,
       ),
     );
     const sources = bars.reduce(
@@ -1681,7 +1776,7 @@
       const canvas = document.createElement("canvas");
       canvas.setAttribute("role", "img");
       canvas.setAttribute(
-        "aria-label", `${plot.shape === "violin" ? "Violin" : (plot.secondaryHyperparameter ? "3D heatmap" : "Histogram")} of ${quantity.label} against ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` and ${plot.secondaryHyperparameter}` : ""}`,
+        "aria-label", `${plot.shape === "violin" ? "Violin" : (plot.secondaryHyperparameter ? "3D heatmap" : "Histogram")} of ${quantity.label} ${ungrouped ? "averaged across all runs" : `against ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` and ${plot.secondaryHyperparameter}` : ""}`}`,
       );
       wrap.append(canvas);
       card.append(wrap);
@@ -1710,7 +1805,8 @@
         canvas,
         bars,
         log: useLog,
-        hyperparameter: plot.hyperparameter,
+        hyperparameter: plot.hyperparameter || "runs",
+        ungrouped,
         secondaryHyperparameter: plot.secondaryHyperparameter,
         metricLabel: quantity.label,
         shape: plot.shape,
@@ -1751,28 +1847,25 @@
     const styles = getComputedStyle(document.documentElement);
     const gridColor = styles.getPropertyValue("--chart-grid").trim() || "#edf0ed";
     const labelColor = styles.getPropertyValue("--chart-label").trim() || "#8a94a1";
-    const positive = bars.flatMap((bar) => [bar.mean, bar.mean - bar.std, bar.mean + bar.std])
-      .filter((value) => value > 0);
-    let min;
-    let max;
-    let transform = (value) => value;
-    if (log) {
-      const floor = Math.min(...positive) / 2;
-      transform = (value) => Math.log10(Math.max(value, floor));
-      min = transform(floor);
-      max = Math.max(...bars.map((bar) => transform(bar.mean + bar.std)));
-    } else {
-      min = Math.min(0, ...bars.map((bar) => bar.mean - bar.std));
-      max = Math.max(0, ...bars.map((bar) => bar.mean + bar.std));
+    const rawValues = [
+      0,
+      ...bars.flatMap((bar) => [bar.mean, bar.mean - bar.std, bar.mean + bar.std]),
+    ].filter(Number.isFinite);
+    const valueScale = createValueScale(rawValues, log ? "log-modulus" : "linear");
+    const transform = valueScale.transform;
+    let min = Math.min(...rawValues.map(transform));
+    let max = Math.max(...rawValues.map(transform));
+    if (min === max) {
+      min -= Math.abs(min || 1) * 0.05;
+      max += Math.abs(max || 1) * 0.05;
     }
-    if (min === max) max += Math.abs(max || 1) * 0.05;
     const padding = (max - min) * 0.08;
-    min -= log ? 0 : padding;
+    min -= padding;
     max += padding;
     ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const transformed = min + ((max - min) * tick) / 4;
-      return log ? 10 ** transformed : transformed;
+      return valueScale.invert(transformed);
     });
     margin.left = Math.max(
       margin.left,
@@ -1783,7 +1876,7 @@
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const y = (value) => margin.top + ((max - transform(value)) / (max - min)) * plotHeight;
-    const baseline = log ? y(10 ** min) : y(0);
+    const baseline = y(0);
     ctx.textBaseline = "middle";
     for (let tick = 0; tick <= 4; tick += 1) {
       const transformed = min + ((max - min) * tick) / 4;
@@ -1803,7 +1896,7 @@
       ctx.globalAlpha = 0.82;
       ctx.fillRect(center - barWidth / 2, Math.min(top, baseline), barWidth, Math.abs(baseline - top));
       ctx.globalAlpha = 1;
-      const low = log ? Math.max(bar.mean - bar.std, 10 ** min) : bar.mean - bar.std;
+      const low = bar.mean - bar.std;
       const high = bar.mean + bar.std;
       const lowY = y(low);
       const highY = y(high);
@@ -1842,11 +1935,10 @@
     const styles = getComputedStyle(document.documentElement);
     const gridColor = styles.getPropertyValue("--chart-grid").trim() || "#edf0ed";
     const labelColor = styles.getPropertyValue("--chart-label").trim() || "#8a94a1";
-    const transform = log
-      ? (value) => Math.log10(Math.max(value, Number.MIN_VALUE))
-      : (value) => value;
+    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
+    const transform = valueScale.transform;
     const samples = bars.flatMap((bar) => bar.samples)
-      .filter((value) => Number.isFinite(value) && (!log || value > 0))
+      .filter(Number.isFinite)
       .map(transform);
     if (!samples.length) return;
     let min = Math.min(...samples);
@@ -1858,7 +1950,7 @@
     ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const value = min + ((max - min) * tick) / 4;
-      return log ? 10 ** value : value;
+      return valueScale.invert(value);
     });
     margin.left = Math.max(
       margin.left,
@@ -1880,7 +1972,7 @@
     const slot = plotWidth / bars.length;
     bars.forEach((bar, index) => {
       const values = bar.samples
-        .filter((value) => Number.isFinite(value) && (!log || value > 0))
+        .filter(Number.isFinite)
         .map(transform);
       if (!values.length) return;
       const spread = Math.max(...values) - Math.min(...values);
@@ -1913,7 +2005,7 @@
       ctx.globalAlpha = 1; ctx.strokeStyle = "#4776e6"; ctx.lineWidth = 1.3; ctx.stroke();
       if (chart.showPoints) {
         bar.samples.forEach((sample, sampleIndex) => {
-          if (!Number.isFinite(sample) || (log && sample <= 0)) return;
+          if (!Number.isFinite(sample)) return;
           const jitter = ((((sampleIndex * 37) % 19) / 18) - 0.5) * maxHalfWidth * 1.35;
           ctx.beginPath(); ctx.arc(center + jitter, y(sample), 2, 0, Math.PI * 2);
           ctx.fillStyle = "#284c91"; ctx.globalAlpha = 0.68; ctx.fill();
@@ -1923,7 +2015,7 @@
       ctx.beginPath(); ctx.moveTo(center - 5, y(bar.mean)); ctx.lineTo(center + 5, y(bar.mean));
       ctx.strokeStyle = "#284c91"; ctx.lineWidth = 2; ctx.stroke();
       const sampleYs = bar.samples
-        .filter((sample) => Number.isFinite(sample) && (!log || sample > 0))
+        .filter(Number.isFinite)
         .map(y);
       chart.hitRegions.push(metricHoverRegion(chart, bar, {
         x: center,
@@ -2121,12 +2213,17 @@
     const { ctx, width, height, gridColor, labelColor, dotCenter } = prepared;
     const project = analysis3DProjector(width, height, chart.camera || analysisCamera(chart.cameraKey));
     if (chart.kind === "combined") {
-      const yExtent = analysisExtent(chart.lines.flatMap((line) => line.leftValues));
-      const zExtent = analysisExtent(chart.lines.flatMap((line) => line.rightValues));
+      const leftValues = chart.lines.flatMap((line) => line.leftValues).filter(Number.isFinite);
+      const rightValues = chart.lines.flatMap((line) => line.rightValues).filter(Number.isFinite);
+      const leftScale = createValueScale(leftValues, chart.scale || "linear");
+      const rightScale = createValueScale(rightValues, chart.scale || "linear");
+      const yExtent = analysisExtent(leftValues.map(leftScale.transform));
+      const zExtent = analysisExtent(rightValues.map(rightScale.transform));
       drawAnalysis3DAxes(
         ctx, project,
         { x: chart.xLabel, y: chart.yLabel, z: chart.zLabel },
-        { y: yExtent }, labelColor, gridColor,
+        { y: { min: leftScale.invert(yExtent.min), max: leftScale.invert(yExtent.max) } },
+        labelColor, gridColor,
       );
       for (const line of chart.lines) {
         const epochs = Math.min(line.leftValues.length, line.rightValues.length);
@@ -2138,8 +2235,8 @@
           if (!Number.isFinite(left) || !Number.isFinite(right)) { drawing = false; continue; }
           const point = project(
             epochs <= 1 ? 0.5 : index / (epochs - 1),
-            normalizedValue(left, yExtent),
-            normalizedValue(right, zExtent),
+            normalizedValue(leftScale.transform(left), yExtent),
+            normalizedValue(rightScale.transform(right), zExtent),
           );
           chart.hitRegions.push({
             x: point.x,
@@ -2165,16 +2262,24 @@
           if (!Number.isFinite(left) || !Number.isFinite(right)) continue;
           drawAnalysis3DHoverDot(ctx, project(
             epochs <= 1 ? 0.5 : chart.hoverEpoch / (epochs - 1),
-            normalizedValue(left, yExtent),
-            normalizedValue(right, zExtent),
+            normalizedValue(leftScale.transform(left), yExtent),
+            normalizedValue(rightScale.transform(right), zExtent),
           ), line.color, dotCenter);
         }
       }
       return;
     }
-    const yExtent = analysisExtent(chart.lines.flatMap((line) => [
+    const trendValues = chart.lines.flatMap((line) => [
       ...line.values, ...line.band.lower, ...line.band.upper,
-    ]));
+    ]).filter(Number.isFinite);
+    const trendValueScale = createValueScale(trendValues, chart.scale || "linear");
+    const validTrendValue = (value) => Number.isFinite(value);
+    const transformTrendValue = trendValueScale.transform;
+    const yExtent = analysisExtent(trendValues.map(transformTrendValue));
+    const displayedYExtent = {
+      min: trendValueScale.invert(yExtent.min),
+      max: trendValueScale.invert(yExtent.max),
+    };
     const zValues = [...new Map(chart.lines.map(
       (line) => [analysisValueKey(line.secondaryValue), line.secondaryValue],
     )).values()].sort(compareAnalysisValues);
@@ -2182,7 +2287,7 @@
     drawAnalysis3DAxes(
       ctx, project,
       { x: chart.xLabel, y: chart.yLabel, z: chart.zLabel },
-      { y: yExtent }, labelColor, gridColor,
+      { y: displayedYExtent }, labelColor, gridColor,
       { z: zValues },
     );
     for (const line of chart.lines) {
@@ -2193,18 +2298,18 @@
       const bandPoints = [];
       for (let index = 0; index < epochs; index += 1) {
         const upper = line.band.upper[index];
-        if (!Number.isFinite(upper)) continue;
+        if (!validTrendValue(upper)) continue;
         bandPoints.push(project(
           epochs <= 1 ? 0.5 : index / (epochs - 1),
-          normalizedValue(upper, yExtent), z,
+          normalizedValue(transformTrendValue(upper), yExtent), z,
         ));
       }
       for (let index = epochs - 1; index >= 0; index -= 1) {
         const lower = line.band.lower[index];
-        if (!Number.isFinite(lower)) continue;
+        if (!validTrendValue(lower)) continue;
         bandPoints.push(project(
           epochs <= 1 ? 0.5 : index / (epochs - 1),
-          normalizedValue(lower, yExtent), z,
+          normalizedValue(transformTrendValue(lower), yExtent), z,
         ));
       }
       if (bandPoints.length > 2) {
@@ -2219,10 +2324,10 @@
       let drawing = false;
       for (let index = 0; index < epochs; index += 1) {
         const value = line.values[index];
-        if (!Number.isFinite(value)) { drawing = false; continue; }
+        if (!validTrendValue(value)) { drawing = false; continue; }
         const point = project(
           epochs <= 1 ? 0.5 : index / (epochs - 1),
-          normalizedValue(value, yExtent), z,
+          normalizedValue(transformTrendValue(value), yExtent), z,
         );
         const std = Number.isFinite(line.band.upper[index])
           ? line.band.upper[index] - value
@@ -2245,13 +2350,13 @@
     if (Number.isInteger(chart.hoverEpoch)) {
       for (const line of chart.lines) {
         const value = line.values[chart.hoverEpoch];
-        if (!Number.isFinite(value)) continue;
+        if (!validTrendValue(value)) continue;
         const z = zValues.length <= 1
           ? 0.5
           : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
         drawAnalysis3DHoverDot(ctx, project(
           line.values.length <= 1 ? 0.5 : chart.hoverEpoch / (line.values.length - 1),
-          normalizedValue(value, yExtent), z,
+          normalizedValue(transformTrendValue(value), yExtent), z,
         ), line.color, dotCenter);
       }
     }
@@ -2278,23 +2383,23 @@
     )).values()].sort(compareAnalysisValues);
     const xIndex = new Map(primaryValues.map((value, index) => [analysisValueKey(value), index]));
     const zIndex = new Map(secondaryValues.map((value, index) => [analysisValueKey(value), index]));
-    const transform = chart.log
-      ? (value) => Math.log10(Math.max(value, Number.MIN_VALUE))
-      : (value) => value;
+    const valueScale = createValueScale([], chart.log ? "log-modulus" : "linear");
+    const transform = valueScale.transform;
     const heatmapRange = metricHeatmapRange(chart.bars, chart.log);
-    const yExtent = analysisExtent(chart.bars
-      .map((bar) => bar.mean)
-      .filter((value) => Number.isFinite(value) && (!chart.log || value > 0))
+    const yExtent = analysisExtent([0, ...chart.bars
+      .map((bar) => bar.mean)]
+      .filter(Number.isFinite)
       .map(transform));
     drawAnalysis3DAxes(
       ctx, project,
       { x: chart.hyperparameter, y: chart.metricLabel || "metric", z: chart.secondaryHyperparameter },
-      { y: { min: chart.log ? 10 ** yExtent.min : yExtent.min, max: chart.log ? 10 ** yExtent.max : yExtent.max } },
+      { y: { min: valueScale.invert(yExtent.min), max: valueScale.invert(yExtent.max) } },
       labelColor, gridColor,
       { x: primaryValues, z: secondaryValues },
     );
+    const zero = normalizedValue(transform(0), yExtent);
     const faces = chart.bars.flatMap((bar) => {
-      if (!Number.isFinite(bar.mean) || (chart.log && bar.mean <= 0)) return [];
+      if (!Number.isFinite(bar.mean)) return [];
       const primaryIndex = xIndex.get(analysisValueKey(bar.value));
       const secondaryIndex = zIndex.get(analysisValueKey(bar.secondaryValue));
       const [xMin, xMax] = analysisHeatmapCellBounds(primaryIndex, primaryValues.length);
@@ -2302,10 +2407,10 @@
       const transformedMean = transform(bar.mean);
       const y = normalizedValue(transformedMean, yExtent);
       const bottomCorners = [
-        project(xMin, 0, zMin),
-        project(xMax, 0, zMin),
-        project(xMax, 0, zMax),
-        project(xMin, 0, zMax),
+        project(xMin, zero, zMin),
+        project(xMax, zero, zMin),
+        project(xMax, zero, zMax),
+        project(xMin, zero, zMax),
       ];
       const topCorners = [
         project(xMin, y, zMin),
@@ -2364,15 +2469,14 @@
     )).values()].sort(compareAnalysisValues);
     const xIndex = new Map(primaryValues.map((value, index) => [analysisValueKey(value), index]));
     const zIndex = new Map(secondaryValues.map((value, index) => [analysisValueKey(value), index]));
-    const transform = chart.log
-      ? (value) => Math.log10(Math.max(value, Number.MIN_VALUE))
-      : (value) => value;
+    const valueScale = createValueScale([], chart.log ? "log-modulus" : "linear");
+    const transform = valueScale.transform;
     const yExtent = analysisExtent(chart.bars.flatMap((bar) =>
-      bar.samples.filter((value) => !chart.log || value > 0).map(transform)));
+      bar.samples.filter(Number.isFinite).map(transform)));
     drawAnalysis3DAxes(
       ctx, project,
       { x: chart.hyperparameter, y: chart.metricLabel || "metric", z: chart.secondaryHyperparameter },
-      { y: { min: chart.log ? 10 ** yExtent.min : yExtent.min, max: chart.log ? 10 ** yExtent.max : yExtent.max } },
+      { y: { min: valueScale.invert(yExtent.min), max: valueScale.invert(yExtent.max) } },
       labelColor, gridColor,
       { x: primaryValues, z: secondaryValues },
     );
@@ -2382,7 +2486,7 @@
       const z = secondaryValues.length <= 1 ? 0.5 : zIndex.get(analysisValueKey(bar.secondaryValue)) / (secondaryValues.length - 1);
       const color = palette[index % palette.length];
       const values = bar.samples
-        .filter((value) => Number.isFinite(value) && (!chart.log || value > 0))
+        .filter(Number.isFinite)
         .map(transform);
       if (!values.length) return;
       const spread = Math.max(...values) - Math.min(...values);
@@ -4491,8 +4595,20 @@
     return `${formatNumber(value)} ± ${formatNumber(std)}`;
   }
 
-  function createValueScale(values) {
-    if (state.scale !== "symlog") {
+  function createValueScale(values, scale = state.scale) {
+    if (scale === "log-modulus") {
+      return {
+        transform: (value) => Math.sign(value) * Math.log10(1 + Math.abs(value)),
+        invert: (value) => Math.sign(value) * (10 ** Math.abs(value) - 1),
+      };
+    }
+    if (scale === "log") {
+      return {
+        transform: (value) => Math.log10(value),
+        invert: (value) => 10 ** value,
+      };
+    }
+    if (scale !== "symlog") {
       return { transform: (value) => value, invert: (value) => value };
     }
     let maxMagnitude = 1;
@@ -4512,7 +4628,7 @@
     };
   }
 
-  function drawMetricBand(ctx, line, x, y) {
+  function drawMetricBand(ctx, line, x, y, validValue = Number.isFinite) {
     if (!line.band) return;
     const { lower, upper } = line.band;
     let start = null;
@@ -4530,8 +4646,8 @@
     };
     for (let index = 0; index <= lower.length; index += 1) {
       const finite = index < lower.length
-        && Number.isFinite(lower[index])
-        && Number.isFinite(upper[index]);
+        && validValue(lower[index])
+        && validValue(upper[index]);
       if (finite && start === null) start = index;
       if (!finite && start !== null) {
         drawSegment(start, index - 1);
@@ -4557,13 +4673,17 @@
     const labelColor = themeStyles.getPropertyValue("--chart-label").trim() || "#8a94a1";
     const guideColor = themeStyles.getPropertyValue("--chart-guide").trim() || "#b5bec8";
     const dotCenter = themeStyles.getPropertyValue("--panel").trim() || "#ffffff";
+    const scale = chart.scale || state.scale;
+    const validValue = (value) => value !== null
+      && Number.isFinite(value)
+      && (scale !== "log" || value > 0);
     const values = group.lines.flatMap((line) => [
       ...line.values,
       ...(line.band?.lower || []),
       ...(line.band?.upper || []),
-    ]).filter((value) => value !== null && Number.isFinite(value));
+    ]).filter(validValue);
     if (!values.length) return;
-    const valueScale = createValueScale(values);
+    const valueScale = createValueScale(values, scale);
     let min = Infinity;
     let max = -Infinity;
     for (const value of values) {
@@ -4608,13 +4728,13 @@
     if (epochs > 1) ctx.fillText(String(epochs), x(epochs - 1), height - margin.bottom + 8);
     ctx.fillStyle = labelColor; ctx.fillText("epoch", margin.left + plotWidth / 2, height - 10);
 
-    for (const line of group.lines) drawMetricBand(ctx, line, x, y);
+    for (const line of group.lines) drawMetricBand(ctx, line, x, y, validValue);
 
     for (const line of group.lines) {
       ctx.beginPath();
       let drawing = false;
       line.values.forEach((value, index) => {
-        if (value === null || !Number.isFinite(value)) { drawing = false; return; }
+        if (!validValue(value)) { drawing = false; return; }
         if (!drawing) { ctx.moveTo(x(index), y(value)); drawing = true; } else { ctx.lineTo(x(index), y(value)); }
       });
       ctx.strokeStyle = line.color || colors[line.split] || colors.other;
@@ -4639,7 +4759,7 @@
       ctx.restore();
       for (const line of group.lines) {
         const value = line.values[chart.hoverIndex];
-        if (value === null || !Number.isFinite(value)) continue;
+        if (!validValue(value)) continue;
         ctx.beginPath();
         ctx.arc(hoverX, y(value), 4.2, 0, Math.PI * 2);
         ctx.fillStyle = dotCenter;
@@ -4957,7 +5077,7 @@
     });
   });
   el("scale-toggle").addEventListener("click", () => {
-    state.scale = state.scale === "symlog" ? "linear" : "symlog";
+    state.scale = state.scale === "log-modulus" ? "linear" : "log-modulus";
     persistState();
     syncScaleButton();
     state.charts.forEach((chart) => drawChart(chart));
@@ -5062,6 +5182,7 @@
           charts: [],
           modelGraphData: null,
         });
+        state.scale = normalizedScale(state.scale);
         el("metric-search").value = state.query || "";
         el("refresh-interval").value = String(state.refreshSeconds || 15);
         applyTheme();
@@ -5081,9 +5202,9 @@
 
   function syncScaleButton() {
     const button = el("scale-toggle");
-    const active = state.scale === "symlog";
+    const active = state.scale === "log-modulus";
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
-    button.textContent = active ? "± Log scale · on" : "± Log scale";
+    button.textContent = active ? "Log scale · on" : "Log scale";
   }
 })();

@@ -873,9 +873,23 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "renderAnalysisCharts" in app_script
         assert "analysisQuantities" in app_script
         assert "analysisPlots" in app_script
+        assert 'noAnalysisGroupingValue = "__all_runs__"' in app_script
+        assert "normalizedAnalysisGrouping" in app_script
+        assert '"None — average all runs"' in app_script
+        assert 'plot.type !== "combined-trends" && !plot.secondaryHyperparameter' in app_script
+        assert '"averaged across all runs"' in app_script
         assert "plotGroupingControl" in app_script
         assert "plotSecondaryGroupingControl" in app_script
         assert "plotDimensionControl" in app_script
+        assert "plotTrendLogControl" in app_script
+        assert "createValueScale(values, scale = state.scale)" in app_script
+        assert 'scale: useLog ? "log-modulus" : "linear"' in app_script
+        assert 'scale: plot.log ? "log-modulus" : "linear"' in app_script
+        assert 'state.scale === "log-modulus" ? "linear" : "log-modulus"' in app_script
+        assert 'return ["log-modulus", "symlog"].includes(value)' in app_script
+        assert 'scale === "log-modulus"' in app_script
+        assert "Math.sign(value) * Math.log10(1 + Math.abs(value))" in app_script
+        assert 'node("span", "", "Log scale")' in app_script
         assert "plot3DAlignmentControl" in app_script
         assert "Look along the ${axis} axis" in app_script
         assert "plotRemoveButton" in app_script
@@ -959,6 +973,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "palettes.${options.palette}" in plot_export_script
         assert 'palette: "paultol_muted"' in plot_export_script
         assert "function generatePython" in plot_export_script
+        assert "def log_modulus(values):" in plot_export_script
+        assert 'ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))' in plot_export_script
+        assert 'ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))' in plot_export_script
+        assert "color_values = log_modulus(heights)" in plot_export_script
+        assert 'elif DATA.get("scale") == "log"' in plot_export_script
         assert 'kind: "trajectory3d"' in app_script
         assert ".content { min-width: 0;" in stylesheet
         assert "overflow: visible;" in stylesheet
