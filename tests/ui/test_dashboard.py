@@ -758,6 +758,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             page = response.read().decode("utf-8")
         with urlopen(f"{base_url}/assets/app.js", timeout=3) as response:
             app_script = response.read().decode("utf-8")
+        with urlopen(
+            f"{base_url}/assets/plot_export.js", timeout=3
+        ) as response:
+            plot_export_script = response.read().decode("utf-8")
         with urlopen(f"{base_url}/assets/styles.css", timeout=3) as response:
             stylesheet = response.read().decode("utf-8")
         with urlopen(f"{base_url}/assets/mlwiz-logo.png", timeout=3) as response:
@@ -826,6 +830,13 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="show-all-plots"' in page
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
+        assert 'id="font-select"' in page
+        assert 'id="font-size-input"' in page
+        assert 'id="plot-code-dialog"' in page
+        assert 'id="plot-code-bundle"' in page
+        assert 'id="plot-code-palette"' in page
+        assert 'id="plot-code-latex"' in page
+        assert '/assets/plot_export.js' in page
         assert 'id="experiment-overview"' in page
         assert 'id="model-graph-section"' in page
         assert 'id="model-graph-checkpoint-select"' in page
@@ -847,6 +858,12 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'fetch("/api/export"' in app_script
         assert 'getJson("/api/snapshot-state")' in app_script
         assert "localStorage.setItem(themeStorageKey" in app_script
+        assert "localStorage.setItem(fontStorageKey" in app_script
+        assert "localStorage.setItem(fontSizeStorageKey" in app_script
+        assert "plotCodeButton" in app_script
+        assert "metricPlotExportSpec" in app_script
+        assert "canvasFont()" in app_script
+        assert "normalizedFontSize" in app_script
         assert "openNodes" in app_script
         assert 'postJson("/api/cache"' in app_script
         assert 'postJson("/api/cache/reset"' in app_script
@@ -917,6 +934,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "configurationPassesFilter" in app_script
         assert "scheduleRefresh" in app_script
         assert "applyTheme" in app_script
+        assert "applyFont" in app_script
         assert "metadataViewer" in app_script
         assert '"Raw JSON"' in app_script
         assert "metadata-json:" in app_script
@@ -933,6 +951,15 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert ".operator-module-frame-box" in stylesheet
         assert ".plot-navigator { position: sticky" in stylesheet
         assert ".plot-navigator.is-stuck" in stylesheet
+        assert ".plot-code-dialog" in stylesheet
+        assert ".plot-code-button" in stylesheet
+        assert "--app-font:" in stylesheet
+        assert "font-size: 0.75rem" in stylesheet
+        assert "bundles.${options.bundle}" in plot_export_script
+        assert "palettes.${options.palette}" in plot_export_script
+        assert 'palette: "paultol_muted"' in plot_export_script
+        assert "function generatePython" in plot_export_script
+        assert 'kind: "trajectory3d"' in app_script
         assert ".content { min-width: 0;" in stylesheet
         assert "overflow: visible;" in stylesheet
         assert "[hidden] { display: none !important; }" in stylesheet

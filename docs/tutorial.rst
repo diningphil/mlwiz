@@ -1043,6 +1043,43 @@ The available plot types have different aggregation semantics:
   **Markdown table** to copy exact means, deviations, run counts, and value
   sources.
 
+Exporting reproducible Python code
+""""""""""""""""""""""""""""""""""""""""
+
+Every rendered chart in the run browser and Model Selection Analysis has a
+**</> Python** button. It opens a dialog containing a standalone Matplotlib
+script with the normalized data currently displayed in that chart. Line and
+uncertainty-band plots, histograms, violin distributions, 3D heatmap bars, 3D
+trends, and combined trajectories are translated to their corresponding
+Matplotlib operations rather than exported as a screenshot.
+
+Use the dialog to configure the generated figure:
+
+* choose a conference or journal style from the available ``tueplots`` bundles;
+* choose single-column or full-width sizing;
+* keep the default Paul Tol muted colorblind-safe palette or select another
+  colorblind-safe or ``tueplots`` palette;
+* save the reproduced figure as PDF, PNG, SVG, or PGF;
+* enable or disable LaTeX text rendering, the grid, title, and legend; and
+* review the updated source live, then click **Copy code** or **Download .py**.
+
+The selected export options persist across browser sessions and are reused for
+the next plot. LaTeX is disabled by default, so the generated script works
+without a TeX installation. If **Use LaTeX text rendering** is enabled, the
+machine that runs the script must have a working TeX distribution.
+
+Install the generated script's dependencies with:
+
+.. code-block:: bash
+
+    python -m pip install matplotlib numpy tueplots
+
+Run the downloaded file normally, for example ``python validation_loss.py``.
+It writes the figure beside the script in the selected format and opens the
+interactive Matplotlib window with ``plt.show()``. Because the normalized plot
+data is embedded in the file, reproducing the figure does not require access to
+the original ``RESULTS`` directory.
+
 Interacting with 3D plots
 """"""""""""""""""""""""""""""""""""""""
 
