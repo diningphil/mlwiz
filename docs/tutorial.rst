@@ -963,7 +963,7 @@ outer fold, and inner fold, so its plots update as new epochs are flushed to
 ``metrics_data.torch``.
 
 Choosing the analysis scope
-"""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""""
 
 Open **Model Selection Analysis**, then select an **Experiment**, **Outer
 fold**, and **Inner fold**. MLWiz recursively flattens each configuration into
@@ -997,7 +997,7 @@ per-layer norms, attention statistics, and similar data where inspecting one
 layer at a time would hide the overall behavior.
 
 Adding and managing plots
-"""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""""
 
 Choose a plot type and quantity in the controls at the top, then click **Add
 plot**. Adding another plot never replaces the existing plots, even when its
@@ -1044,7 +1044,7 @@ The available plot types have different aggregation semantics:
   sources.
 
 Interacting with 3D plots
-"""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""""
 
 Drag a 3D canvas to rotate it and use the mouse wheel to zoom. **Align view X**,
 **Y**, or **Z** looks directly along the selected axis; aligning the heatmap-bar
@@ -1055,7 +1055,7 @@ count. Use the expand button when dense labels or many component plots need
 more room.
 
 Recording a family of custom curves
-"""""""""""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""""
 
 The MLP example includes a deliberately simple
 :class:`~mlwiz.training.callback.plotter.WidthPlotter` configuration:
@@ -1087,7 +1087,7 @@ rectangular across epochs and use ``None`` for an individual missing numeric
 observation rather than changing the number of components.
 
 Interpretation notes
-"""""""""""""""""""
+""""""""""""""""""""""""""""""""""""""""
 
 The plots describe associations within the tried search space; they do not by
 themselves establish that a hyperparameter caused a metric change. In
