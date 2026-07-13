@@ -4,6 +4,7 @@
 
 ## Added
 
+- added a live **Model Selection Analysis** dashboard tab with per-fold hyperparameter grouping, multi-plot trend and best-metric comparisons, automatic layer/component families, independent 2D/3D views, combined trajectories, histogram/heatmap and violin renderings, Markdown export, and persistent interactive plot controls
 - added versioned, compressed `.mlwiz` dashboard snapshots for sharing normalized experiment metrics, result metadata, filters, and browser state without sharing the original result directory, checkpoints, or project-specific model classes
 - added `mlwiz-dashboard-export` for exporting every experiment under a result root by default, with an optional dashboard path to limit the archive to one containing experiment
 - added `mlwiz-dashboard-import` for validating a portable snapshot and serving it through an ad-hoc, read-only local dashboard without extracting files or deserializing Torch/pickle payloads

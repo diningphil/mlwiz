@@ -67,7 +67,9 @@ Tip: for GPU / graph workloads, install PyTorch and PyG following their official
 MLWiz includes a local, read-only visualization dashboard for exploring running
 and completed experiments. It mirrors the model-selection and risk-assessment
 hierarchy, plots score and loss histories, summarizes run progress and timing,
-and provides checkpoint-based model graph views. Start it with:
+provides checkpoint-based model graph views, and includes a dedicated live
+model-selection analysis workspace for comparing metrics across tried
+hyperparameters. Start it with:
 
 ```bash
 mlwiz-dashboard --logdir RESULTS
@@ -367,6 +369,32 @@ multiple conditions with AND or OR. Completed experiments use their aggregated
 results; running experiments use the latest values available in
 `metrics_data.torch`. While a filter is active, final runs are hidden and an
 experiment with no matching configuration shows only its filter controls.
+
+#### Model Selection Analysis
+
+The separate **Model Selection Analysis** tab compares configurations and runs
+inside one selected outer-fold/inner-fold pair. It offers only hyperparameters
+for which more than one value was actually tried. Add any number of plots to the
+workspace: each plot retains its own grouping, dimensionality, output, display,
+expansion, and camera controls, and can be removed directly from its card.
+
+- **Trend Plots** show epoch-wise mean ± standard deviation for runs sharing a
+  hyperparameter value. Add a second hyperparameter for a 3D view.
+- **Combined Trends** place epoch and two recorded quantities on a 3D trajectory
+  grouped by one hyperparameter.
+- **Metric vs Hyper-Parameter** compares each run's best-checkpoint metric value,
+  falling back to its last recorded value. It supports 2D histograms, 3D
+  heatmap bars for two hyperparameters, violin distributions with optional raw
+  points, logarithmic scaling, and Markdown tables.
+
+Numeric custom histories in `metrics_data.torch` are discovered alongside
+losses and scores. Rectangular epoch-by-layer/component data is treated as one
+family: selecting it automatically renders every related layer or component as
+a separate plot instead of requiring manual selection. All 3D views support
+drag rotation, mouse-wheel zoom, X/Y/Z alignment, hover values, and per-card
+expand/shrink controls. See the
+[model-selection analysis tutorial](docs/tutorial.rst#model-selection-analysis)
+for the aggregation rules, plot semantics, and custom `WidthPlotter` example.
 
 The header also provides a persistent refresh-interval setting and a day/dark
 theme toggle. Dark mode is the default.

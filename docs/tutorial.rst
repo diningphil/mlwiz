@@ -952,6 +952,151 @@ clicking a run focuses on that run only. The dashboard reads
 ``metrics_data.torch`` written by the
 :class:`~mlwiz.training.callback.plotter.Plotter` described above.
 
+Model Selection Analysis
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The ordinary run browser is useful for inspecting a particular configuration
+or run. The separate **Model Selection Analysis** tab answers a different
+question: how did recorded quantities behave for each value of a tried
+hyperparameter? It reads the live model-selection runs for one experiment,
+outer fold, and inner fold, so its plots update as new epochs are flushed to
+``metrics_data.torch``.
+
+Choosing the analysis scope
+"""""""""""""""""""""""""""
+
+Open **Model Selection Analysis**, then select an **Experiment**, **Outer
+fold**, and **Inner fold**. MLWiz recursively flattens each configuration into
+dotted leaf names such as ``engine.args.eval_training``. A leaf is offered in
+**Group by** only when at least two distinct values occur in the selected fold
+pair; a constant setting cannot explain a difference and is therefore hidden.
+
+The grouping operation is intentionally marginal. With one selected
+hyperparameter, each curve, bar, or distribution averages all available runs
+whose configurations share that value, including configurations that differ in
+other hyperparameters. Adding a second hyperparameter conditions on the pair of
+values, while still averaging over any remaining configuration differences.
+Legends, tooltips, and tables report run counts so unequal or still-growing
+groups remain visible.
+
+Quantities are discovered from numeric histories in ``metrics_data.torch``.
+This includes the standard ``losses`` and ``scores`` groups and suitable custom
+data written by a :class:`~mlwiz.training.callback.plotter.Plotter` subclass.
+The normalizer accepts:
+
+* one numeric value per epoch;
+* nested dictionaries containing numeric epoch histories;
+* lists of dictionaries with stable keys across epochs; and
+* rectangular numeric matrices shaped as epochs × layers/components (with
+  higher-dimensional rectangular values recursively split into components).
+
+Related names ending in ``layer_N`` or ``component_N`` are presented as one
+family. Selecting that family creates a separate card for every member for
+both Trend and Metric vs Hyper-Parameter analyses. This is useful for widths,
+per-layer norms, attention statistics, and similar data where inspecting one
+layer at a time would hide the overall behavior.
+
+Adding and managing plots
+"""""""""""""""""""""""
+
+Choose a plot type and quantity in the controls at the top, then click **Add
+plot**. Adding another plot never replaces the existing plots, even when its
+type differs. Every card has independent **Group by** and presentation
+controls, an ``×`` button for removal, and an expand/shrink button. Changing a
+card's grouping or display mode preserves its position on the page. Plot
+definitions, expansion state, and 3D cameras also remain stable across the
+dashboard's automatic refreshes.
+
+The available plot types have different aggregation semantics:
+
+**Trend Plots**
+  For every value of the selected hyperparameter, MLWiz aligns the recorded
+  epochs and plots their mean with a standard-deviation band. The legend maps
+  each line to its hyperparameter value and reports the latest mean ± standard
+  deviation and number of contributing runs. Choose **3D** and a **Second
+  parameter** to separate curves by a second hyperparameter while retaining
+  epoch and the recorded quantity as the other axes. The default **2D** view
+  remains available.
+
+**Combined Trends**
+  This always-3D view combines two epoch histories. Its axes are epoch, the
+  first quantity, and the second quantity; one trajectory is drawn for each
+  value of the selected hyperparameter. Compatible multi-layer/component
+  families are paired automatically, so related information is rendered
+  together rather than hidden behind another selector.
+
+**Metric vs Hyper-Parameter**
+  This view reduces every run to one value before grouping it. MLWiz first uses
+  the metric snapshot stored in ``best_checkpoint.pth``. If that exact metric
+  is absent but the checkpoint records its best epoch, the value at that epoch
+  is used; otherwise the last finite recorded epoch is used. The resulting run
+  values are grouped by hyperparameter value (or value pair), and their mean
+  and population standard deviation are displayed.
+
+  In 2D, **Histogram** draws one mean bar and deviation whisker per
+  hyperparameter value. **Violin** displays the run distribution and can
+  overlay **Raw points**. With a second hyperparameter, Histogram becomes a 3D
+  heatmap-bar grid: the two horizontal axes contain the tried hyperparameter
+  values, while bar height and heatmap color both encode the mean metric.
+  Missing combinations remain gaps. Violin remains available in 3D. Enable
+  **Log scale** for strictly positive values, or switch the individual plot to
+  **Markdown table** to copy exact means, deviations, run counts, and value
+  sources.
+
+Interacting with 3D plots
+"""""""""""""""""""""""
+
+Drag a 3D canvas to rotate it and use the mouse wheel to zoom. **Align view X**,
+**Y**, or **Z** looks directly along the selected axis; aligning the heatmap-bar
+grid with Y gives a compact top-down heatmap, while an oblique or X/Z-aligned
+view exposes bar heights. Hover a trend at an epoch or a heatmap/violin mark to
+show its hyperparameter values, mean, standard deviation, and contributing run
+count. Use the expand button when dense labels or many component plots need
+more room.
+
+Recording a family of custom curves
+"""""""""""""""""""""""""""
+
+The MLP example includes a deliberately simple
+:class:`~mlwiz.training.callback.plotter.WidthPlotter` configuration:
+
+.. code-block:: yaml
+
+    grid:
+      # ... model and training settings ...
+      plotter:
+        - class_name: mlwiz.training.callback.plotter.WidthPlotter
+          args:
+            store_on_disk: true
+
+``WidthPlotter`` appends one list of layer output widths after each epoch, so
+``metrics_data.torch`` contains an ``epochs × layers`` ``model_widths``
+matrix. Run the example and open the analysis tab with:
+
+.. code-block:: bash
+
+    mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml
+    mlwiz-dashboard --logdir RESULTS --open
+
+Select **model widths** once and the dashboard creates one card per layer. A
+fixed MLP produces flat width curves; a model that replaces or resizes layers
+during training produces changing curves. A custom plotter can expose other
+families using the same layout, for example by appending a numeric list to
+``self.stored_metrics["layer_norms"]`` at every epoch. Keep the matrix
+rectangular across epochs and use ``None`` for an individual missing numeric
+observation rather than changing the number of components.
+
+Interpretation notes
+"""""""""""""""""""
+
+The plots describe associations within the tried search space; they do not by
+themselves establish that a hyperparameter caused a metric change. In
+particular, marginal one-parameter plots average over the other search
+dimensions, and live analyses may temporarily contain unequal numbers of runs.
+Best-checkpoint comparisons are most meaningful when runs use comparable early
+stopping monitors and checkpoint policies. Use the reported group sizes and
+the raw-point violin option to inspect variability before choosing a model.
+
 Sharing Dashboard Results with a Peer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
