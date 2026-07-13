@@ -101,6 +101,16 @@ def label(value):
 
 def numeric(values):
     return np.asarray([np.nan if value is None else float(value) for value in values])
+
+
+def log_modulus(values):
+    values = np.asarray(values, dtype=float)
+    return np.sign(values) * np.log10(1.0 + np.abs(values))
+
+
+def inverse_log_modulus(values):
+    values = np.asarray(values, dtype=float)
+    return np.sign(values) * (np.power(10.0, np.abs(values)) - 1.0)
 `;
   }
 
@@ -132,8 +142,12 @@ for series in DATA["series"]:
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
-if DATA.get("scale") == "symlog":
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "symlog":
     ax.set_yscale("symlog")
+elif DATA.get("scale") == "log":
+    ax.set_yscale("log")
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -172,6 +186,10 @@ ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
 ax.set_zlabel(DATA.get("zLabel", "group"))
 ax.set_zticks(range(len(secondary_values)), [label(value) for value in secondary_values])
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "log":
+    ax.set_yscale("log")
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -192,6 +210,9 @@ for series in DATA["series"]:
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
 ax.set_zlabel(DATA.get("zLabel", "value"))
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+    ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -208,7 +229,9 @@ ax.bar(x, means, yerr=stds, capsize=3)
 ax.set_xticks(x, [label(series["primary"]) for series in DATA["series"]], rotation=30, ha="right")
 ax.set_xlabel(DATA.get("xLabel", "hyperparameter"))
 ax.set_ylabel(DATA.get("yLabel", "metric"))
-if DATA.get("scale") == "log":
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "log":
     ax.set_yscale("log")
 ${finishingCode(spec, options)}`;
   }
@@ -231,7 +254,9 @@ if DATA.get("showPoints"):
 ax.set_xticks(np.arange(1, len(DATA["series"]) + 1), [label(series["primary"]) for series in DATA["series"]], rotation=30, ha="right")
 ax.set_xlabel(DATA.get("xLabel", "hyperparameter"))
 ax.set_ylabel(DATA.get("yLabel", "metric"))
-if DATA.get("scale") == "log":
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "log":
     ax.set_yscale("log")
 ${finishingCode(spec, options)}`;
   }
@@ -250,7 +275,9 @@ for series in DATA["series"]:
         secondary_values.append(series["secondary"])
 
 heights = np.asarray([series["mean"] for series in DATA["series"]], dtype=float)
-if DATA.get("scale") == "log":
+if DATA.get("scale") == "log-modulus":
+    color_values = log_modulus(heights)
+elif DATA.get("scale") == "log":
     color_values = np.log10(np.maximum(heights, np.finfo(float).tiny))
 else:
     color_values = heights
@@ -265,6 +292,10 @@ ax.set_ylabel(DATA.get("zLabel", "second hyperparameter"))
 ax.set_zlabel(DATA.get("yLabel", "metric"))
 ax.set_xticks(range(len(primary_values)), [label(value) for value in primary_values])
 ax.set_yticks(range(len(secondary_values)), [label(value) for value in secondary_values])
+if DATA.get("scale") == "log-modulus":
+    ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "log":
+    ax.set_zscale("log")
 ${finishingCode(spec, options)}`;
   }
 
@@ -306,7 +337,9 @@ ax.set_ylabel(DATA.get("yLabel", "metric"))
 ax.set_zlabel(DATA.get("zLabel", "second hyperparameter"))
 ax.set_xticks(range(len(primary_values)), [label(value) for value in primary_values])
 ax.set_zticks(range(len(secondary_values)), [label(value) for value in secondary_values])
-if DATA.get("scale") == "log":
+if DATA.get("scale") == "log-modulus":
+    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
+elif DATA.get("scale") == "log":
     ax.set_yscale("log")
 ${finishingCode(spec, options)}`;
   }
