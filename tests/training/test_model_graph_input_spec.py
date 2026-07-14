@@ -59,6 +59,28 @@ def test_record_model_graph_input_spec_marks_non_tensor_inputs(tmp_path):
     }
 
 
+def test_record_model_graph_input_spec_uses_model_adapter(tmp_path):
+    """Custom models may safely describe non-tensor inputs for the dashboard."""
+
+    class GraphModel:
+        @staticmethod
+        def model_graph_input_spec(batch_input):
+            return {
+                "version": 1,
+                "kind": "graph",
+                "num_nodes": int(batch_input["nodes"].shape[0]),
+            }
+
+    batch = {"nodes": torch.ones(5, 3)}
+
+    assert record_model_graph_input_spec(tmp_path, batch, model=GraphModel())
+    assert json.loads(_input_spec_path(tmp_path).read_text()) == {
+        "version": 1,
+        "kind": "graph",
+        "num_nodes": 5,
+    }
+
+
 def _bare_engine(tmp_path):
     """Build the minimum engine state needed to exercise ``_loop_helper``."""
     engine = object.__new__(TrainingEngine)

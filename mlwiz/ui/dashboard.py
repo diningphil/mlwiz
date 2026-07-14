@@ -50,7 +50,7 @@ _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
 _MAX_GRAPH_NODES = 600
 _MAX_GRAPH_INPUT_SPEC_BYTES = 64 * 1024
-_MODEL_GRAPH_SCHEMA_VERSION = 2
+_MODEL_GRAPH_SCHEMA_VERSION = 3
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
@@ -545,15 +545,36 @@ class ResultsRepository:
     ) -> tuple[bool, Optional[str]]:
         """Check whether a run has the safe artifacts needed for export."""
         manifest_path = run_folder / MODEL_MANIFEST_FILENAME
-        if not isinstance(_read_json(manifest_path), dict):
+        manifest = _read_json(manifest_path)
+        if not isinstance(manifest, dict):
             return False, "Operators view needs the run's model manifest."
+        input_spec_path = run_folder / MODEL_GRAPH_INPUT_SPEC_FILENAME
         try:
-            self._export_input_spec_details(
-                run_folder / MODEL_GRAPH_INPUT_SPEC_FILENAME, cache_limit
-            )
+            self._export_input_spec_details(input_spec_path, cache_limit)
         except ValueError as error:
+            input_spec = _read_json(input_spec_path)
+            if self._model_supports_custom_graph_input(manifest, input_spec):
+                return True, None
             return False, str(error)
         return True, None
+
+    @staticmethod
+    def _model_supports_custom_graph_input(
+        manifest: dict[str, Any], input_spec: Any
+    ) -> bool:
+        """Ask a reconstructable model class about its custom input adapter."""
+        model_path = manifest.get("model")
+        config = manifest.get("config")
+        if not isinstance(model_path, str) or not isinstance(config, dict):
+            return False
+        model_class = locate(model_path)
+        supports_input = getattr(model_class, "supports_model_graph_input", None)
+        if not callable(supports_input):
+            return False
+        try:
+            return bool(supports_input(config, input_spec))
+        except (AttributeError, ImportError, TypeError, ValueError):
+            return False
 
     def _model_graph_context(
         self, relative_path: str
@@ -624,15 +645,31 @@ class ResultsRepository:
                     "Operators view could not reconstruct the checkpoint model: "
                     f"{error}"
                 ) from error
-            example_input, input_summary = self._export_example_input(
-                input_spec_path, cache_limit
-            )
+            input_spec = _read_json(input_spec_path)
             try:
-                graph = self._operator_graph(model, example_input, input_summary)
+                if self._model_supports_custom_graph_input(manifest, input_spec):
+                    adapter = model.model_graph_export_adapter(input_spec)
+                    export_model = adapter["model"]
+                    example_inputs = tuple(adapter["inputs"])
+                    input_summary = adapter["summary"]
+                    tracer = adapter.get("tracer", "export")
+                else:
+                    example_input, input_summary = self._export_example_input(
+                        input_spec_path, cache_limit
+                    )
+                    export_model = model
+                    example_inputs = (example_input,)
+                    tracer = "export"
+                graph = self._operator_graph(
+                    export_model,
+                    example_inputs,
+                    input_summary,
+                    tracer=tracer,
+                )
             except Exception as error:
                 raise ValueError(
-                    "torch.export could not capture this model with the recorded "
-                    f"input shape: {error}"
+                    "The operator tracer could not capture this model with the "
+                    f"recorded input specification: {error}"
                 ) from error
         elif isinstance(manifest, dict):
             try:
@@ -737,19 +774,43 @@ class ResultsRepository:
     def _operator_graph(
         self,
         model: torch.nn.Module,
-        example_input: torch.Tensor,
+        example_inputs: tuple[Any, ...],
         input_summary: dict[str, Any],
+        tracer: str = "export",
     ) -> dict[str, Any]:
         """Trace one model execution into a low-level ``torch.export`` DAG."""
         model.eval()
-        with torch.no_grad():
-            exported = torch.export.export(
-                model, (example_input,), strict=False
+        if tracer == "export":
+            with torch.no_grad():
+                exported = torch.export.export(
+                    model, example_inputs, strict=False
+                )
+            graph_module = exported.graph_module
+            input_metadata = self._export_graph_input_metadata(exported)
+            graph_kind = "torch.export ATen operators"
+        elif tracer == "proxy":
+            from torch.fx.experimental.proxy_tensor import make_fx
+
+            # Proxy tracing executes the scientific model once and records its
+            # ATen dispatches. It supports TorchScript-class metadata that
+            # torch.export cannot flatten in metatomic/PET models.
+            with torch.enable_grad():
+                graph_module = make_fx(
+                    model,
+                    tracing_mode="real",
+                    _error_on_data_dependent_ops=False,
+                    record_module_stack=True,
+                )(*example_inputs)
+            input_metadata = self._proxy_graph_input_metadata(
+                graph_module, model, input_summary
             )
-        graph_nodes = list(exported.graph_module.graph.nodes)
+            graph_kind = "proxy-traced ATen operators"
+        else:
+            raise ValueError(f"Unknown operator tracer {tracer!r}.")
+
+        graph_nodes = list(graph_module.graph.nodes)
         visible_graph_nodes = graph_nodes[:_MAX_GRAPH_NODES]
         visible_ids = {item.name for item in visible_graph_nodes}
-        input_metadata = self._export_graph_input_metadata(exported)
         parameters = {
             name: (value.numel(), value.requires_grad)
             for name, value in model.named_parameters()
@@ -798,7 +859,7 @@ class ResultsRepository:
         total_parameters = sum(value.numel() for value in model.parameters())
         modules = self._operator_modules(model, nodes)
         return {
-            "graph_kind": "torch.export ATen operators",
+            "graph_kind": graph_kind,
             "nodes": nodes,
             "edges": edges,
             "modules": modules,
@@ -816,6 +877,57 @@ class ResultsRepository:
                 "input": input_summary,
             },
         }
+
+    @staticmethod
+    def _proxy_graph_input_metadata(
+        graph_module: torch.fx.GraphModule,
+        model: torch.nn.Module,
+        input_summary: dict[str, Any],
+    ) -> dict[str, dict[str, str]]:
+        """Map proxy-traced constants back to model parameters and inputs."""
+        tensor_metadata = {}
+        for kind, values in (
+            ("parameter", model.named_parameters()),
+            ("buffer", model.named_buffers()),
+        ):
+            for name, value in values:
+                tensor_metadata[id(value)] = {"kind": kind, "target": name}
+                if value.device.type != "meta":
+                    tensor_metadata[(value.data_ptr(), value.numel())] = {
+                        "kind": kind,
+                        "target": name,
+                    }
+
+        metadata = {}
+        input_names = [
+            item.get("name", f"input_{index}")
+            for index, item in enumerate(input_summary.get("tensors", []))
+            if isinstance(item, dict)
+        ]
+        placeholder_index = 0
+        for node in graph_module.graph.nodes:
+            if node.op == "placeholder":
+                target = (
+                    input_names[placeholder_index]
+                    if placeholder_index < len(input_names)
+                    else str(node.target)
+                )
+                metadata[node.name] = {"kind": "user_input", "target": target}
+                placeholder_index += 1
+                continue
+            if node.op != "get_attr":
+                continue
+            value = getattr(graph_module, str(node.target), None)
+            record = tensor_metadata.get(id(value))
+            if (
+                record is None
+                and torch.is_tensor(value)
+                and value.device.type != "meta"
+            ):
+                record = tensor_metadata.get((value.data_ptr(), value.numel()))
+            if record is not None:
+                metadata[node.name] = record
+        return metadata
 
     @staticmethod
     def _export_graph_input_metadata(exported: Any) -> dict[str, dict[str, str]]:
@@ -2174,6 +2286,17 @@ def create_server(
     return DashboardServer((host, port), ResultsRepository(logdir))
 
 
+def _add_project_root(project_root: str | Path) -> Path:
+    """Make project-local dotted paths importable by the dashboard process."""
+    resolved_root = Path(project_root).expanduser().resolve()
+    root_path = str(resolved_root)
+    if root_path in sys.path:
+        sys.path.remove(root_path)
+    # Console scripts start with their bin directory on sys.path, not cwd.
+    sys.path.insert(0, root_path)
+    return resolved_root
+
+
 def get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     """Parse dashboard command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -2183,6 +2306,14 @@ def get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         "--logdir",
         default="RESULTS",
         help="Experiment directory or parent results directory (default: RESULTS).",
+    )
+    parser.add_argument(
+        "--project-root",
+        default=".",
+        help=(
+            "Project source directory used to import custom dotted paths "
+            "(default: current directory)."
+        ),
     )
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=6006, type=int)
@@ -2195,6 +2326,8 @@ def get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     if not Path(args.logdir).expanduser().is_dir():
         parser.error(f"--logdir is not a directory: {args.logdir}")
+    if not Path(args.project_root).expanduser().is_dir():
+        parser.error(f"--project-root is not a directory: {args.project_root}")
     if not 0 <= args.port <= 65535:
         parser.error("--port must be between 0 and 65535")
     return args
@@ -2203,6 +2336,7 @@ def get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
 def main() -> None:
     """Start the MLWiz dashboard until interrupted."""
     args = get_args()
+    _add_project_root(args.project_root)
     server = create_server(args.logdir, args.host, args.port)
     actual_port = server.server_address[1]
     display_host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host

@@ -400,7 +400,9 @@ class TrainingEngine(EventDispatcher):
                 self, "_model_graph_input_spec_recorded", False
             ):
                 record_model_graph_input_spec(
-                    self.state.exp_path, self.state.batch_input
+                    self.state.exp_path,
+                    self.state.batch_input,
+                    model=_unwrap_model(self.state.model),
                 )
                 self._model_graph_input_spec_recorded = True
             self._dispatch(EventHandler.ON_FORWARD, self.state)

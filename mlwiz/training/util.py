@@ -26,14 +26,17 @@ MODEL_GRAPH_INPUT_SPEC_VERSION = 1
 
 
 def record_model_graph_input_spec(
-    exp_path: str | os.PathLike | None, batch_input: Any
+    exp_path: str | os.PathLike | None,
+    batch_input: Any,
+    model: Any = None,
 ) -> bool:
     """Atomically persist a data-free example-input description for a run.
 
     The dashboard can use this file to create a synthetic input for
     :func:`torch.export.export` while inspecting a checkpoint.  It deliberately
-    records only a tensor's shape and dtype, never values, device information,
-    or other batch contents.  A non-tensor input is written as an unsupported
+    records only data-free metadata, never values or device information. Tensor
+    inputs use shape and dtype; models can describe custom inputs through a
+    ``model_graph_input_spec`` adapter. Other inputs receive an unsupported
     marker so graph inspection can explain why an operator graph is unavailable.
 
     The first successfully observed input wins: reusing an experiment folder
@@ -45,6 +48,8 @@ def record_model_graph_input_spec(
         exp_path: Run directory where the metadata belongs.  ``None`` disables
             recording, as in engine-only/unit-test usage.
         batch_input: Value passed to ``model.forward``.
+        model: Optional model exposing ``model_graph_input_spec`` for custom
+            inputs such as graph batches.
 
     Returns:
         ``True`` if a new specification was written, otherwise ``False``.
@@ -56,7 +61,15 @@ def record_model_graph_input_spec(
     if destination.exists():
         return False
 
-    if torch.is_tensor(batch_input):
+    custom_spec = getattr(model, "model_graph_input_spec", None)
+    if callable(custom_spec):
+        try:
+            specification = custom_spec(batch_input)
+            if not isinstance(specification, dict):
+                specification = _unsupported_model_graph_input_spec(batch_input)
+        except (AttributeError, TypeError, ValueError):
+            specification = _unsupported_model_graph_input_spec(batch_input)
+    elif torch.is_tensor(batch_input):
         try:
             specification = {
                 "version": MODEL_GRAPH_INPUT_SPEC_VERSION,

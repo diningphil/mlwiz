@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import threading
 import zipfile
+from pydoc import locate
 from urllib.request import Request, urlopen
 
 import pytest
@@ -19,6 +21,7 @@ from mlwiz.ui.dashboard import (
     DashboardServer,
     MetricsCache,
     ResultsRepository,
+    _add_project_root,
     create_server,
     get_args,
 )
@@ -46,6 +49,47 @@ class _TinyGraphModel(torch.nn.Module):
 
     def forward(self, inputs):
         return self.output(self.encoder(inputs))
+
+
+class _DictionaryInputModel(torch.nn.Module):
+    """Reconstructable model exercising the custom operator adapter protocol."""
+
+    def __init__(self, dim_input_features, dim_target, config):
+        super().__init__()
+        self.output = torch.nn.Linear(dim_input_features, dim_target)
+
+    @classmethod
+    def supports_model_graph_input(cls, config, input_spec):
+        return input_spec.get("kind") == "unsupported"
+
+    def forward(self, inputs):
+        return self.output(inputs["features"])
+
+    def model_graph_export_adapter(self, input_spec):
+        return {
+            "model": _DictionaryInputAdapter(self),
+            "inputs": (torch.zeros(2, self.output.in_features),),
+            "summary": {
+                "kind": "synthetic dictionary",
+                "tensors": [
+                    {
+                        "name": "features",
+                        "shape": [2, self.output.in_features],
+                        "dtype": "torch.float32",
+                    }
+                ],
+            },
+            "tracer": "proxy",
+        }
+
+
+class _DictionaryInputAdapter(torch.nn.Module):
+    def __init__(self, model):
+        super().__init__()
+        self.model = model
+
+    def forward(self, features):
+        return self.model({"features": features})
 
 
 def _write_fixture_results(tmp_path):
@@ -621,6 +665,49 @@ def test_operator_graph_requires_a_recorded_tensor_input(tmp_path):
         repository.model_graph(relative, graph_mode="operators")
 
 
+def test_operator_graph_uses_model_adapter_for_custom_input(tmp_path):
+    """A model adapter should enable ATen tracing for a non-tensor batch."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    model = _DictionaryInputModel(2, 1, {})
+    torch.save(
+        {"epoch": 0, "model_state": model.state_dict()},
+        selection_run / "last_checkpoint.pth",
+    )
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "model": f"{__name__}._DictionaryInputModel",
+                "config": {},
+                "dim_input_features": 2,
+                "dim_target": 1,
+            }
+        )
+    )
+    (selection_run / MODEL_GRAPH_INPUT_SPEC_FILENAME).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "kind": "unsupported",
+                "type": "builtins.dict",
+            }
+        )
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+
+    info = repository.model_graph_info(relative)
+    graph = repository.model_graph(relative, graph_mode="operators")
+
+    assert info["modes"]["operators"] == {"available": True, "reason": None}
+    assert graph["graph_kind"] == "proxy-traced ATen operators"
+    assert graph["summary"]["input"]["kind"] == "synthetic dictionary"
+    assert any(
+        node["op"] == "call_function" and "aten." in node["target"]
+        for node in graph["nodes"]
+    )
+
+
 def test_completed_model_graph_prefers_best_checkpoint_with_fallback(tmp_path):
     """Completed runs prefer best state and old runs retain hierarchy support."""
     experiment, _, _, final_run = _write_fixture_results(tmp_path)
@@ -712,12 +799,35 @@ def test_cli_parses_dashboard_options(tmp_path):
             "0.0.0.0",
             "--port",
             "6010",
+            "--project-root",
+            str(tmp_path),
             "--open",
         ]
     )
     assert args.host == "0.0.0.0"
     assert args.port == 6010
+    assert args.project_root == str(tmp_path)
     assert args.open_browser is True
+
+
+def test_dashboard_project_root_imports_custom_model(monkeypatch, tmp_path):
+    """Console startup should expose project-local model classes to manifests."""
+    module_name = "dashboard_project_model"
+    (tmp_path / f"{module_name}.py").write_text(
+        "class ProjectModel:\n    pass\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        sys,
+        "path",
+        [path for path in sys.path if path != str(tmp_path)],
+    )
+
+    resolved_root = _add_project_root(tmp_path)
+
+    assert resolved_root == tmp_path.resolve()
+    assert sys.path[0] == str(tmp_path.resolve())
+    assert locate(f"{module_name}.ProjectModel") is not None
 
 
 def test_http_server_serves_frontend_and_api(tmp_path):

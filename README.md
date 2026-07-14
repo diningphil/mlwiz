@@ -354,6 +354,11 @@ hierarchy above. Start it from the project that contains your results:
 mlwiz-dashboard --logdir RESULTS
 ```
 
+The dashboard adds the current directory to Python's import path so model
+classes referenced by project-local dotted paths can be reconstructed. When
+starting it elsewhere, pass the source directory explicitly with
+``--project-root /path/to/project``.
+
 Open the URL printed by the command (by default
 `http://127.0.0.1:6006`). The run browser groups results by experiment, outer
 fold, model-selection configuration, inner fold, and final run. Selecting a
@@ -465,10 +470,13 @@ empty canvas to pan horizontally or vertically, and drag any module/operator box
 to place it manually; custom zoom, expansion, and box positions persist for that
 run and checkpoint view.
 
-New runs record only the first forward input's tensor shape and dtype in
-`model_graph_input_spec.json`; no training values are stored. Operators currently
-supports a single tensor model input. PyG/custom input objects remain available
-in Architecture and need a model-specific export adapter for the Operators view.
+New runs record only data-free metadata for the first forward input in
+`model_graph_input_spec.json`; no training values are stored. Tensor inputs use
+their shape and dtype. PyG/custom input models can implement
+`model_graph_input_spec`, `supports_model_graph_input`, and
+`model_graph_export_adapter` to provide synthetic tensor inputs for Operators.
+Adapters may select proxy tracing for scientific models whose TorchScript-class
+metadata can not be flattened by `torch.export`.
 
 Enable `checkpoint: true` to produce last checkpoints; best checkpoints are
 available when the configured early stopper stores them.
