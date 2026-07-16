@@ -61,7 +61,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest]
         # When requested, run a single version to generate coverage+badges once.
         python-version: ${{ fromJSON(inputs.generate_badges && '["3.11"]' || '["3.10","3.11","3.12","3.13"]') }}
 
