@@ -1,121 +1,124 @@
-# This workflow will upload a Python Package using Twine when a release is created
-# For more information see: https://help.github.com/en/actions/language-and-framework-guides/using-python-with-github-actions#publishing-to-package-registries
-
-# This workflow uses actions that are not certified by GitHub.
-# They are provided by a third-party and are governed by
-# separate terms of service, privacy policy, and support
-# documentation.
+# This workflow uploads a Python package when a release is created.
 
 name: Publish Package  # build + publish to PyPI (and update badges)
 
 on:
   release:
     types: [published]
-  workflow_dispatch:  # manual release run (useful for dry-runs)
+  workflow_dispatch:  # manual release run
 
 permissions:
-  contents: write  # needed for pushing badge update branches
-  actions: read  # needed for downloading artifacts from CI jobs
-  pull-requests: write  # needed for opening badge update PRs
+  contents: write
+  actions: read
+  pull-requests: write
 
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  tests:  # gate releases on CI
+  tests:
     uses: ./.github/workflows/python-test-and-coverage.yml
     with:
       generate_badges: true
 
-  deploy:  # build and publish artifacts once CI is green
+  deploy:
     needs: tests
+
     permissions:
       contents: write
       actions: read
       pull-requests: write
+
     env:
       DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.11"
-        cache: pip
-        cache-dependency-path: pyproject.toml
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        python -m pip install build twine  # build wheels/sdist and validate metadata
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
 
-    - name: Build package
-      run: |
-        python -m build
-        python -m twine check --strict dist/*
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.28"
+          enable-cache: true
+          cache-dependency-glob: pyproject.toml
 
-    - name: Publish package
-      uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
-      with:
-        user: __token__
-        password: ${{ secrets.PYPI_API_TOKEN }}
+      - name: Install build dependencies
+        run: uv pip install --system build twine
 
-    - name: Checkout default branch for badge commit
-      uses: actions/checkout@v7
-      with:
-        ref: ${{ env.DEFAULT_BRANCH }}
-        fetch-depth: 0
+      - name: Build package
+        run: |
+          python -m build
+          python -m twine check --strict dist/*
 
-    - name: Download badges artifact (for cross-job handoff)
-      uses: actions/download-artifact@v8
-      with:
-        name: badges
-        path: .tmp-badges
+      - name: Publish package
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
+        with:
+          user: __token__
+          password: ${{ secrets.PYPI_API_TOKEN }}
 
-    - name: Place badges in repo
-      run: |
-        mkdir -p .badges
-        cp .tmp-badges/*.svg .badges/
+      - name: Checkout default branch for badge commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEFAULT_BRANCH }}
+          fetch-depth: 0
 
-    - name: Open badge update pull request
-      env:
-        BADGE_BRANCH: chore/update-badges
-        GH_TOKEN: ${{ github.token }}
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "github-actions[bot]"
-        git pull --ff-only origin "${DEFAULT_BRANCH}"
-        git fetch origin "refs/heads/${BADGE_BRANCH}:refs/remotes/origin/${BADGE_BRANCH}" || true
-        git switch -c "${BADGE_BRANCH}"
-        git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
-        if git diff --cached --quiet; then
-          echo "No badge changes."
-          exit 0
-        fi
-        git commit -m "chore: update badges"
-        git push --force-with-lease origin "${BADGE_BRANCH}"
+      - name: Download badges artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: badges
+          path: .tmp-badges
 
-        pr_number="$(gh pr list \
-          --base "${DEFAULT_BRANCH}" \
-          --head "${BADGE_BRANCH}" \
-          --state open \
-          --json number \
-          --jq '.[0].number // empty')"
+      - name: Place badges in repo
+        run: |
+          mkdir -p .badges
+          cp .tmp-badges/*.svg .badges/
 
-        if [ -n "${pr_number}" ]; then
-          gh pr edit "${pr_number}" \
-            --title "chore: update badges" \
-            --body "Updates the generated coverage and docstring badges."
-          echo "Updated existing badge PR #${pr_number}."
-        else
-          gh pr create \
+      - name: Open badge update pull request
+        env:
+          BADGE_BRANCH: chore/update-badges
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "github-actions[bot]"
+          git pull --ff-only origin "${DEFAULT_BRANCH}"
+          git fetch origin \
+            "refs/heads/${BADGE_BRANCH}:refs/remotes/origin/${BADGE_BRANCH}" \
+            || true
+          git switch -c "${BADGE_BRANCH}"
+          git add .badges/coverage_badge.svg .badges/interrogate_badge.svg
+
+          if git diff --cached --quiet; then
+            echo "No badge changes."
+            exit 0
+          fi
+
+          git commit -m "chore: update badges"
+          git push --force-with-lease origin "${BADGE_BRANCH}"
+
+          pr_number="$(gh pr list \
             --base "${DEFAULT_BRANCH}" \
             --head "${BADGE_BRANCH}" \
-            --title "chore: update badges" \
-            --body "Updates the generated coverage and docstring badges."
-        fi
+            --state open \
+            --json number \
+            --jq '.[0].number // empty')"
+
+          if [ -n "${pr_number}" ]; then
+            gh pr edit "${pr_number}" \
+              --title "chore: update badges" \
+              --body "Updates the generated coverage and docstring badges."
+            echo "Updated existing badge PR #${pr_number}."
+          else
+            gh pr create \
+              --base "${DEFAULT_BRANCH}" \
+              --head "${BADGE_BRANCH}" \
+              --title "chore: update badges" \
+              --body "Updates the generated coverage and docstring badges."
+          fi
