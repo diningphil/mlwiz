@@ -1341,6 +1341,8 @@ class ResultsRepository:
                     )
                     modified_at = max(modified_at or file_stat.st_mtime, file_stat.st_mtime)
                     for item in file_series:
+                        if item.get("unit", "epoch") != "epoch":
+                            continue
                         quantity_id = f"{item['group']}:{item['name']}"
                         selected_value = best_values.get(
                             (item["group"], item["name"])
@@ -1528,6 +1530,8 @@ class ResultsRepository:
             ):
                 continue
             for item in file_series:
+                if item.get("unit", "epoch") != "epoch":
+                    continue
                 descriptor, split = self._series_metric_descriptor(
                     item["group"], item["name"]
                 )
@@ -1950,6 +1954,8 @@ class ResultsRepository:
             raise ValueError("Expected a dictionary at the file root.")
         series = []
         for group, metrics in stored.items():
+            if group == "step":
+                continue
             group_name = str(group)
             for name, values in _history_series(metrics):
                 series.append(
@@ -1957,8 +1963,27 @@ class ResultsRepository:
                         "group": group_name,
                         "name": name or group_name,
                         "values": values,
+                        "unit": "epoch",
                     }
                 )
+
+        step_metrics = stored.get("step")
+        if isinstance(step_metrics, dict):
+            steps = _numeric_series(step_metrics.get("steps", [])) or []
+            for group, metrics in step_metrics.items():
+                if group in {"steps", "last_step"}:
+                    continue
+                group_name = str(group)
+                for name, values in _history_series(metrics):
+                    item = {
+                        "group": group_name,
+                        "name": name or group_name,
+                        "values": values,
+                        "unit": "step",
+                    }
+                    if len(steps) == len(values):
+                        item["x_values"] = steps
+                    series.append(item)
         return series
 
     def _selection_kind(self, target: Path) -> str:

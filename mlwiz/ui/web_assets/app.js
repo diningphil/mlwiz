@@ -5,7 +5,9 @@
   const themeStorageKey = "mlwiz-dashboard-theme-v1";
   const fontStorageKey = "mlwiz-dashboard-font-v1";
   const fontSizeStorageKey = "mlwiz-dashboard-font-size-v1";
-  const defaultFontSize = 16;
+  const defaultFontSize = 18;
+  const legacyDefaultFontSize = 16;
+  const canvasReferenceFontSize = 16;
   const minimumFontSize = 12;
   const maximumFontSize = 24;
   const noAnalysisGroupingValue = "__all_runs__";
@@ -71,6 +73,12 @@
     return ["log-modulus", "symlog"].includes(value) ? "log-modulus" : "linear";
   }
 
+  function normalizedSmoothing(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return 0;
+    return Math.min(0.99, Math.max(0, number));
+  }
+
   function readStoredFontSize() {
     try {
       return localStorage.getItem(fontSizeStorageKey);
@@ -89,7 +97,7 @@
     details: null,
     selectedPath: storedState.selectedPath || null,
     activeTab: storedState.activeTab === "analysis" ? "analysis" : "runs",
-    analysisPlotType: ["trends", "combined-trends", "metric-vs-hyperparameter"]
+    analysisPlotType: ["trends", "combined-trends", "metric-vs-hyperparameter", "parallel-coordinates"]
       .includes(storedState.analysisPlotType)
       ? storedState.analysisPlotType
       : "trends",
@@ -103,6 +111,9 @@
       ? storedState.analysisQuantities
       : (storedState.analysisQuantity ? [storedState.analysisQuantity] : []),
     analysisMetricQuantity: storedState.analysisMetricQuantity || null,
+    analysisParallelAxes: Array.isArray(storedState.analysisParallelAxes)
+      ? storedState.analysisParallelAxes
+      : [],
     analysisPlots: Array.isArray(storedState.analysisPlots)
       ? storedState.analysisPlots
       : (Array.isArray(storedState.analysisQuantities)
@@ -116,6 +127,7 @@
     openNodes: storedState.openNodes || {},
     treeScrollTop: Number(storedState.treeScrollTop) || 0,
     group: storedState.group || "all",
+    metricUnit: storedState.metricUnit === "step" ? "step" : "epoch",
     source: storedState.source || "all",
     plotMode: storedState.plotMode === "inner-fold-aggregate"
       ? "inner-fold"
@@ -127,15 +139,20 @@
     showAllPlots: Boolean(storedState.showAllPlots),
     query: storedState.query || "",
     scale: normalizedScale(storedState.scale),
+    smoothing: normalizedSmoothing(storedState.smoothing),
     theme: ["dark", "day"].includes(storedTheme)
       ? storedTheme
       : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
     font: Object.hasOwn(fontPresets, storedFont)
       ? storedFont
       : (Object.hasOwn(fontPresets, storedState.font) ? storedState.font : "mlwiz"),
-    fontSize: storedFontSize === null
-      ? normalizedFontSize(storedState.fontSize)
-      : normalizedFontSize(storedFontSize),
+    fontSize: (() => {
+      const configured = storedFontSize === null
+        ? storedState.fontSize
+        : storedFontSize;
+      const normalized = normalizedFontSize(configured);
+      return normalized === legacyDefaultFontSize ? defaultFontSize : normalized;
+    })(),
     refreshSeconds: Number.isFinite(storedRefreshSeconds)
       && storedRefreshSeconds >= 2
       && storedRefreshSeconds <= 3600
@@ -150,6 +167,7 @@
     charts: [],
     metricBarCharts: [],
     analysis3DCharts: [],
+    parallelCharts: [],
     graphRequestId: 0,
     graphPath: null,
     graphCheckpointChoices: storedState.graphCheckpointChoices || {},
@@ -211,12 +229,14 @@
         analysisSecondQuantity: state.analysisSecondQuantity,
         analysisQuantities: state.analysisQuantities,
         analysisMetricQuantity: state.analysisMetricQuantity,
+        analysisParallelAxes: state.analysisParallelAxes,
         analysisPlots: state.analysisPlots,
         analysisCameras: state.analysisCameras,
         analysisExpandedCards: state.analysisExpandedCards,
         openNodes: state.openNodes,
         treeScrollTop: state.treeScrollTop,
         group: state.group,
+        metricUnit: state.metricUnit,
         source: state.source,
         plotMode: state.plotMode,
         innerFoldAggregate: state.innerFoldAggregate,
@@ -225,6 +245,7 @@
         showAllPlots: state.showAllPlots,
         query: state.query,
         scale: state.scale,
+        smoothing: state.smoothing,
         theme: state.theme,
         font: state.font,
         fontSize: state.fontSize,
@@ -296,6 +317,8 @@
     return lines.map((line) => ({
       label: line.label,
       values: line.values,
+      rawValues: line.rawValues || null,
+      xValues: line.xValues || null,
       lower: line.band?.lower || null,
       upper: line.band?.upper || null,
       dash: line.dash || [],
@@ -305,16 +328,18 @@
   }
 
   function linePlotExportSpec({
-    title, subtitle, yLabel, lines, kind = "line", zLabel = null, scale = state.scale,
+    title, subtitle, yLabel, lines, kind = "line", zLabel = null,
+    scale = state.scale, xLabel = "epoch", smoothing = null,
   }) {
     return {
       kind,
       title,
       subtitle,
-      xLabel: "epoch",
+      xLabel,
       yLabel,
       zLabel,
       scale,
+      smoothing,
       series: exportedLines(lines),
     };
   }
@@ -480,6 +505,7 @@
     state.charts.forEach((chart) => drawChart(chart));
     state.metricBarCharts.forEach((chart) => drawMetricBarChart(chart));
     state.analysis3DCharts.forEach((chart) => drawAnalysis3DChart(chart));
+    state.parallelCharts.forEach((chart) => drawParallelCoordinates(chart));
     if (state.modelGraphData) renderModelGraphCanvas();
   }
 
@@ -498,7 +524,7 @@
   function canvasFont(size = 9) {
     const family = getComputedStyle(document.documentElement)
       .getPropertyValue("--app-font").trim() || fontPresets.mlwiz.app;
-    return `${(size * state.fontSize) / defaultFontSize}px ${family}`;
+    return `${(size * state.fontSize) / canvasReferenceFontSize}px ${family}`;
   }
 
   function setActiveTab(tab, { load = true } = {}) {
@@ -564,6 +590,75 @@
   function analysisValueLabel(value) {
     if (typeof value === "string") return value;
     return JSON.stringify(value);
+  }
+
+  function parallelCoordinateAxisOptions(data = state.analysisData) {
+    if (!data) return [];
+    const axes = data.hyperparameters.map((hyperparameter) => {
+      const values = data.configurations.flatMap((configuration) =>
+        Object.hasOwn(configuration.hyperparameters, hyperparameter.id)
+          ? [configuration.hyperparameters[hyperparameter.id]]
+          : []);
+      const numeric = values.length > 0 && values.every((value) =>
+        typeof value === "number" && Number.isFinite(value));
+      const categories = numeric ? [] : [...new Map(values.map((value) => [
+        analysisValueKey(value), value,
+      ])).values()].sort(compareAnalysisValues);
+      return {
+        id: `hyper:${hyperparameter.id}`,
+        sourceId: hyperparameter.id,
+        label: hyperparameter.label,
+        group: "Hyperparameter",
+        kind: "hyperparameter",
+        numeric,
+        categories,
+      };
+    });
+    for (const quantity of data.quantities) {
+      axes.push({
+        id: `metric:${quantity.id}`,
+        sourceId: quantity.id,
+        label: quantity.label,
+        group: quantity.group.replaceAll("_", " "),
+        kind: "metric",
+        numeric: true,
+        categories: [],
+      });
+    }
+    return axes;
+  }
+
+  function normalizedParallelAxes(axes, options) {
+    const available = new Set(options.map((option) => option.id));
+    return [...new Set(Array.isArray(axes) ? axes : [])]
+      .filter((axis) => available.has(axis));
+  }
+
+  function defaultParallelAxes(options) {
+    const hyperparameters = options
+      .filter((axis) => axis.kind === "hyperparameter")
+      .slice(0, 3);
+    const metrics = options
+      .filter((axis) => axis.kind === "metric")
+      .slice(0, Math.max(2, 5 - hyperparameters.length));
+    return [...hyperparameters, ...metrics].slice(0, 5).map((axis) => axis.id);
+  }
+
+  function parallelBrushesForAxes(brushes, axes) {
+    const allowed = new Set(axes);
+    const normalized = {};
+    if (!brushes || typeof brushes !== "object") return normalized;
+    for (const [axis, range] of Object.entries(brushes)) {
+      if (
+        allowed.has(axis)
+        && Array.isArray(range)
+        && range.length === 2
+        && range.every(Number.isFinite)
+      ) {
+        normalized[axis] = [Math.min(...range), Math.max(...range)];
+      }
+    }
+    return normalized;
   }
 
   async function loadAnalysisData({ quiet = false } = {}) {
@@ -662,7 +757,23 @@
     state.analysisMetricQuantity = resolveAnalysisQuantityId(
       state.analysisMetricQuantity, metricOptions,
     ) || metricIds[0] || null;
+    const parallelAxisOptions = parallelCoordinateAxisOptions(data);
+    state.analysisParallelAxes = normalizedParallelAxes(
+      state.analysisParallelAxes, parallelAxisOptions,
+    );
+    if (state.analysisParallelAxes.length < 2) {
+      state.analysisParallelAxes = defaultParallelAxes(parallelAxisOptions);
+    }
     state.analysisPlots = state.analysisPlots.flatMap((plot) => {
+      if (plot.type === "parallel-coordinates") {
+        const axes = normalizedParallelAxes(plot.axes, parallelAxisOptions);
+        return axes.length >= 2 ? [{
+          id: plot.id || newAnalysisPlotId(),
+          type: "parallel-coordinates",
+          axes,
+          brushes: parallelBrushesForAxes(plot.brushes, axes),
+        }] : [];
+      }
       if (plot.type === "metric-vs-hyperparameter") {
         const quantity = resolveAnalysisQuantityId(plot.quantity, metricOptions);
         const grouping = normalizedAnalysisGrouping(
@@ -733,10 +844,14 @@
     renderAnalysisSelectedPlots();
     const trendPlots = state.analysisPlotType === "trends";
     const combinedTrends = state.analysisPlotType === "combined-trends";
+    const parallelCoordinates = state.analysisPlotType === "parallel-coordinates";
     el("analysis-plot-type").value = state.analysisPlotType;
     el("analysis-trend-quantity").hidden = !(trendPlots || combinedTrends);
     el("analysis-second-trend-quantity").hidden = !combinedTrends;
     el("analysis-metric-quantity-field").hidden = state.analysisPlotType !== "metric-vs-hyperparameter";
+    el("analysis-grouping-field").hidden = parallelCoordinates;
+    el("analysis-parallel-axis-field").hidden = !parallelCoordinates;
+    renderParallelAxisDraft(parallelAxisOptions);
     persistState();
 
     if (!quantityIds.length) {
@@ -764,6 +879,9 @@
   }
 
   function analysisPlotKey(plot) {
+    if (plot.type === "parallel-coordinates") {
+      return `parallel:${plot.axes.join("|")}`;
+    }
     if (plot.type === "trends") {
       return `trends:${plot.quantity}:${plot.hyperparameter}:${plot.secondaryHyperparameter || ""}`;
     }
@@ -781,6 +899,15 @@
 
   function draftAnalysisPlot() {
     const hyperparameter = selectedAnalysisGrouping();
+    if (state.analysisPlotType === "parallel-coordinates") {
+      return state.analysisParallelAxes.length >= 2
+        ? {
+          type: "parallel-coordinates",
+          axes: [...state.analysisParallelAxes],
+          brushes: {},
+        }
+        : null;
+    }
     if (state.analysisPlotType === "trends") {
       return state.analysisQuantity
         ? {
@@ -816,6 +943,90 @@
       shape: "histogram",
       showPoints: false,
     } : null;
+  }
+
+  function parallelAxisBuilder(axes, options, onChange, { compact = false } = {}) {
+    const host = node("div", compact ? "parallel-axis-builder compact" : "parallel-axis-builder");
+    const chips = node("div", "parallel-axis-chips");
+    axes.forEach((axisId, index) => {
+      const option = options.find((candidate) => candidate.id === axisId);
+      if (!option) return;
+      const chip = node("span", "parallel-axis-chip");
+      chip.append(
+        node("small", "", option.group),
+        node("strong", "", option.label),
+      );
+      const actions = node("span", "parallel-axis-chip-actions");
+      const left = node("button", "", "←");
+      left.type = "button";
+      left.disabled = index === 0;
+      left.title = "Move axis left";
+      left.setAttribute("aria-label", `Move ${option.label} left`);
+      left.addEventListener("click", () => {
+        const next = [...axes];
+        [next[index - 1], next[index]] = [next[index], next[index - 1]];
+        onChange(next);
+      });
+      const right = node("button", "", "→");
+      right.type = "button";
+      right.disabled = index === axes.length - 1;
+      right.title = "Move axis right";
+      right.setAttribute("aria-label", `Move ${option.label} right`);
+      right.addEventListener("click", () => {
+        const next = [...axes];
+        [next[index], next[index + 1]] = [next[index + 1], next[index]];
+        onChange(next);
+      });
+      const remove = node("button", "", "×");
+      remove.type = "button";
+      remove.disabled = axes.length <= 2;
+      remove.title = axes.length <= 2 ? "A plot needs at least two axes" : "Remove axis";
+      remove.setAttribute("aria-label", `Remove ${option.label}`);
+      remove.addEventListener("click", () => {
+        onChange(axes.filter((candidate) => candidate !== axisId));
+      });
+      actions.append(left, right, remove);
+      chip.append(actions);
+      chips.append(chip);
+    });
+    const available = options.filter((option) => !axes.includes(option.id));
+    const addRow = node("div", "parallel-axis-add-row");
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "Axis to add");
+    for (const option of available) {
+      const choice = node("option", "", `${option.group} · ${option.label}`);
+      choice.value = option.id;
+      select.append(choice);
+    }
+    const add = node("button", "", "+ Add axis");
+    add.type = "button";
+    add.disabled = !available.length;
+    add.addEventListener("click", () => {
+      if (select.value) onChange([...axes, select.value]);
+    });
+    select.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && select.value) {
+        event.preventDefault();
+        onChange([...axes, select.value]);
+      }
+    });
+    addRow.append(select, add);
+    host.append(chips, addRow);
+    return host;
+  }
+
+  function renderParallelAxisDraft(options = parallelCoordinateAxisOptions()) {
+    const host = el("analysis-parallel-axis-builder");
+    host.replaceChildren(parallelAxisBuilder(
+      state.analysisParallelAxes,
+      options,
+      (axes) => {
+        state.analysisParallelAxes = axes;
+        persistState();
+        renderParallelAxisDraft(options);
+        renderAnalysisSelectedPlots();
+      },
+    ));
   }
 
   function renderAnalysisSelectedPlots() {
@@ -883,6 +1094,7 @@
       state.charts = [];
       state.metricBarCharts = [];
       state.analysis3DCharts = [];
+      state.parallelCharts = [];
     }
   }
 
@@ -1079,6 +1291,7 @@
     state.charts.forEach((chart) => drawChart(chart));
     state.metricBarCharts.forEach((chart) => drawMetricBarChart(chart));
     state.analysis3DCharts.forEach((chart) => drawAnalysis3DChart(chart));
+    state.parallelCharts.forEach((chart) => drawParallelCoordinates(chart));
   }
 
   function plotExpandButton(card, key) {
@@ -1252,6 +1465,7 @@
     grid.replaceChildren();
     state.metricBarCharts = [];
     state.analysis3DCharts = [];
+    state.parallelCharts = [];
     const charts = [];
     for (const plot of trendPlots) {
       const plotOption = quantityOptions.find((option) => option.id === plot.quantity);
@@ -1548,6 +1762,467 @@
     return rendered;
   }
 
+  function parallelAxisScalar(axis, value) {
+    if (axis.numeric) {
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    }
+    const index = axis.categories.findIndex(
+      (category) => analysisValueKey(category) === analysisValueKey(value),
+    );
+    return index === -1 ? null : index;
+  }
+
+  function parallelAxisValueLabel(axis, value) {
+    if (axis.numeric) return formatNumber(value);
+    return analysisValueLabel(value);
+  }
+
+  function parallelCoordinateRows(data, axes) {
+    const configurations = new Map(
+      data.configurations.map((configuration) => [
+        configuration.number, configuration.hyperparameters,
+      ]),
+    );
+    const rows = new Map();
+    for (const series of data.series) {
+      const key = `${series.configuration}:${series.run}`;
+      if (!rows.has(key)) {
+        rows.set(key, {
+          key,
+          configuration: series.configuration,
+          run: series.run,
+          source: series.source,
+          values: {},
+        });
+      }
+      if (Number.isFinite(series.selected_value)) {
+        rows.get(key).values[`metric:${series.quantity_id}`] = Number(series.selected_value);
+      }
+    }
+    for (const row of rows.values()) {
+      const parameters = configurations.get(row.configuration) || {};
+      for (const axis of axes) {
+        if (
+          axis.kind === "hyperparameter"
+          && Object.hasOwn(parameters, axis.sourceId)
+        ) {
+          row.values[axis.id] = parameters[axis.sourceId];
+        }
+      }
+    }
+    return [...rows.values()].filter((row) => axes.every((axis) =>
+      parallelAxisScalar(axis, row.values[axis.id]) !== null));
+  }
+
+  function parallelAxisDomain(axis, rows) {
+    const values = rows
+      .map((row) => parallelAxisScalar(axis, row.values[axis.id]))
+      .filter(Number.isFinite);
+    if (!values.length) return { min: 0, max: 1 };
+    let min = Math.min(...values);
+    let max = Math.max(...values);
+    if (min === max) {
+      const padding = Math.abs(min || 1) * 0.05;
+      min -= padding;
+      max += padding;
+    }
+    return { min, max };
+  }
+
+  function parallelRowSelected(row, chart) {
+    return chart.axes.every((axis) => {
+      const range = chart.plot.brushes?.[axis.id];
+      if (!range) return true;
+      const value = parallelAxisScalar(axis, row.values[axis.id]);
+      return value !== null && value >= range[0] && value <= range[1];
+    });
+  }
+
+  function fitCanvasLabel(context, label, maximumWidth) {
+    if (context.measureText(label).width <= maximumWidth) return label;
+    let result = label;
+    while (result.length > 3 && context.measureText(`${result}…`).width > maximumWidth) {
+      result = result.slice(0, -1);
+    }
+    return `${result}…`;
+  }
+
+  function parallelAxisY(value, domain, top, bottom) {
+    return bottom - ((value - domain.min) / (domain.max - domain.min)) * (bottom - top);
+  }
+
+  function parallelAxisValueAtY(y, domain, top, bottom) {
+    const ratio = Math.max(0, Math.min(1, (bottom - y) / (bottom - top)));
+    return domain.min + ratio * (domain.max - domain.min);
+  }
+
+  function updateParallelSelection(chart, selectedRows) {
+    const signature = selectedRows.map((row) => row.key).join("|");
+    if (signature === chart.selectionSignature) return;
+    chart.selectionSignature = signature;
+    chart.selectionStatus.textContent = `${selectedRows.length} of ${chart.rows.length} run${chart.rows.length === 1 ? "" : "s"} selected`;
+    chart.selectionList.replaceChildren();
+    if (!selectedRows.length) {
+      chart.selectionList.append(node("span", "parallel-selection-empty", "No curves match every active range."));
+      return;
+    }
+    const visible = selectedRows.slice(0, 18);
+    for (const row of visible) {
+      chart.selectionList.append(node(
+        "span", "parallel-selection-chip",
+        `Config ${row.configuration} · run ${row.run}`,
+      ));
+    }
+    if (selectedRows.length > visible.length) {
+      chart.selectionList.append(node(
+        "span", "parallel-selection-more",
+        `+${selectedRows.length - visible.length} more`,
+      ));
+    }
+  }
+
+  function drawParallelCoordinates(chart) {
+    const canvas = chart.canvas;
+    const bounds = canvas.getBoundingClientRect();
+    if (!bounds.width || !bounds.height) return;
+    const ratio = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(bounds.width * ratio);
+    canvas.height = Math.round(bounds.height * ratio);
+    const context = canvas.getContext("2d");
+    context.scale(ratio, ratio);
+    const width = bounds.width;
+    const height = bounds.height;
+    const top = 57;
+    const bottom = height - 44;
+    const left = 82;
+    const right = width - 82;
+    const dark = document.documentElement.dataset.theme === "dark";
+    const ink = dark ? "#dbe5ec" : "#253447";
+    const muted = dark ? "#8ea0ad" : "#78867e";
+    const axisColor = dark ? "#49606d" : "#c2cec7";
+    const inactiveColor = dark ? "rgba(126, 150, 163, .10)" : "rgba(83, 104, 94, .10)";
+    const palette = ["#35c58a", "#6c91ff", "#ff8b62", "#a879f3", "#e65f86", "#d5a13f", "#30b7c7", "#91a3b3"];
+    const axisGap = chart.axes.length > 1 ? (right - left) / (chart.axes.length - 1) : 0;
+    const xPositions = chart.axes.map((_, index) => left + axisGap * index);
+    const domains = Object.fromEntries(chart.axes.map((axis) => [
+      axis.id, parallelAxisDomain(axis, chart.rows),
+    ]));
+    const selectedRows = chart.rows.filter((row) => parallelRowSelected(row, chart));
+    const selectedKeys = new Set(selectedRows.map((row) => row.key));
+    const hasBrushes = Object.keys(chart.plot.brushes || {}).length > 0;
+    chart.clearButton.disabled = !hasBrushes;
+    chart.clearButton.classList.toggle("active", hasBrushes);
+    updateParallelSelection(chart, selectedRows);
+
+    context.clearRect(0, 0, width, height);
+    const pointsByRow = new Map();
+    for (const row of chart.rows) {
+      const points = chart.axes.map((axis, index) => {
+        const scalar = parallelAxisScalar(axis, row.values[axis.id]);
+        return {
+          x: xPositions[index],
+          y: parallelAxisY(scalar, domains[axis.id], top, bottom),
+        };
+      });
+      pointsByRow.set(row.key, points);
+    }
+    const drawRow = (row, selected, hovered = false) => {
+      const points = pointsByRow.get(row.key);
+      context.beginPath();
+      points.forEach((point, index) => {
+        if (index) context.lineTo(point.x, point.y);
+        else context.moveTo(point.x, point.y);
+      });
+      context.strokeStyle = hovered
+        ? (dark ? "#ffffff" : "#172033")
+        : (selected ? palette[Math.abs(row.configuration) % palette.length] : inactiveColor);
+      context.globalAlpha = hovered ? 1 : (selected ? Math.max(0.32, Math.min(0.78, 18 / Math.max(18, selectedRows.length))) : 1);
+      context.lineWidth = hovered ? 3 : (selected ? 1.55 : 1);
+      context.stroke();
+      context.globalAlpha = 1;
+    };
+    chart.rows.filter((row) => !selectedKeys.has(row.key)).forEach((row) => drawRow(row, false));
+    selectedRows.filter((row) => row.key !== chart.hoverRowKey).forEach((row) => drawRow(row, true));
+    const hoveredRow = chart.rows.find((row) => row.key === chart.hoverRowKey);
+    if (hoveredRow) drawRow(hoveredRow, selectedKeys.has(hoveredRow.key), true);
+
+    context.lineWidth = 1;
+    context.font = canvasFont(9);
+    chart.axes.forEach((axis, index) => {
+      const x = xPositions[index];
+      const domain = domains[axis.id];
+      context.strokeStyle = axisColor;
+      context.beginPath();
+      context.moveTo(x, top);
+      context.lineTo(x, bottom);
+      context.stroke();
+
+      context.textAlign = "center";
+      context.fillStyle = ink;
+      context.font = `700 ${(10 * state.fontSize) / canvasReferenceFontSize}px ${getComputedStyle(document.documentElement).getPropertyValue("--app-font")}`;
+      context.fillText(
+        fitCanvasLabel(context, axis.label, Math.min(150, Math.max(84, axisGap - 12))),
+        x,
+        18,
+      );
+      context.fillStyle = muted;
+      context.font = canvasFont(8);
+      context.fillText(axis.group, x, 33);
+
+      let ticks;
+      if (axis.numeric) {
+        ticks = [domain.max, (domain.min + domain.max) / 2, domain.min]
+          .map((value) => ({ scalar: value, label: formatNumber(value) }));
+      } else {
+        const indexes = axis.categories.length <= 5
+          ? axis.categories.map((_, categoryIndex) => categoryIndex)
+          : [0, Math.floor((axis.categories.length - 1) / 2), axis.categories.length - 1];
+        ticks = [...new Set(indexes)].map((categoryIndex) => ({
+          scalar: categoryIndex,
+          label: analysisValueLabel(axis.categories[categoryIndex]),
+        }));
+      }
+      context.textAlign = index === chart.axes.length - 1 ? "right" : "left";
+      const textX = index === chart.axes.length - 1 ? x - 5 : x + 5;
+      for (const tick of ticks) {
+        const y = parallelAxisY(tick.scalar, domain, top, bottom);
+        context.strokeStyle = axisColor;
+        context.beginPath();
+        context.moveTo(x - 3, y);
+        context.lineTo(x + 3, y);
+        context.stroke();
+        context.fillStyle = muted;
+        context.fillText(fitCanvasLabel(context, tick.label, Math.max(60, axisGap - 16)), textX, y + 3);
+      }
+
+      const brush = chart.plot.brushes?.[axis.id];
+      if (brush) {
+        const brushTop = parallelAxisY(Math.max(...brush), domain, top, bottom);
+        const brushBottom = parallelAxisY(Math.min(...brush), domain, top, bottom);
+        context.fillStyle = dark ? "rgba(53, 197, 138, .19)" : "rgba(19, 138, 98, .15)";
+        context.strokeStyle = dark ? "#5cddb0" : "#138a62";
+        context.lineWidth = 1.5;
+        context.fillRect(x - 9, brushTop, 18, Math.max(2, brushBottom - brushTop));
+        context.strokeRect(x - 9, brushTop, 18, Math.max(2, brushBottom - brushTop));
+        context.fillStyle = dark ? "#5cddb0" : "#138a62";
+        context.fillRect(x - 12, brushTop - 2, 24, 4);
+        context.fillRect(x - 12, brushBottom - 2, 24, 4);
+      }
+    });
+    context.textAlign = "left";
+    context.fillStyle = muted;
+    context.font = canvasFont(8);
+    context.fillText("Drag on an axis to filter · click an active axis to clear it", left, height - 13);
+    chart.geometry = { top, bottom, xPositions, domains, pointsByRow };
+  }
+
+  function pointToSegmentDistance(point, start, end) {
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
+    const lengthSquared = dx * dx + dy * dy;
+    if (!lengthSquared) return Math.hypot(point.x - start.x, point.y - start.y);
+    const fraction = Math.max(0, Math.min(1,
+      ((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared));
+    return Math.hypot(
+      point.x - (start.x + fraction * dx),
+      point.y - (start.y + fraction * dy),
+    );
+  }
+
+  function parallelHoveredRow(chart, point) {
+    if (!chart.geometry) return null;
+    let nearest = null;
+    let distance = 8;
+    for (const row of chart.rows) {
+      const points = chart.geometry.pointsByRow.get(row.key);
+      for (let index = 1; index < points.length; index += 1) {
+        const candidate = pointToSegmentDistance(point, points[index - 1], points[index]);
+        if (candidate < distance) {
+          distance = candidate;
+          nearest = row;
+        }
+      }
+    }
+    return nearest;
+  }
+
+  function showParallelTooltip(chart, row, point) {
+    const tooltip = chart.tooltip;
+    if (!row) {
+      tooltip.hidden = true;
+      return;
+    }
+    tooltip.replaceChildren(node(
+      "strong", "", `Configuration ${row.configuration} · run ${row.run}`,
+    ));
+    for (const axis of chart.axes) {
+      tooltip.append(node(
+        "span", "", `${axis.label}: ${parallelAxisValueLabel(axis, row.values[axis.id])}`,
+      ));
+    }
+    tooltip.hidden = false;
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const bounds = chart.canvas.getBoundingClientRect();
+    tooltip.style.left = `${Math.max(4, Math.min(bounds.width - width - 4, point.x + 12))}px`;
+    tooltip.style.top = `${Math.max(4, Math.min(bounds.height - height - 4, point.y - height / 2))}px`;
+  }
+
+  function attachParallelCoordinatesInteraction(chart) {
+    const canvas = chart.canvas;
+    const localPoint = (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    };
+    canvas.addEventListener("pointerdown", (event) => {
+      const point = localPoint(event);
+      const geometry = chart.geometry;
+      if (!geometry || point.y < geometry.top - 8 || point.y > geometry.bottom + 8) return;
+      let axisIndex = -1;
+      let distance = 17;
+      geometry.xPositions.forEach((x, index) => {
+        const candidate = Math.abs(point.x - x);
+        if (candidate < distance) {
+          distance = candidate;
+          axisIndex = index;
+        }
+      });
+      if (axisIndex === -1) return;
+      event.preventDefault();
+      canvas.setPointerCapture(event.pointerId);
+      const axis = chart.axes[axisIndex];
+      const value = parallelAxisValueAtY(
+        point.y, geometry.domains[axis.id], geometry.top, geometry.bottom,
+      );
+      chart.brushing = { pointerId: event.pointerId, axis, startY: point.y };
+      chart.plot.brushes = { ...(chart.plot.brushes || {}), [axis.id]: [value, value] };
+      chart.hoverRowKey = null;
+      chart.tooltip.hidden = true;
+      drawParallelCoordinates(chart);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      const point = localPoint(event);
+      if (chart.brushing) {
+        const geometry = chart.geometry;
+        const axis = chart.brushing.axis;
+        const startValue = parallelAxisValueAtY(
+          chart.brushing.startY, geometry.domains[axis.id], geometry.top, geometry.bottom,
+        );
+        const currentValue = parallelAxisValueAtY(
+          point.y, geometry.domains[axis.id], geometry.top, geometry.bottom,
+        );
+        chart.plot.brushes[axis.id] = [
+          Math.min(startValue, currentValue), Math.max(startValue, currentValue),
+        ];
+        drawParallelCoordinates(chart);
+        return;
+      }
+      const row = parallelHoveredRow(chart, point);
+      if ((row?.key || null) !== chart.hoverRowKey) {
+        chart.hoverRowKey = row?.key || null;
+        drawParallelCoordinates(chart);
+      }
+      showParallelTooltip(chart, row, point);
+    });
+    const finishBrush = (event) => {
+      if (!chart.brushing || chart.brushing.pointerId !== event.pointerId) return;
+      const point = localPoint(event);
+      const axisId = chart.brushing.axis.id;
+      if (Math.abs(point.y - chart.brushing.startY) < 4) {
+        delete chart.plot.brushes[axisId];
+      }
+      chart.brushing = null;
+      persistState();
+      drawParallelCoordinates(chart);
+    };
+    canvas.addEventListener("pointerup", finishBrush);
+    canvas.addEventListener("pointercancel", finishBrush);
+    canvas.addEventListener("pointerleave", () => {
+      if (chart.brushing) return;
+      chart.hoverRowKey = null;
+      chart.tooltip.hidden = true;
+      drawParallelCoordinates(chart);
+    });
+  }
+
+  function appendParallelCoordinatesPlot(plot, grid) {
+    const options = parallelCoordinateAxisOptions();
+    const axes = plot.axes.flatMap((axisId) => {
+      const axis = options.find((candidate) => candidate.id === axisId);
+      return axis ? [axis] : [];
+    });
+    if (axes.length < 2) return false;
+    const rows = parallelCoordinateRows(state.analysisData, axes);
+    if (!rows.length) return false;
+    const card = node("article", "chart-card analysis-chart-card parallel-chart-card");
+    const head = node("div", "chart-head");
+    const title = node("div", "chart-title");
+    title.append(
+      node("h3", "", "Parallel coordinates"),
+      node(
+        "p", "",
+        `Outer fold ${state.analysisData.outer_fold} · inner fold ${state.analysisData.inner_fold} · Brush one or more axes to select the curves that satisfy every range.`,
+      ),
+    );
+    const headMeta = node("div", "chart-head-meta");
+    headMeta.append(
+      node("span", "chart-type", `${axes.length} axes · ${rows.length} runs`),
+      plotRemoveButton(plot),
+    );
+    head.append(title, headMeta);
+    const clearButton = node("button", "parallel-clear-button", "Clear selection");
+    clearButton.type = "button";
+    clearButton.addEventListener("click", () => {
+      plot.brushes = {};
+      persistState();
+      drawParallelCoordinates(chart);
+    });
+    const controls = node("div", "parallel-card-controls");
+    controls.append(
+      parallelAxisBuilder(plot.axes, options, (nextAxes) => {
+        updateAnalysisPlot(plot, {
+          axes: nextAxes,
+          brushes: parallelBrushesForAxes(plot.brushes, nextAxes),
+        });
+      }, { compact: true }),
+      clearButton,
+    );
+    const scroll = node("div", "parallel-chart-scroll");
+    const surface = node("div", "parallel-chart-surface");
+    surface.style.minWidth = `${Math.max(720, axes.length * 142)}px`;
+    const canvas = document.createElement("canvas");
+    canvas.setAttribute("role", "img");
+    canvas.setAttribute("aria-label", "Interactive parallel coordinates plot. Drag vertically on an axis to filter curves.");
+    const tooltip = node("div", "analysis-chart-tooltip parallel-chart-tooltip");
+    tooltip.hidden = true;
+    surface.append(canvas, tooltip);
+    scroll.append(surface);
+    const footer = node("div", "parallel-selection-footer");
+    const selectionStatus = node("strong", "parallel-selection-status");
+    const selectionList = node("div", "parallel-selection-list");
+    footer.append(selectionStatus, selectionList);
+    card.append(head, controls, scroll, footer);
+    grid.append(card);
+    const chart = {
+      canvas,
+      tooltip,
+      plot,
+      axes,
+      rows,
+      clearButton,
+      selectionStatus,
+      selectionList,
+      selectionSignature: null,
+      hoverRowKey: null,
+      brushing: null,
+      geometry: null,
+    };
+    attachParallelCoordinatesInteraction(chart);
+    state.parallelCharts.push(chart);
+    drawParallelCoordinates(chart);
+    return true;
+  }
+
   function renderAnalysisPlots() {
     const trendPlots = state.analysisPlots.filter((plot) => plot.type === "trends");
     state.analysisQuantities = [...new Set(trendPlots.map((plot) => plot.quantity))];
@@ -1560,6 +2235,7 @@
       state.charts = [];
       state.metricBarCharts = [];
       state.analysis3DCharts = [];
+      state.parallelCharts = [];
     }
     let rendered = state.charts.length > 0 || state.analysis3DCharts.length > 0;
     for (const plot of state.analysisPlots) {
@@ -1569,6 +2245,10 @@
     for (const plot of state.analysisPlots) {
       if (plot.type !== "metric-vs-hyperparameter") continue;
       rendered = appendMetricVsHyperparameter(plot, grid) || rendered;
+    }
+    for (const plot of state.analysisPlots) {
+      if (plot.type !== "parallel-coordinates") continue;
+      rendered = appendParallelCoordinatesPlot(plot, grid) || rendered;
     }
     grid.hidden = !rendered;
     if (rendered && !state.analysisData.errors.length) {
@@ -2898,7 +3578,7 @@
     if (!run.has_metrics) button.classList.add("no-metrics");
     if (run.path === state.selectedPath) button.classList.add("active");
     button.append(node("span", "metric-indicator"), node("span", "", label));
-    button.title = run.has_metrics ? "Open epoch metrics" : "No metrics_data.torch yet";
+    button.title = run.has_metrics ? "Open metrics" : "No metrics_data.torch yet";
     button.addEventListener("click", () => loadDetails(run.path));
     return button;
   }
@@ -2948,6 +3628,40 @@
     el("chart-grid").replaceChildren(chartMessage(message, "Could not load this selection"));
   }
 
+  function metricSeries() {
+    return (state.details?.series || []).filter(
+      (series) => (series.unit || "epoch") === state.metricUnit,
+    );
+  }
+
+  function renderMetricUnit() {
+    const field = el("metric-unit-field");
+    const select = el("metric-unit-select");
+    const available = [...new Set(
+      (state.details?.series || []).map((series) => series.unit || "epoch"),
+    )];
+    if (!available.includes(state.metricUnit)) {
+      state.metricUnit = available.includes("epoch") ? "epoch" : (available[0] || "epoch");
+      persistState();
+    }
+    field.hidden = !(available.includes("epoch") && available.includes("step"));
+    select.value = state.metricUnit;
+  }
+
+  function seriesXValues(series) {
+    if (Array.isArray(series.x_values) && series.x_values.length === series.values.length) {
+      return series.x_values.map((value, index) => (
+        Number.isFinite(Number(value)) ? Number(value) : index + 1
+      ));
+    }
+    return series.values.map((_value, index) => index + 1);
+  }
+
+  function metricUnitLabel(capitalize = false) {
+    const label = state.metricUnit === "step" ? "step" : "epoch";
+    return capitalize ? `${label[0].toUpperCase()}${label.slice(1)}` : label;
+  }
+
   function renderDetails() {
     const data = state.details;
     renderCacheStatus(data.cache);
@@ -2957,11 +3671,16 @@
     el("selection-path").textContent = data.selection.path;
     el("freshness").textContent = formatTime(data.modified_at);
 
-    const maxEpochs = data.series.reduce((max, series) => Math.max(max, series.values.length), 0);
-    const sources = [...new Set(data.series.map((series) => series.source))];
+    renderMetricUnit();
+    const visibleSeries = metricSeries();
+    const maxPosition = visibleSeries.reduce((max, series) => {
+      const positions = seriesXValues(series);
+      return Math.max(max, positions.at(-1) || 0);
+    }, 0);
+    const sources = [...new Set(visibleSeries.map((series) => series.source))];
     renderSummary([
-      ["Metric series", data.series.length],
-      ["Epochs recorded", maxEpochs || "—"],
+      ["Metric series", visibleSeries.length],
+      [`${metricUnitLabel(true)}s recorded`, maxPosition || "—"],
       ["Run files", data.metrics_file_count],
     ]);
     renderPlotMode();
@@ -2974,10 +3693,10 @@
       notice.hidden = false;
       notice.className = "notice error";
       notice.textContent = `${data.errors.length} metric file${data.errors.length === 1 ? "" : "s"} could not be read. The remaining data is shown.`;
-    } else if (!data.series.length) {
+    } else if (!visibleSeries.length) {
       notice.hidden = false;
       notice.className = "notice";
-      notice.textContent = "No epoch histories were found here. Configure the Plotter callback, or wait for the run to write metrics_data.torch.";
+      notice.textContent = `No ${metricUnitLabel()} histories were found here. Configure the Plotter callback, or wait for the run to write metrics_data.torch.`;
     } else {
       notice.hidden = true;
     }
@@ -3193,7 +3912,7 @@
 
   function configurationRunSources() {
     return naturalSort(new Set(
-      state.details.series
+      metricSeries()
         .map((series) => series.source)
         .filter((source) => innerFoldName(source) !== "Ungrouped"),
     ));
@@ -3211,19 +3930,27 @@
 
   function renderPlotNavigator() {
     const navigator = el("plot-navigator");
+    const navigation = el("navigator-navigation");
+    if (!state.details) {
+      navigator.hidden = true;
+      return;
+    }
+    navigator.hidden = false;
     const isConfiguration = state.details?.selection.plot_scope === "model_selection_configuration";
     if (!isConfiguration) {
-      navigator.hidden = true;
+      navigation.hidden = true;
+      el("plot-navigator-status").textContent = "Plot settings";
       return;
     }
 
     const sources = configurationRunSources();
     const folds = naturalSort(new Set(sources.map(innerFoldName)));
     if (!folds.length) {
-      navigator.hidden = true;
+      navigation.hidden = true;
+      el("plot-navigator-status").textContent = "Plot settings";
       return;
     }
-    navigator.hidden = false;
+    navigation.hidden = false;
 
     let changed = false;
     if (!folds.includes(state.focusedInnerFold)) {
@@ -3320,14 +4047,49 @@
       lower.push(mean - std);
       upper.push(mean + std);
     }
-    return { values, band: { lower, upper }, sampleCount: lines.length };
+    const reference = lines.reduce(
+      (longest, line) => (line.values.length > longest.values.length ? line : longest),
+      lines[0],
+    );
+    return {
+      values,
+      xValues: reference?.xValues || reference?.x_values || null,
+      band: { lower, upper },
+      sampleCount: lines.length,
+    };
+  }
+
+  function smoothMetricValues(values, smoothing) {
+    if (smoothing <= 0) return [...values];
+    let last = 0;
+    let accumulated = 0;
+    return values.map((value) => {
+      if (!Number.isFinite(value)) return value;
+      last = (last * smoothing) + (value * (1 - smoothing));
+      accumulated += 1;
+      const debiasWeight = 1 - (smoothing ** accumulated);
+      return last / debiasWeight;
+    });
+  }
+
+  function smoothMetricLine(line) {
+    if (state.smoothing <= 0) return line;
+    return {
+      ...line,
+      rawValues: line.values,
+      values: smoothMetricValues(line.values, state.smoothing),
+      band: line.band ? {
+        lower: smoothMetricValues(line.band.lower, state.smoothing),
+        upper: smoothMetricValues(line.band.upper, state.smoothing),
+      } : undefined,
+    };
   }
 
   function groupedSeries() {
     const mode = resolvedPlotMode();
     const isConfiguration = state.details.selection.plot_scope === "model_selection_configuration";
     const prepared = [];
-    for (const series of state.details.series) {
+    for (const series of metricSeries()) {
       if (state.group !== "all" && series.group !== state.group) continue;
       if (!isConfiguration && mode === "individual" && state.source !== "all" && series.source !== state.source) continue;
       if (mode === "final-selected" && series.source !== state.details.selection.selected_source) continue;
@@ -3376,13 +4138,19 @@
           label: mode === "inner-fold" ? `${series.split} · ${shortRunName(series.source)}` : series.split,
           name: series.name,
           values: series.values,
+          xValues: seriesXValues(series),
           dash: mode === "inner-fold" ? runDashPattern(series.source) : [],
         });
       }
     }
-    return [...groups.values()].sort((a, b) =>
-      `${a.group} ${a.metric} ${a.source}`.localeCompare(`${b.group} ${b.metric} ${b.source}`)
-    );
+    return [...groups.values()]
+      .map((group) => ({
+        ...group,
+        lines: group.lines.map(smoothMetricLine),
+      }))
+      .sort((a, b) =>
+        `${a.group} ${a.metric} ${a.source}`.localeCompare(`${b.group} ${b.metric} ${b.source}`)
+      );
   }
 
   function renderCharts() {
@@ -3410,13 +4178,15 @@
           subtitle: group.source,
           yLabel: chartTitle,
           lines: group.lines,
+          xLabel: metricUnitLabel(),
+          smoothing: state.smoothing,
         })),
       );
       head.append(title, headMeta);
       const wrap = node("div", "chart-wrap");
       const canvas = document.createElement("canvas");
       canvas.setAttribute("role", "img");
-      canvas.setAttribute("aria-label", `${group.metric} over epochs`);
+      canvas.setAttribute("aria-label", `${group.metric} over ${metricUnitLabel()}s`);
       wrap.append(canvas);
       const legend = node("div", "chart-legend");
       const legendValues = new Map();
@@ -4556,21 +5326,42 @@
       }
       return;
     }
-    const epochs = Math.max(...chart.group.lines.map((line) => line.values.length), 1);
-    const index = epochs <= 1
-      ? 0
-      : Math.round(((pointerX - margin.left) / plotWidth) * (epochs - 1));
+    const xValues = chartXValues(chart);
+    const minX = Math.min(...xValues);
+    const maxX = Math.max(...xValues);
+    const targetX = minX + ((pointerX - margin.left) / plotWidth) * (maxX - minX);
+    const index = xValues.reduce(
+      (nearest, value, candidate) => (
+        Math.abs(value - targetX) < Math.abs(xValues[nearest] - targetX)
+          ? candidate
+          : nearest
+      ),
+      0,
+    );
     if (index !== chart.hoverIndex) {
-      chart.hoverIndex = Math.max(0, Math.min(epochs - 1, index));
+      chart.hoverIndex = Math.max(0, Math.min(xValues.length - 1, index));
       updateChartReadout(chart);
       drawChart(chart);
     }
   }
 
+  function chartXValues(chart) {
+    const reference = chart.group.lines.reduce(
+      (longest, line) => (line.values.length > longest.values.length ? line : longest),
+      chart.group.lines[0],
+    );
+    if (!reference) return [1];
+    if (Array.isArray(reference.xValues) && reference.xValues.length === reference.values.length) {
+      return reference.xValues;
+    }
+    return reference.values.map((_value, index) => index + 1);
+  }
+
   function updateChartReadout(chart) {
+    const xValues = chartXValues(chart);
     chart.epochLabel.textContent = chart.hoverIndex === null
       ? "Latest"
-      : `Epoch ${chart.hoverIndex + 1}`;
+      : `${metricUnitLabel(true)} ${formatNumber(xValues[chart.hoverIndex])}`;
     for (const line of chart.group.lines) {
       chart.legendValues.get(line.id).textContent = formatLineReadout(
         line,
@@ -4656,6 +5447,32 @@
     }
   }
 
+  function drawMetricLine(ctx, line, values, xValues, x, y, validValue, raw = false) {
+    ctx.save();
+    ctx.beginPath();
+    let drawing = false;
+    values.forEach((value, index) => {
+      if (!validValue(value)) {
+        drawing = false;
+        return;
+      }
+      if (!drawing) {
+        ctx.moveTo(x(xValues[index]), y(value));
+        drawing = true;
+      } else {
+        ctx.lineTo(x(xValues[index]), y(value));
+      }
+    });
+    ctx.strokeStyle = line.color || colors[line.split] || colors.other;
+    ctx.globalAlpha = raw ? 0.22 : 1;
+    ctx.lineWidth = raw ? 1 : 2;
+    ctx.setLineDash(line.dash || []);
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.stroke();
+    ctx.restore();
+  }
+
   function drawChart(chart) {
     const { canvas, group } = chart;
     const rect = canvas.getBoundingClientRect();
@@ -4708,9 +5525,17 @@
     );
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const epochs = Math.max(...group.lines.map((line) => line.values.length), 1);
+    const allXValues = group.lines.flatMap((line) => (
+      Array.isArray(line.xValues) && line.xValues.length === line.values.length
+        ? line.xValues
+        : line.values.map((_value, index) => index + 1)
+    ));
+    const minX = Math.min(...allXValues);
+    const maxX = Math.max(...allXValues);
     chart.plotGeometry = { left: margin.left, right: margin.right };
-    const x = (index) => margin.left + (epochs <= 1 ? plotWidth / 2 : (index / (epochs - 1)) * plotWidth);
+    const x = (value) => margin.left + (
+      minX === maxX ? plotWidth / 2 : ((value - minX) / (maxX - minX)) * plotWidth
+    );
     const y = (value) => margin.top + ((max - valueScale.transform(value)) / (max - min)) * plotHeight;
 
     ctx.textBaseline = "middle";
@@ -4724,30 +5549,39 @@
       ctx.fillText(formatNumber(value), margin.left - 7, tickY);
     }
     ctx.fillStyle = labelColor; ctx.textAlign = "center"; ctx.textBaseline = "top";
-    ctx.fillText("1", x(0), height - margin.bottom + 8);
-    if (epochs > 1) ctx.fillText(String(epochs), x(epochs - 1), height - margin.bottom + 8);
-    ctx.fillStyle = labelColor; ctx.fillText("epoch", margin.left + plotWidth / 2, height - 10);
+    ctx.fillText(formatNumber(minX), x(minX), height - margin.bottom + 8);
+    if (minX !== maxX) ctx.fillText(formatNumber(maxX), x(maxX), height - margin.bottom + 8);
+    ctx.fillStyle = labelColor; ctx.fillText(metricUnitLabel(), margin.left + plotWidth / 2, height - 10);
 
-    for (const line of group.lines) drawMetricBand(ctx, line, x, y, validValue);
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(margin.left, margin.top, plotWidth, plotHeight);
+    ctx.clip();
+    for (const line of group.lines) {
+      if (!Array.isArray(line.rawValues)) continue;
+      const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.rawValues.length
+        ? line.xValues
+        : line.rawValues.map((_value, index) => index + 1);
+      drawMetricLine(ctx, line, line.rawValues, lineXValues, x, y, validValue, true);
+    }
+    ctx.restore();
 
     for (const line of group.lines) {
-      ctx.beginPath();
-      let drawing = false;
-      line.values.forEach((value, index) => {
-        if (!validValue(value)) { drawing = false; return; }
-        if (!drawing) { ctx.moveTo(x(index), y(value)); drawing = true; } else { ctx.lineTo(x(index), y(value)); }
-      });
-      ctx.strokeStyle = line.color || colors[line.split] || colors.other;
-      ctx.lineWidth = 2;
-      ctx.setLineDash(line.dash || []);
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.stroke();
+      const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.values.length
+        ? line.xValues
+        : line.values.map((_value, index) => index + 1);
+      drawMetricBand(ctx, line, (index) => x(lineXValues[index]), y, validValue);
     }
-    ctx.setLineDash([]);
+
+    for (const line of group.lines) {
+      const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.values.length
+        ? line.xValues
+        : line.values.map((_value, index) => index + 1);
+      drawMetricLine(ctx, line, line.values, lineXValues, x, y, validValue);
+    }
 
     if (chart.hoverIndex !== null) {
-      const hoverX = x(chart.hoverIndex);
+      const hoverX = x(chartXValues(chart)[chart.hoverIndex]);
       ctx.save();
       ctx.setLineDash([3, 4]);
       ctx.beginPath();
@@ -5019,6 +5853,20 @@
     persistState();
     renderCharts();
   });
+  el("metric-unit-select").addEventListener("change", (event) => {
+    state.metricUnit = event.target.value === "step" ? "step" : "epoch";
+    state.source = "all";
+    state.focusedInnerFold = null;
+    state.focusedRun = null;
+    persistState();
+    renderDetails();
+  });
+  el("smoothing-slider").addEventListener("input", (event) => {
+    state.smoothing = normalizedSmoothing(event.target.value);
+    syncSmoothingControl();
+    persistState();
+    if (state.details) renderChartsPreservingScroll();
+  });
   el("source-select").addEventListener("change", (event) => {
     state.source = event.target.value;
     persistState();
@@ -5033,7 +5881,7 @@
       return;
     }
     renderInnerFoldAggregation();
-    renderSourceFilter([...new Set(state.details.series.map((series) => series.source))]);
+    renderSourceFilter([...new Set(metricSeries().map((series) => series.source))]);
     renderPlotNavigator();
     renderCharts();
     prepareModelGraph();
@@ -5095,6 +5943,7 @@
       state.charts.forEach((chart) => drawChart(chart));
       state.metricBarCharts.forEach((chart) => drawMetricBarChart(chart));
       state.analysis3DCharts.forEach((chart) => drawAnalysis3DChart(chart));
+      state.parallelCharts.forEach((chart) => drawParallelCoordinates(chart));
     }, 100);
   });
 
@@ -5106,6 +5955,7 @@
   document.querySelectorAll("[data-group]").forEach((button) => {
     button.classList.toggle("active", button.dataset.group === state.group);
   });
+  syncSmoothingControl();
   syncScaleButton();
   observeStickyPlotNavigator();
   bindDisclosure(el("model-graph-section"), "model-graph", false);
@@ -5183,10 +6033,12 @@
           modelGraphData: null,
         });
         state.scale = normalizedScale(state.scale);
+        state.smoothing = normalizedSmoothing(state.smoothing);
         el("metric-search").value = state.query || "";
         el("refresh-interval").value = String(state.refreshSeconds || 15);
         applyTheme();
         applyFont();
+        syncSmoothingControl();
         syncScaleButton();
         persistState();
       }
@@ -5206,5 +6058,14 @@
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
     button.textContent = active ? "Log scale · on" : "Log scale";
+  }
+
+  function syncSmoothingControl() {
+    const slider = el("smoothing-slider");
+    slider.value = String(state.smoothing);
+    el("smoothing-value").value = state.smoothing
+      .toFixed(2)
+      .replace(/0+$/, "")
+      .replace(/\.$/, "");
   }
 })();

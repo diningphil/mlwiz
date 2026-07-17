@@ -103,6 +103,25 @@ class FakeMetric(Metric):
         return predictions.mean()
 
 
+def test_epoch_accumulated_score_is_exposed_when_step_logging_is_enabled():
+    """Step logging should not require disabling exact epoch aggregation."""
+    metric = FakeMetric(use_as_loss=False, accumulate_over_epoch=True)
+    state = State(model=None, optimizer=None, device="cpu")
+    state.update(
+        batch_outputs=(torch.zeros(2, 1),),
+        batch_targets=torch.zeros(2),
+        batch_score=None,
+        log_step_metrics=True,
+    )
+    metric.on_training_epoch_start(state)
+    metric.on_training_batch_start(state)
+
+    metric.on_compute_metrics(state)
+
+    assert state.batch_score[metric.name].item() == pytest.approx(9.5)
+    assert len(metric.y_pred[metric.name]) == 1
+
+
 @pytest.fixture
 def fake_metric():
     """

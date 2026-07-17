@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.2]
+
+## Added
+
+- added opt-in training-step metric histories through `Plotter(store_every_N_steps=N)`; sampled losses and scores are stored with their global optimizer-step numbers while epoch-only logging remains the default
+- added an automatic **Epoch / Step** selector to the dashboard run explorer when step histories are present, including true sampled-step axes, hover values, aggregation, and reproducible plot exports
+- added a persistent **Smoothing** slider for run charts using TensorBoard-style bias-corrected exponential smoothing, with faint raw traces and raw/displayed data in reproducible plot exports
+
+## Changed
+
+- bumped the package version to 1.7.2
+
 ## [1.7.1]
 
 ## Added

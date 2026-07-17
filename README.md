@@ -48,11 +48,17 @@ Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil
 ### 📦 Installation
 MLWiz supports Python 3.10+.
 
+Create a [uv](https://docs.astral.sh/uv/)-managed project and add MLWiz:
+
 ```bash
-pip install mlwiz
+uv init my-ml-project
+cd my-ml-project
+uv add mlwiz
 ```
 
-Tip: for GPU / graph workloads, install PyTorch and PyG following their official instructions first, then `pip install mlwiz`.
+If your project already has a `pyproject.toml`, run only `uv add mlwiz` from
+its root. For GPU or graph workloads, configure PyTorch and PyG following their
+official installation instructions before adding MLWiz.
 
 ### ⚡ Quickstart
 | Step | Command | Notes |
@@ -365,10 +371,16 @@ fold, model-selection configuration, inner fold, and final run. Selecting a
 configuration compares all of its child runs; selecting an individual run
 shows only that run. Score and loss histories are refreshed after every epoch
 by default. Set `store_every_N_epochs` to a larger value to reduce the write
-frequency.
+frequency. To additionally record training-batch histories, configure
+`store_every_N_steps` with a positive integer; the dashboard then exposes an
+**Epoch / Step** history selector and plots the sampled global step numbers.
 
-Hover over a chart to inspect the training, validation, and test values at one
-epoch. The **Log scale** control applies the sign-preserving log-modulus
+Hover over a chart to inspect the values at one epoch or sampled training step.
+Use **Smoothing** to apply the same bias-corrected exponential moving average
+used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
+short-term noise and retain a faint raw trace for context. The chosen value is
+preserved for the dashboard session and included with reproducible plot exports.
+The **Log scale** control applies the sign-preserving log-modulus
 transform `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values
 remain visible. Each experiment has its own lazy-loaded
 configuration filter: choose any discovered score or loss, compare it with a
@@ -429,7 +441,7 @@ available. These choices persist across browser sessions. Use **Copy code** or
 **Download .py**, then install the script dependencies if needed:
 
 ```bash
-python -m pip install matplotlib numpy tueplots
+uv add matplotlib numpy tueplots
 ```
 
 LaTeX rendering is disabled by default and requires a working local TeX
@@ -502,6 +514,19 @@ this artifact (metric storage is enabled by default):
 ```yaml
 plotter: mlwiz.training.callback.plotter.Plotter
 ```
+
+Step histories are opt-in. This example records and flushes one training-batch
+sample every 10 optimizer steps while retaining the default epoch histories:
+
+```yaml
+plotter:
+  class_name: mlwiz.training.callback.plotter.Plotter
+  args:
+    store_every_N_steps: 10
+```
+
+Leave `store_every_N_steps` unset (or set it to `null`) to store epoch metrics
+only. `store_every_N_epochs` continues to control epoch-based disk flushes.
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
 

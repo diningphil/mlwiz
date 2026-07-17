@@ -363,9 +363,12 @@ class Metric(Module, EventHandler):
             # this has to be updated per-batch no matter what
             state.update(batch_loss=loss)
 
-        # Score case
+        # Score case. Epoch-accumulated scores normally do not need a batch
+        # value, but Plotter requests one when step histories are enabled.
         else:
-            if not self.accumulate_over_epoch:
+            if not self.accumulate_over_epoch or getattr(
+                state, "log_step_metrics", False
+            ):
                 score = self.forward(targets, *outputs)
                 score = {
                     k: (

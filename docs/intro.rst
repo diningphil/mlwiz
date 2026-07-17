@@ -22,10 +22,16 @@ Installation:
 
 Automated tests passing on Linux.
 
-The recommended way to install the library is to follow the steps to install ``torch`` and ``torch_geometric`` prior to installing MLWiz.
+The recommended workflow uses `uv <https://docs.astral.sh/uv/>`_ to manage the
+project environment and dependencies. Create a project and add MLWiz:
 
-Then simply run
+.. code-block:: bash
 
-.. code-block:: python
+    uv init my-ml-project
+    cd my-ml-project
+    uv add mlwiz
 
-    pip install mlwiz
+If the project already has a ``pyproject.toml``, run only ``uv add mlwiz`` from
+its root. For GPU or graph workloads, configure ``torch`` and
+``torch_geometric`` following their official installation instructions before
+adding MLWiz.

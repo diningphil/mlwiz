@@ -179,6 +179,38 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     ]
 
 
+def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
+    """Dashboard details should distinguish compatible epoch and step data."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    metrics_path = selection_run / "metrics_data.torch"
+    metrics = torch.load(metrics_path, weights_only=True)
+    metrics["step"] = {
+        "steps": [2, 4],
+        "last_step": 5,
+        "losses": {"training_main_loss": [0.9, 0.7]},
+        "scores": {"training_main_score": [0.4, 0.6]},
+    }
+    torch.save(metrics, metrics_path)
+    repository = ResultsRepository(experiment.parent)
+
+    details = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )
+
+    epoch_series = [item for item in details["series"] if item["unit"] == "epoch"]
+    step_series = [item for item in details["series"] if item["unit"] == "step"]
+    assert len(epoch_series) == 4
+    assert len(step_series) == 2
+    assert step_series[0]["x_values"] == pytest.approx([2, 4])
+    assert {item["name"] for item in step_series} == {
+        "training_main_loss",
+        "training_main_score",
+    }
+
+    analysis = repository.model_selection_analysis(experiment.name, 1, 1)
+    assert len(analysis["series"]) == 4
+
+
 def test_model_selection_analysis_discovers_varying_hyperparameters_and_curves(
     tmp_path,
 ):
@@ -923,25 +955,33 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "MLWiz Dashboard" in page
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
+        assert 'id="smoothing-slider"' in page
+        assert 'id="smoothing-value"' in page
         assert 'id="analysis-tab"' in page
         assert 'id="analysis-plot-type"' in page
         assert 'id="analysis-hyperparameter"' in page
         assert 'id="analysis-quantity"' in page
         assert 'id="analysis-second-quantity"' in page
         assert 'id="analysis-metric-quantity"' in page
+        assert 'value="parallel-coordinates"' in page
+        assert 'id="analysis-parallel-axis-field"' in page
+        assert 'id="analysis-parallel-axis-builder"' in page
         assert 'id="analysis-add-quantity"' in page
         assert 'id="analysis-selected-quantities"' in page
         assert 'id="analysis-chart-grid"' in page
         assert 'id="cache-reset"' in page
         assert 'id="export-button"' in page
+        assert 'id="metric-unit-select"' in page
         assert 'id="plot-mode-select"' in page
         assert 'id="inner-fold-aggregate"' in page
         assert 'id="plot-navigator"' in page
+        assert 'id="navigator-navigation"' in page
         assert 'id="show-all-plots"' in page
         assert 'id="refresh-interval"' in page
         assert 'id="theme-toggle"' in page
         assert 'id="font-select"' in page
         assert 'id="font-size-input"' in page
+        assert 'value="18" aria-label="Application font size' in page
         assert 'id="plot-code-dialog"' in page
         assert 'id="plot-code-bundle"' in page
         assert 'id="plot-code-palette"' in page
@@ -962,6 +1002,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert page.index('id="summary-grid"') < page.index(
             'id="model-graph-section"'
         ) < page.index('id="chart-toolbar"')
+        assert page.index('id="plot-navigator"') < page.index(
+            'id="metric-unit-field"'
+        ) < page.index('id="smoothing-slider"') < page.index(
+            'id="scale-toggle"'
+        ) < page.index('id="navigator-navigation"')
         assert 'data-theme="dark"' in page
         assert 'id="tree-search"' not in page
         assert "sessionStorage" in app_script
@@ -974,7 +1019,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "metricPlotExportSpec" in app_script
         assert "canvasFont()" in app_script
         assert "normalizedFontSize" in app_script
+        assert "const defaultFontSize = 18" in app_script
+        assert "const legacyDefaultFontSize = 16" in app_script
+        assert "const canvasReferenceFontSize = 16" in app_script
         assert "openNodes" in app_script
+        assert 'textContent = "Plot settings"' in app_script
         assert 'postJson("/api/cache"' in app_script
         assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
@@ -983,6 +1032,13 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "renderAnalysisCharts" in app_script
         assert "analysisQuantities" in app_script
         assert "analysisPlots" in app_script
+        assert "analysisParallelAxes" in app_script
+        assert "parallelCoordinateAxisOptions" in app_script
+        assert "appendParallelCoordinatesPlot" in app_script
+        assert "drawParallelCoordinates" in app_script
+        assert "attachParallelCoordinatesInteraction" in app_script
+        assert "Drag on an axis to filter" in app_script
+        assert "Outer fold ${state.analysisData.outer_fold} · inner fold ${state.analysisData.inner_fold}" in app_script
         assert 'noAnalysisGroupingValue = "__all_runs__"' in app_script
         assert "normalizedAnalysisGrouping" in app_script
         assert '"None — average all runs"' in app_script
@@ -1048,6 +1104,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'addEventListener("pointermove"' in app_script
         assert "createValueScale" in app_script
         assert "aggregateMetricLines" in app_script
+        assert "font-size: 18px" in stylesheet
+        assert "width: 4ch; min-width: 4ch" in stylesheet
+        assert ".font-size-control input::-webkit-outer-spin-button" in stylesheet
+        assert "@media (max-width: 1380px)" in stylesheet
+        assert "@media (max-width: 520px)" in stylesheet
         assert "renderInnerFoldAggregation" in app_script
         assert "renderPlotNavigator" in app_script
         assert "moveNavigatorSelection" in app_script
@@ -1077,6 +1138,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert ".plot-navigator.is-stuck" in stylesheet
         assert ".plot-code-dialog" in stylesheet
         assert ".plot-code-button" in stylesheet
+        assert ".smoothing-control" in stylesheet
         assert "--app-font:" in stylesheet
         assert "font-size: 0.75rem" in stylesheet
         assert "bundles.${options.bundle}" in plot_export_script
@@ -1088,6 +1150,11 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))' in plot_export_script
         assert "color_values = log_modulus(heights)" in plot_export_script
         assert 'elif DATA.get("scale") == "log"' in plot_export_script
+        assert 'series.get("rawValues")' in plot_export_script
+        assert 'label="_nolegend_"' in plot_export_script
+        assert "function smoothMetricValues" in app_script
+        assert "debiasWeight" in app_script
+        assert "rawValues: line.values" in app_script
         assert 'kind: "trajectory3d"' in app_script
         assert ".content { min-width: 0;" in stylesheet
         assert "overflow: visible;" in stylesheet

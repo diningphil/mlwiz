@@ -57,7 +57,7 @@
           </label>
           <label class="font-size-control">
             <span class="sr-only">Application font size in pixels</span>
-            <input id="font-size-input" type="number" min="12" max="24" step="1" value="16" aria-label="Application font size in pixels" />
+            <input id="font-size-input" type="number" min="12" max="24" step="1" value="18" aria-label="Application font size in pixels" />
             <span>px</span>
           </label>
         </div>
@@ -104,7 +104,7 @@
           <h2>Select a configuration or run</h2>
           <p class="welcome-copy">
             Choose a model-selection configuration or a final run to compare its
-            loss and score histories across epochs.
+            loss and score histories across epochs or recorded training steps.
           </p>
           <div class="welcome-tip">
             <span>Metric source</span>
@@ -197,13 +197,6 @@
               <button type="button" data-group="scores">Scores</button>
               <button type="button" data-group="losses">Losses</button>
             </div>
-            <button
-              class="scale-button"
-              id="scale-toggle"
-              type="button"
-              aria-pressed="false"
-              title="Use a sign-preserving log-modulus scale that supports positive, zero, and negative values"
-            >Log scale</button>
             <label class="select-field plot-mode-field" id="plot-mode-field" hidden>
               <span>Plot view</span>
               <select id="plot-mode-select"></select>
@@ -230,26 +223,60 @@
               <strong id="plot-navigator-status">Focused view</strong>
             </div>
             <div class="plot-navigator-controls">
-              <div class="navigator-stepper" id="fold-navigator">
-                <button id="fold-previous" type="button" aria-label="Previous inner fold">‹</button>
-                <label>
-                  <span>Inner fold</span>
-                  <select id="fold-select"></select>
+              <div class="navigator-plot-settings" aria-label="Plot settings">
+                <label class="select-field" id="metric-unit-field" hidden>
+                  <span>History</span>
+                  <select id="metric-unit-select" aria-label="Metric history unit">
+                    <option value="epoch">Epoch</option>
+                    <option value="step">Step</option>
+                  </select>
                 </label>
-                <button id="fold-next" type="button" aria-label="Next inner fold">›</button>
-              </div>
-              <div class="navigator-stepper" id="run-navigator">
-                <button id="run-previous" type="button" aria-label="Previous run">‹</button>
-                <label>
-                  <span>Run</span>
-                  <select id="run-select"></select>
+                <label
+                  class="smoothing-control"
+                  title="Apply TensorBoard-style exponential smoothing; the faint line shows the raw values"
+                >
+                  <span>Smoothing</span>
+                  <input
+                    id="smoothing-slider"
+                    type="range"
+                    min="0"
+                    max="0.99"
+                    step="0.01"
+                    value="0"
+                    aria-label="Metric curve smoothing"
+                  />
+                  <output id="smoothing-value" for="smoothing-slider">0</output>
                 </label>
-                <button id="run-next" type="button" aria-label="Next run">›</button>
+                <button
+                  class="scale-button"
+                  id="scale-toggle"
+                  type="button"
+                  aria-pressed="false"
+                  title="Use a sign-preserving log-modulus scale that supports positive, zero, and negative values"
+                >Log scale</button>
               </div>
-              <label class="navigator-show-all">
-                <input id="show-all-plots" type="checkbox" />
-                <span>Show all</span>
-              </label>
+              <div class="navigator-navigation" id="navigator-navigation">
+                <div class="navigator-stepper" id="fold-navigator">
+                  <button id="fold-previous" type="button" aria-label="Previous inner fold">‹</button>
+                  <label>
+                    <span>Inner fold</span>
+                    <select id="fold-select"></select>
+                  </label>
+                  <button id="fold-next" type="button" aria-label="Next inner fold">›</button>
+                </div>
+                <div class="navigator-stepper" id="run-navigator">
+                  <button id="run-previous" type="button" aria-label="Previous run">‹</button>
+                  <label>
+                    <span>Run</span>
+                    <select id="run-select"></select>
+                  </label>
+                  <button id="run-next" type="button" aria-label="Next run">›</button>
+                </div>
+                <label class="navigator-show-all">
+                  <input id="show-all-plots" type="checkbox" />
+                  <span>Show all</span>
+                </label>
+              </div>
             </div>
           </div>
 
@@ -278,14 +305,18 @@
             <span class="freshness" id="analysis-freshness">Waiting for data</span>
           </div>
           <div class="analysis-controls">
-            <label><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option></select></label>
+            <label><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option><option value="parallel-coordinates">Parallel Coordinates</option></select></label>
             <label><span>Experiment</span><select id="analysis-experiment"></select></label>
             <label><span>Outer fold</span><select id="analysis-outer-fold"></select></label>
             <label><span>Inner fold</span><select id="analysis-inner-fold"></select></label>
-            <label><span>Group by (next plot)</span><select id="analysis-hyperparameter"></select></label>
+            <label id="analysis-grouping-field"><span>Group by (next plot)</span><select id="analysis-hyperparameter"></select></label>
             <label class="analysis-quantity" id="analysis-trend-quantity"><span>Quantity of interest</span><select id="analysis-quantity"></select></label>
             <label class="analysis-quantity" id="analysis-second-trend-quantity" hidden><span>Second trend</span><select id="analysis-second-quantity"></select></label>
             <label class="analysis-quantity" id="analysis-metric-quantity-field" hidden><span>Metric</span><select id="analysis-metric-quantity"></select></label>
+            <div class="analysis-parallel-axis-field" id="analysis-parallel-axis-field" hidden>
+              <span>Axes (drag ranges to select curves)</span>
+              <div id="analysis-parallel-axis-builder"></div>
+            </div>
             <button class="analysis-add-quantity" id="analysis-add-quantity" type="button">+ Add plot</button>
           </div>
           <div class="analysis-selected-quantities" id="analysis-selected-quantities" aria-label="Selected analysis plots"></div>
