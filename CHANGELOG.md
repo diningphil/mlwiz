@@ -10,6 +10,7 @@
 
 - fixed adaptive/custom plotter integrations so sampled training-batch metrics are flushed before the current epoch finishes, allowing the dashboard to plot available step histories during long-running epochs
 - fixed resumed step-wise logging so samples from an incomplete epoch after the last checkpoint are discarded and replaced when that epoch is replayed
+- aligned model-selection step aggregates and combined trajectories by their recorded global step numbers instead of their positions in each sampled history
 
 ## Changed
 

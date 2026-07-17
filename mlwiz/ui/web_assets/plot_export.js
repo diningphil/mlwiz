@@ -129,20 +129,20 @@ plt.show()
 fig, ax = plt.subplots()
 for series in DATA["series"]:
     values = numeric(series["values"])
-    epochs = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
+    positions = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
     valid = np.isfinite(values)
     color = ax._get_lines.get_next_color()
     raw_values = numeric(series.get("rawValues") or [])
     if len(raw_values):
         raw_valid = np.isfinite(raw_values)
         (raw_line,) = ax.plot(
-            epochs[raw_valid], raw_values[raw_valid],
+            positions[raw_valid], raw_values[raw_valid],
             color=color, linewidth=1, alpha=0.22, label="_nolegend_", zorder=1,
         )
         if series.get("dash"):
             raw_line.set_dashes(series["dash"])
     (line,) = ax.plot(
-        epochs[valid], values[valid], color=color, label=series["label"], zorder=2,
+        positions[valid], values[valid], color=color, label=series["label"], zorder=2,
     )
     if series.get("dash"):
         line.set_dashes(series["dash"])
@@ -150,7 +150,7 @@ for series in DATA["series"]:
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
         band_valid = np.isfinite(lower) & np.isfinite(upper)
-        ax.fill_between(epochs, lower, upper, where=band_valid, color=line.get_color(), alpha=0.16)
+        ax.fill_between(positions, lower, upper, where=band_valid, color=line.get_color(), alpha=0.16)
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))

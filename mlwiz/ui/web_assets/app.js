@@ -1750,30 +1750,42 @@
         if (!bucket.left.length || !bucket.right.length) return [];
         const left = aggregateMetricLines(bucket.left);
         const right = aggregateMetricLines(bucket.right);
-        const pointCount = Math.min(left.values.length, right.values.length);
-        const xValues = (
-          Array.isArray(left.xValues) && left.xValues.length >= pointCount
-            ? left.xValues
-            : (Array.isArray(right.xValues) && right.xValues.length >= pointCount
-              ? right.xValues
-              : Array.from({ length: pointCount }, (_item, point) => point + 1))
-        ).slice(0, pointCount);
+        const leftIndices = new Map(
+          left.xValues.map((position, point) => [position, point]),
+        );
+        const rightIndices = new Map(
+          right.xValues.map((position, point) => [position, point]),
+        );
+        const xValues = left.xValues.filter((position) => rightIndices.has(position));
+        if (!xValues.length) return [];
+        const leftValues = xValues.map((position) => (
+          left.values[leftIndices.get(position)]
+        ));
+        const rightValues = xValues.map((position) => (
+          right.values[rightIndices.get(position)]
+        ));
         return [{
           id: analysisValueKey(bucket.value),
           label: `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)} (n=${Math.min(left.sampleCount, right.sampleCount)})`,
           color: palette[index % palette.length],
           primaryValue: bucket.value,
           xValues,
-          leftValues: left.values.slice(0, pointCount),
-          rightValues: right.values.slice(0, pointCount),
-          leftStd: left.values.slice(0, pointCount).map((value, point) =>
-            Number.isFinite(value) && Number.isFinite(left.band.upper[point])
-              ? left.band.upper[point] - value
-              : null),
-          rightStd: right.values.slice(0, pointCount).map((value, point) =>
-            Number.isFinite(value) && Number.isFinite(right.band.upper[point])
-              ? right.band.upper[point] - value
-              : null),
+          leftValues,
+          rightValues,
+          leftStd: xValues.map((position, point) => {
+            const sourcePoint = leftIndices.get(position);
+            const value = leftValues[point];
+            return Number.isFinite(value) && Number.isFinite(left.band.upper[sourcePoint])
+              ? left.band.upper[sourcePoint] - value
+              : null;
+          }),
+          rightStd: xValues.map((position, point) => {
+            const sourcePoint = rightIndices.get(position);
+            const value = rightValues[point];
+            return Number.isFinite(value) && Number.isFinite(right.band.upper[sourcePoint])
+              ? right.band.upper[sourcePoint] - value
+              : null;
+          }),
         }];
       });
       if (!lines.length) continue;
@@ -3771,8 +3783,11 @@
   }
 
   function seriesXValues(series) {
-    if (Array.isArray(series.x_values) && series.x_values.length === series.values.length) {
-      return series.x_values.map((value, index) => (
+    const storedValues = Array.isArray(series.xValues)
+      ? series.xValues
+      : series.x_values;
+    if (Array.isArray(storedValues) && storedValues.length === series.values.length) {
+      return storedValues.map((value, index) => (
         Number.isFinite(Number(value)) ? Number(value) : index + 1
       ));
     }
@@ -4150,13 +4165,17 @@
   }
 
   function aggregateMetricLines(lines) {
-    const epochs = Math.max(...lines.map((line) => line.values.length), 0);
+    const positions = [...new Set(lines.flatMap(seriesXValues))]
+      .sort((left, right) => left - right);
+    const indexedLines = lines.map((line) => new Map(
+      seriesXValues(line).map((position, index) => [position, line.values[index]]),
+    ));
     const values = [];
     const lower = [];
     const upper = [];
-    for (let index = 0; index < epochs; index += 1) {
-      const samples = lines
-        .map((line) => line.values[index])
+    for (const position of positions) {
+      const samples = indexedLines
+        .map((line) => line.get(position))
         .filter((value) => value !== null && Number.isFinite(value));
       if (!samples.length) {
         values.push(null); lower.push(null); upper.push(null);
@@ -4169,13 +4188,9 @@
       lower.push(mean - std);
       upper.push(mean + std);
     }
-    const reference = lines.reduce(
-      (longest, line) => (line.values.length > longest.values.length ? line : longest),
-      lines[0],
-    );
     return {
       values,
-      xValues: reference?.xValues || reference?.x_values || null,
+      xValues: positions,
       band: { lower, upper },
       sampleCount: lines.length,
     };
