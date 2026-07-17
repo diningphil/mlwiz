@@ -29,3 +29,4 @@ grid:
     - class_name: mlwiz.training.callback.plotter.WidthPlotter
       args:
         store_on_disk: true
+        store_every_N_steps: 1

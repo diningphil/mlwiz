@@ -1,7 +1,8 @@
 """Metric-history callback for MLWiz Dashboard.
 
-The :class:`~mlwiz.training.callback.plotter.Plotter` persists per-epoch losses
-and scores to ``metrics_data.torch`` for live and post-run inspection.
+The :class:`~mlwiz.training.callback.plotter.Plotter` persists epoch losses
+and scores, plus optional training-step histories, to ``metrics_data.torch``
+for live and post-run inspection.
 """
 
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import Optional
 
 import torch
 
-from mlwiz.static import LOSSES, SCORES
+from mlwiz.static import LOSSES, SCORES, TRAINING
 from mlwiz.training.event.handler import EventHandler
 from mlwiz.training.event.state import State
 from mlwiz.training.distributed import is_main_process
@@ -24,6 +25,10 @@ class Plotter(EventHandler):
         exp_path (str): path where to store ``metrics_data.torch``
         store_on_disk (bool): whether to store all metrics on disk.
             Defaults to ``True``
+        store_every_N_epochs (int, optional): epoch metric flush interval.
+            Defaults to ``1``.
+        store_every_N_steps (int, optional): training-step sampling and flush
+            interval. Defaults to ``None`` (disabled).
         kwargs (dict): additional arguments that may depend on the plotter
     """
 
@@ -32,6 +37,7 @@ class Plotter(EventHandler):
         exp_path: str,
         store_on_disk: bool = True,
         store_every_N_epochs: Optional[int] = 1,
+        store_every_N_steps: Optional[int] = None,
         **kwargs: dict,
     ):
         r"""
@@ -44,6 +50,9 @@ class Plotter(EventHandler):
             store_every_N_epochs (int, optional): Flush metrics to disk every
                 ``N`` epochs. Defaults to ``1``. Set to ``None`` to flush only
                 when training terminates.
+            store_every_N_steps (int, optional): Record and flush training
+                batch metrics every ``N`` optimizer steps. Defaults to
+                ``None``, which disables step histories.
             **kwargs: Unused extra arguments (kept for configuration
                 compatibility).
 
@@ -54,12 +63,12 @@ class Plotter(EventHandler):
         self.exp_path = exp_path
         self.store_on_disk = store_on_disk
         self.store_every_N_epochs = store_every_N_epochs
+        self.store_every_N_steps = store_every_N_steps
         self.main_process = is_main_process()
-        if self.store_every_N_epochs is not None and (
-            not isinstance(self.store_every_N_epochs, int)
-            or self.store_every_N_epochs <= 0
-        ):
-            raise ValueError("`store_every_N_epochs` must be a positive integer.")
+        self._validate_interval(
+            "store_every_N_epochs", self.store_every_N_epochs
+        )
+        self._validate_interval("store_every_N_steps", self.store_every_N_steps)
 
         if not self.main_process:
             self.store_on_disk = False
@@ -70,6 +79,20 @@ class Plotter(EventHandler):
             self.stored_metrics = torch.load(
                 self.stored_metrics_path, weights_only=True
             )
+        step_metrics = self.stored_metrics.get("step", {})
+        self._training_step = (
+            int(step_metrics.get("last_step", 0))
+            if isinstance(step_metrics, dict)
+            else 0
+        )
+
+    @staticmethod
+    def _validate_interval(name: str, value: Optional[int]):
+        """Validate one optional positive persistence interval."""
+        if value is not None and (
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+        ):
+            raise ValueError(f"`{name}` must be a positive integer or None.")
 
     def _update_stored_metrics(self, metric_type: str, key: str, value):
         """
@@ -88,6 +111,55 @@ class Plotter(EventHandler):
             atomic_torch_save(self.stored_metrics, self.stored_metrics_path)
         except RuntimeError as e:
             print(e)
+
+    def on_epoch_start(self, state: State):
+        """Reset the opt-in batch-score request before this epoch starts."""
+        state.update(log_step_metrics=False)
+
+    def on_training_batch_start(self, state: State):
+        """Request a batch score only when the next step will be sampled."""
+        state.update(
+            log_step_metrics=(
+                self.main_process
+                and self.store_on_disk
+                and self.store_every_N_steps is not None
+                and (self._training_step + 1) % self.store_every_N_steps == 0
+            )
+        )
+
+    def on_eval_batch_start(self, state: State):
+        """Keep validation/test batches out of training-step histories."""
+        state.update(log_step_metrics=False)
+
+    def on_training_batch_end(self, state: State):
+        """Append and persist metrics at the configured global step interval."""
+        if (
+            not self.main_process
+            or not self.store_on_disk
+            or self.store_every_N_steps is None
+        ):
+            return
+
+        self._training_step += 1
+        step_metrics = self.stored_metrics.setdefault(
+            "step", {"steps": [], "losses": {}, "scores": {}}
+        )
+        step_metrics["last_step"] = self._training_step
+        if self._training_step % self.store_every_N_steps != 0:
+            return
+
+        step_metrics.setdefault("steps", []).append(self._training_step)
+        for metric_type, values in (
+            ("losses", state.batch_loss),
+            ("scores", state.batch_score),
+        ):
+            if not isinstance(values, dict):
+                continue
+            histories = step_metrics.setdefault(metric_type, {})
+            for key, value in values.items():
+                name = f"{TRAINING}_{key}"
+                histories.setdefault(name, []).append(value.item())
+        self._store_metrics()
 
     def on_epoch_end(self, state: State):
         """

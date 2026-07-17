@@ -861,8 +861,24 @@ The ``Plotter`` stores epoch-wise metrics for MLWiz Dashboard in a PyTorch file
 called ``metrics_data.torch``. Storage is enabled by default and the file is
 flushed after every epoch. Set ``store_every_N_epochs`` to a larger positive
 integer to reduce the write frequency, or to ``None`` to flush only when
-training terminates. Metrics are stored in a dictionary with separate keys for
-losses and scores.
+training terminates. Epoch metrics remain under the top-level ``losses`` and
+``scores`` keys for compatibility.
+
+Training-step histories are opt-in. Set ``store_every_N_steps`` to a positive
+integer to record and flush the current training-batch losses and scores every
+``N`` global optimizer steps::
+
+    plotter:
+      class_name: mlwiz.training.callback.plotter.Plotter
+      args:
+        store_every_N_steps: 10
+
+The sampled histories and their global step numbers are stored under the
+``step`` key. When that key is present, the run explorer displays an
+**Epoch / Step** selector and uses the recorded step numbers on the horizontal
+axis. The default is ``None``, so existing configurations continue to record
+epoch histories only. Epoch-level scores still use their configured aggregation
+rule; step scores are computed on the sampled training batch.
 
 
 Loading and storing graphs
@@ -951,6 +967,13 @@ a configuration compares the histories from all of its child runs, while
 clicking a run focuses on that run only. The dashboard reads
 ``metrics_data.torch`` written by the
 :class:`~mlwiz.training.callback.plotter.Plotter` described above.
+
+The run explorer's **Smoothing** slider applies TensorBoard-style,
+bias-corrected exponential smoothing to individual and aggregated curves.
+Leave it at ``0`` to display only the original values. At higher settings, the
+smoothed curve drives the axis, legend, and hover readout while a faint raw
+trace preserves short-term spikes. The setting persists for the dashboard
+session and generated Python plots contain both the raw and displayed values.
 
 Model Selection Analysis
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1088,7 +1111,7 @@ Install the generated script's dependencies with:
 
 .. code-block:: bash
 
-    python -m pip install matplotlib numpy tueplots
+    uv add matplotlib numpy tueplots
 
 Run the downloaded file normally, for example ``python validation_loss.py``.
 It writes the figure beside the script in the selected format and opens the

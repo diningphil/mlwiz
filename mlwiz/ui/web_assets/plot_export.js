@@ -129,9 +129,21 @@ plt.show()
 fig, ax = plt.subplots()
 for series in DATA["series"]:
     values = numeric(series["values"])
-    epochs = np.arange(1, len(values) + 1)
+    epochs = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
     valid = np.isfinite(values)
-    (line,) = ax.plot(epochs[valid], values[valid], label=series["label"])
+    color = ax._get_lines.get_next_color()
+    raw_values = numeric(series.get("rawValues") or [])
+    if len(raw_values):
+        raw_valid = np.isfinite(raw_values)
+        (raw_line,) = ax.plot(
+            epochs[raw_valid], raw_values[raw_valid],
+            color=color, linewidth=1, alpha=0.22, label="_nolegend_", zorder=1,
+        )
+        if series.get("dash"):
+            raw_line.set_dashes(series["dash"])
+    (line,) = ax.plot(
+        epochs[valid], values[valid], color=color, label=series["label"], zorder=2,
+    )
     if series.get("dash"):
         line.set_dashes(series["dash"])
     if series.get("lower") and series.get("upper"):
