@@ -1341,26 +1341,28 @@ class ResultsRepository:
                     )
                     modified_at = max(modified_at or file_stat.st_mtime, file_stat.st_mtime)
                     for item in file_series:
-                        if item.get("unit", "epoch") != "epoch":
-                            continue
+                        unit = item.get("unit", "epoch")
                         quantity_id = f"{item['group']}:{item['name']}"
-                        selected_value = best_values.get(
-                            (item["group"], item["name"])
-                        )
-                        selection_source = "best_checkpoint"
-                        if selected_value is None and isinstance(best_epoch, int):
-                            if 0 <= best_epoch < len(item["values"]):
-                                selected_value = item["values"][best_epoch]
-                        if selected_value is None:
-                            selected_value = next(
-                                (
-                                    value
-                                    for value in reversed(item["values"])
-                                    if value is not None
-                                ),
-                                None,
+                        selected_value = None
+                        selection_source = None
+                        if unit == "epoch":
+                            selected_value = best_values.get(
+                                (item["group"], item["name"])
                             )
-                            selection_source = "last_epoch"
+                            selection_source = "best_checkpoint"
+                            if selected_value is None and isinstance(best_epoch, int):
+                                if 0 <= best_epoch < len(item["values"]):
+                                    selected_value = item["values"][best_epoch]
+                            if selected_value is None:
+                                selected_value = next(
+                                    (
+                                        value
+                                        for value in reversed(item["values"])
+                                        if value is not None
+                                    ),
+                                    None,
+                                )
+                                selection_source = "last_epoch"
                         all_series.append(
                             {
                                 **item,
@@ -1403,12 +1405,14 @@ class ResultsRepository:
                 )
 
         quantity_counts: dict[str, set[tuple[int, int]]] = {}
+        quantity_units: dict[str, set[str]] = {}
         quantity_records = {}
         for item in all_series:
             identifier = item["quantity_id"]
             quantity_counts.setdefault(identifier, set()).add(
                 (item["configuration"], item["run"])
             )
+            quantity_units.setdefault(identifier, set()).add(item.get("unit", "epoch"))
             quantity_records[identifier] = {
                 "id": identifier,
                 "group": item["group"],
@@ -1418,7 +1422,13 @@ class ResultsRepository:
         quantities = []
         for identifier, record in quantity_records.items():
             quantities.append(
-                {**record, "run_count": len(quantity_counts[identifier])}
+                {
+                    **record,
+                    "run_count": len(quantity_counts[identifier]),
+                    "units": sorted(
+                        quantity_units[identifier], key=lambda unit: unit != "epoch"
+                    ),
+                }
             )
         quantities.sort(
             key=lambda item: (
@@ -1435,6 +1445,10 @@ class ResultsRepository:
             "inner_fold": inner_fold,
             "hyperparameters": hyperparameters,
             "quantities": quantities,
+            "units": sorted(
+                {item.get("unit", "epoch") for item in all_series},
+                key=lambda unit: unit != "epoch",
+            ),
             "configurations": configurations,
             "series": all_series,
             "metrics_file_count": metrics_file_count,
@@ -1971,7 +1985,7 @@ class ResultsRepository:
         if isinstance(step_metrics, dict):
             steps = _numeric_series(step_metrics.get("steps", [])) or []
             for group, metrics in step_metrics.items():
-                if group in {"steps", "last_step"}:
+                if group in {"steps", "last_step", "epoch_last_steps"}:
                     continue
                 group_name = str(group)
                 for name, values in _history_series(metrics):

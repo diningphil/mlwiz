@@ -112,6 +112,76 @@ class Plotter(EventHandler):
         except RuntimeError as e:
             print(e)
 
+    @staticmethod
+    def _truncate_step_history(value, length: int):
+        """Return a step-history container truncated to ``length`` samples."""
+        if isinstance(value, dict):
+            return {
+                key: Plotter._truncate_step_history(item, length)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return value[:length]
+        return value
+
+    def on_fit_start(self, state: State):
+        """Align sampled steps with the epoch checkpoint being resumed."""
+        if (
+            not self.main_process
+            or not self.store_on_disk
+            or self.store_every_N_steps is None
+            or state.initial_epoch <= 0
+        ):
+            return
+
+        step_metrics = self.stored_metrics.get("step")
+        if not isinstance(step_metrics, dict):
+            return
+        epoch_last_steps = step_metrics.get("epoch_last_steps")
+        if not isinstance(epoch_last_steps, dict):
+            # Older metric artifacts do not record enough information to
+            # distinguish checkpointed steps from a partial following epoch.
+            return
+
+        checkpoint_epoch = int(state.initial_epoch) - 1
+        checkpoint_step = epoch_last_steps.get(checkpoint_epoch)
+        if checkpoint_step is None:
+            checkpoint_step = epoch_last_steps.get(str(checkpoint_epoch))
+        if checkpoint_step is None:
+            return
+        checkpoint_step = int(checkpoint_step)
+
+        steps = step_metrics.get("steps", [])
+        retained_steps = [step for step in steps if int(step) <= checkpoint_step]
+        retained_samples = len(retained_steps)
+        changed = (
+            retained_samples != len(steps)
+            or int(step_metrics.get("last_step", 0)) != checkpoint_step
+        )
+        step_metrics["steps"] = retained_steps
+        step_metrics["last_step"] = checkpoint_step
+
+        metadata_keys = {"steps", "last_step", "epoch_last_steps"}
+        for key, value in list(step_metrics.items()):
+            if key not in metadata_keys:
+                step_metrics[key] = self._truncate_step_history(
+                    value, retained_samples
+                )
+
+        retained_boundaries = {}
+        for epoch, last_step in epoch_last_steps.items():
+            if int(epoch) < state.initial_epoch:
+                retained_boundaries[int(epoch)] = int(last_step)
+        if retained_boundaries != epoch_last_steps:
+            changed = True
+        step_metrics["epoch_last_steps"] = retained_boundaries
+        self._training_step = checkpoint_step
+
+        # Remove partial-epoch samples immediately, before the resumed run can
+        # be interrupted again or append replacement values.
+        if changed:
+            self._store_metrics()
+
     def on_epoch_start(self, state: State):
         """Reset the opt-in batch-score request before this epoch starts."""
         state.update(log_step_metrics=False)
@@ -178,10 +248,20 @@ class Plotter(EventHandler):
         for k, v in state.epoch_results[SCORES].items():
             self._update_stored_metrics("scores", k, v)
 
+        if self.store_every_N_steps is not None:
+            step_metrics = self.stored_metrics.setdefault(
+                "step", {"steps": [], "losses": {}, "scores": {}}
+            )
+            step_metrics["last_step"] = self._training_step
+            epoch_last_steps = step_metrics.setdefault("epoch_last_steps", {})
+            epoch_last_steps[int(state.epoch)] = self._training_step
+
         if (
-            self.store_on_disk
-            and self.store_every_N_epochs is not None
-            and (state.epoch + 1) % self.store_every_N_epochs == 0
+            self.store_every_N_steps is not None
+            or (
+                self.store_every_N_epochs is not None
+                and (state.epoch + 1) % self.store_every_N_epochs == 0
+            )
         ):
             self._store_metrics()
 

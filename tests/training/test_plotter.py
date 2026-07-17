@@ -72,6 +72,51 @@ def test_plotter_stores_and_resumes_sampled_training_steps(tmp_path):
     )
 
 
+def test_plotter_replaces_steps_after_resumed_epoch_checkpoint(tmp_path):
+    """A resume should discard samples newer than the restored checkpoint."""
+    plotter = Plotter(str(tmp_path), store_every_N_steps=2)
+    state = _state(0)
+    state.batch_loss = {"main_loss": torch.tensor(0.0)}
+    state.batch_score = {"main_score": torch.tensor(0.0)}
+
+    for loss in (0.9, 0.8, 0.7, 0.6, 0.5):
+        state.batch_loss["main_loss"] = torch.tensor(loss)
+        plotter.on_training_batch_end(state)
+    plotter.on_epoch_end(state)
+
+    # These samples belong to epoch 1, for which no checkpoint was written.
+    state.epoch = 1
+    for loss in (0.4, 0.3, 0.2):
+        state.batch_loss["main_loss"] = torch.tensor(loss)
+        plotter.on_training_batch_end(state)
+    plotter.on_termination(state)
+
+    resumed = Plotter(str(tmp_path), store_every_N_steps=2)
+    resumed.on_fit_start(SimpleNamespace(initial_epoch=1))
+
+    metrics_path = tmp_path / "metrics_data.torch"
+    resumed_metrics = torch.load(metrics_path, weights_only=True)
+    assert resumed_metrics["step"]["steps"] == [2, 4]
+    assert resumed_metrics["step"]["last_step"] == 5
+    assert resumed_metrics["step"]["epoch_last_steps"] == {0: 5}
+    assert resumed_metrics["step"]["losses"][
+        "training_main_loss"
+    ] == pytest.approx([0.8, 0.6])
+
+    # Replaying epoch 1 overwrites the discarded step positions instead of
+    # continuing after the partial run's step 8.
+    for loss in (0.35, 0.25, 0.15):
+        state.batch_loss["main_loss"] = torch.tensor(loss)
+        resumed.on_training_batch_end(state)
+
+    metrics = torch.load(metrics_path, weights_only=True)
+    assert metrics["step"]["steps"] == [2, 4, 6, 8]
+    assert metrics["step"]["last_step"] == 8
+    assert metrics["step"]["losses"]["training_main_loss"] == pytest.approx(
+        [0.8, 0.6, 0.35, 0.15]
+    )
+
+
 def test_plotter_requests_batch_scores_only_on_sampled_steps(tmp_path):
     """Accumulated scorers should run only when the Plotter will store them."""
     plotter = Plotter(str(tmp_path), store_every_N_steps=2)

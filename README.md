@@ -401,14 +401,16 @@ For a 2D Trend or Metric-vs-Hyperparameter plot, choose **None — average all
 runs** under **Group by** to collapse every run into one aggregate. Combined
 Trends and 3D plots require real grouping parameters and do not offer None.
 
-- **Trend Plots** show epoch-wise mean ± standard deviation for runs sharing a
-  hyperparameter value. Add a second hyperparameter for a 3D view, or enable
+- **Trend Plots** show epoch- or sampled-step-wise mean ± standard deviation
+  for runs sharing a hyperparameter value. Select the unit for the next plot
+  or change it independently on an existing card. Add a second hyperparameter
+  for a 3D view, or enable
   the persistent per-card **Log scale** control. It applies
   `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values remain
   visible in both dimensions. In 2D, Group by None produces one mean curve and
   deviation band across every run.
-- **Combined Trends** place epoch and two recorded quantities on a 3D trajectory
-  grouped by one hyperparameter. Their **Log scale** control applies the same
+- **Combined Trends** place epoch or sampled step and two recorded quantities
+  on a 3D trajectory grouped by one hyperparameter. Their **Log scale** control applies the same
   sign-preserving transform to both recorded-quantity axes.
 - **Metric vs Hyper-Parameter** compares each run's best-checkpoint metric value,
   falling back to its last recorded value. It supports 2D histograms, 3D
@@ -527,6 +529,10 @@ plotter:
 
 Leave `store_every_N_steps` unset (or set it to `null`) to store epoch metrics
 only. `store_every_N_epochs` continues to control epoch-based disk flushes.
+With step histories enabled, `Plotter` also persists the exact global step at
+each completed epoch. Resuming an epoch checkpoint discards any later samples
+from an interrupted partial epoch, then records their replacement values at the
+same global step numbers.
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
 

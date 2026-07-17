@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.3]
+
+## Added
+
+- added epoch/step unit selection to Model Selection Analysis trend and combined-trend plots, including sampled-step aggregation, axes, hover values, and reproducible Python exports
+
+## Fixed
+
+- fixed adaptive/custom plotter integrations so sampled training-batch metrics are flushed before the current epoch finishes, allowing the dashboard to plot available step histories during long-running epochs
+- fixed resumed step-wise logging so samples from an incomplete epoch after the last checkpoint are discarded and replaced when that epoch is replayed
+
+## Changed
+
+- bumped the package version to 1.7.3
+
 ## [1.7.2]
 
 ## Added

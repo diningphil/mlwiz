@@ -101,6 +101,7 @@
       .includes(storedState.analysisPlotType)
       ? storedState.analysisPlotType
       : "trends",
+    analysisUnit: storedState.analysisUnit === "step" ? "step" : "epoch",
     analysisExperiment: storedState.analysisExperiment || null,
     analysisOuterFold: storedState.analysisOuterFold || null,
     analysisInnerFold: storedState.analysisInnerFold || null,
@@ -221,6 +222,7 @@
         selectedPath: state.selectedPath,
         activeTab: state.activeTab,
         analysisPlotType: state.analysisPlotType,
+        analysisUnit: state.analysisUnit,
         analysisExperiment: state.analysisExperiment,
         analysisOuterFold: state.analysisOuterFold,
         analysisInnerFold: state.analysisInnerFold,
@@ -614,7 +616,7 @@
         categories,
       };
     });
-    for (const quantity of data.quantities) {
+    for (const quantity of analysisQuantitiesForUnit("epoch", data)) {
       axes.push({
         id: `metric:${quantity.id}`,
         sourceId: quantity.id,
@@ -713,10 +715,45 @@
     return { hyperparameter, secondaryHyperparameter };
   }
 
+  function availableAnalysisUnits(data = state.analysisData) {
+    if (!data) return ["epoch"];
+    const units = Array.isArray(data.units) && data.units.length
+      ? data.units
+      : [...new Set((data.series || []).map((series) => series.unit || "epoch"))];
+    return [...new Set(units)].sort((left, right) => (
+      (left === "epoch" ? 0 : 1) - (right === "epoch" ? 0 : 1)
+      || left.localeCompare(right)
+    ));
+  }
+
+  function normalizedAnalysisUnit(unit, data = state.analysisData) {
+    const units = availableAnalysisUnits(data);
+    if (units.includes(unit)) return unit;
+    return units.includes("epoch") ? "epoch" : (units[0] || "epoch");
+  }
+
+  function analysisQuantitiesForUnit(unit, data = state.analysisData) {
+    if (!data) return [];
+    return data.quantities.filter((quantity) => {
+      const units = Array.isArray(quantity.units) ? quantity.units : ["epoch"];
+      return units.includes(unit);
+    });
+  }
+
+  function analysisTrendQuantityOptions(unit = state.analysisUnit) {
+    return analysisQuantityOptions(analysisQuantitiesForUnit(unit));
+  }
+
   function renderAnalysis() {
     const data = state.analysisData;
     const notice = el("analysis-notice");
     el("analysis-freshness").textContent = formatTime(data.modified_at);
+    const analysisUnits = availableAnalysisUnits(data);
+    state.analysisUnit = normalizedAnalysisUnit(state.analysisUnit, data);
+    setSelectOptions(
+      el("analysis-unit"), analysisUnits, state.analysisUnit,
+      (unit) => unit === "step" ? "Step" : "Epoch",
+    );
     const hyperIds = data.hyperparameters.map((item) => item.id);
     const allowNoGrouping = state.analysisPlotType !== "combined-trends";
     const groupingOptions = allowNoGrouping
@@ -732,7 +769,7 @@
         ? "None — average all runs"
         : (data.hyperparameters.find((item) => item.id === id)?.label || id),
     );
-    const quantityOptions = analysisQuantityOptions(data.quantities);
+    const quantityOptions = analysisTrendQuantityOptions(state.analysisUnit);
     const quantityIds = quantityOptions.map((item) => item.id);
     state.analysisQuantity = resolveAnalysisQuantityId(
       state.analysisQuantity, quantityOptions,
@@ -752,7 +789,9 @@
       el("analysis-second-quantity"), quantityIds, state.analysisSecondQuantity,
       (id) => quantityOptions.find((item) => item.id === id)?.label || id,
     );
-    const metricOptions = quantityOptions;
+    const metricOptions = analysisQuantityOptions(
+      analysisQuantitiesForUnit("epoch", data),
+    );
     const metricIds = metricOptions.map((item) => item.id);
     state.analysisMetricQuantity = resolveAnalysisQuantityId(
       state.analysisMetricQuantity, metricOptions,
@@ -791,8 +830,10 @@
         }] : [];
       }
       if (plot.type === "combined-trends") {
-        const first = resolveAnalysisQuantityId(plot.quantity, quantityOptions);
-        const second = resolveAnalysisQuantityId(plot.quantity2, quantityOptions);
+        const unit = normalizedAnalysisUnit(plot.unit || "epoch", data);
+        const plotOptions = analysisTrendQuantityOptions(unit);
+        const first = resolveAnalysisQuantityId(plot.quantity, plotOptions);
+        const second = resolveAnalysisQuantityId(plot.quantity2, plotOptions);
         const grouping = normalizedAnalysisGrouping(
           plot, hyperIds, state.analysisHyperparameter, false,
         );
@@ -801,11 +842,14 @@
           type: "combined-trends",
           quantity: first,
           quantity2: second,
+          unit,
           hyperparameter: grouping.hyperparameter,
           log: Boolean(plot.log),
         }] : [];
       }
-      const quantity = resolveAnalysisQuantityId(plot.quantity, quantityOptions);
+      const unit = normalizedAnalysisUnit(plot.unit || "epoch", data);
+      const plotOptions = analysisTrendQuantityOptions(unit);
+      const quantity = resolveAnalysisQuantityId(plot.quantity, plotOptions);
       const grouping = normalizedAnalysisGrouping(
         plot, hyperIds, state.analysisHyperparameter, true,
       );
@@ -813,6 +857,7 @@
         id: plot.id || newAnalysisPlotId(),
         type: "trends",
         quantity,
+        unit,
         log: Boolean(plot.log),
         ...grouping,
       }] : [];
@@ -824,6 +869,7 @@
         id: newAnalysisPlotId(),
         type: "trends",
         quantity: state.analysisQuantity,
+        unit: state.analysisUnit,
         hyperparameter: state.analysisHyperparameter === noAnalysisGroupingValue
           ? null
           : state.analysisHyperparameter,
@@ -841,6 +887,7 @@
     el("analysis-quantity").disabled = !quantityIds.length;
     el("analysis-second-quantity").disabled = quantityIds.length < 2;
     el("analysis-metric-quantity").disabled = !metricIds.length;
+    el("analysis-unit").disabled = analysisUnits.length < 2;
     renderAnalysisSelectedPlots();
     const trendPlots = state.analysisPlotType === "trends";
     const combinedTrends = state.analysisPlotType === "combined-trends";
@@ -848,16 +895,17 @@
     el("analysis-plot-type").value = state.analysisPlotType;
     el("analysis-trend-quantity").hidden = !(trendPlots || combinedTrends);
     el("analysis-second-trend-quantity").hidden = !combinedTrends;
+    el("analysis-unit-field").hidden = !(trendPlots || combinedTrends);
     el("analysis-metric-quantity-field").hidden = state.analysisPlotType !== "metric-vs-hyperparameter";
     el("analysis-grouping-field").hidden = parallelCoordinates;
     el("analysis-parallel-axis-field").hidden = !parallelCoordinates;
     renderParallelAxisDraft(parallelAxisOptions);
     persistState();
 
-    if (!quantityIds.length) {
+    if ((trendPlots || combinedTrends) && !quantityIds.length) {
       notice.hidden = false;
       notice.className = "notice";
-      notice.textContent = "No numeric epoch histories are available for this fold yet.";
+      notice.textContent = `No numeric ${state.analysisUnit} histories are available for this fold yet.`;
       clearAnalysisCharts();
       return;
     }
@@ -883,10 +931,10 @@
       return `parallel:${plot.axes.join("|")}`;
     }
     if (plot.type === "trends") {
-      return `trends:${plot.quantity}:${plot.hyperparameter}:${plot.secondaryHyperparameter || ""}`;
+      return `trends:${plot.unit || "epoch"}:${plot.quantity}:${plot.hyperparameter}:${plot.secondaryHyperparameter || ""}`;
     }
     if (plot.type === "combined-trends") {
-      return `combined:${plot.quantity}:${plot.quantity2}:${plot.hyperparameter}`;
+      return `combined:${plot.unit || "epoch"}:${plot.quantity}:${plot.quantity2}:${plot.hyperparameter}`;
     }
     return `metric:${plot.quantity}:${plot.hyperparameter}:${plot.secondaryHyperparameter || ""}`;
   }
@@ -913,6 +961,7 @@
         ? {
           type: "trends",
           quantity: state.analysisQuantity,
+          unit: state.analysisUnit,
           hyperparameter,
           secondaryHyperparameter: null,
           log: false,
@@ -928,6 +977,7 @@
           type: "combined-trends",
           quantity: state.analysisQuantity,
           quantity2: state.analysisSecondQuantity,
+          unit: state.analysisUnit,
           hyperparameter,
           log: false,
         }
@@ -1241,6 +1291,31 @@
     return control;
   }
 
+  function plotTrendUnitControl(plot) {
+    const control = node("label", "analysis-plot-group-control");
+    control.append(node("span", "", "Unit"));
+    const select = document.createElement("select");
+    const units = availableAnalysisUnits().filter((unit) => {
+      const optionIds = new Set(
+        analysisTrendQuantityOptions(unit).map((option) => option.id),
+      );
+      return optionIds.has(plot.quantity)
+        && (plot.type !== "combined-trends" || optionIds.has(plot.quantity2));
+    });
+    for (const unit of units) {
+      const option = node("option", "", unit === "step" ? "Step" : "Epoch");
+      option.value = unit;
+      select.append(option);
+    }
+    select.value = plot.unit || "epoch";
+    select.disabled = units.length < 2;
+    select.addEventListener("change", () => {
+      updateAnalysisPlot(plot, { unit: select.value });
+    });
+    control.append(select);
+    return control;
+  }
+
   function redrawAnalysisCamera(cameraKey) {
     for (const chart of [...state.metricBarCharts, ...state.analysis3DCharts]) {
       if (chart.cameraKey !== cameraKey) continue;
@@ -1459,7 +1534,6 @@
     const configurations = new Map(
       data.configurations.map((config) => [config.number, config.hyperparameters]),
     );
-    const quantityOptions = analysisQuantityOptions(data.quantities);
     const palette = ["#138a62", "#4776e6", "#ef8354", "#8257e5", "#d14d72", "#a36b16", "#1992a3", "#53606f"];
     const grid = el("analysis-chart-grid");
     grid.replaceChildren();
@@ -1468,12 +1542,16 @@
     state.parallelCharts = [];
     const charts = [];
     for (const plot of trendPlots) {
+      const quantityOptions = analysisTrendQuantityOptions(plot.unit);
       const plotOption = quantityOptions.find((option) => option.id === plot.quantity);
       if (!plotOption) continue;
       for (const quantity of plotOption.quantities) {
         const buckets = new Map();
         for (const series of data.series) {
-          if (series.quantity_id !== quantity.id) continue;
+          if (
+            series.quantity_id !== quantity.id
+            || (series.unit || "epoch") !== plot.unit
+          ) continue;
           const hyperparameters = configurations.get(series.configuration) || {};
           if (plot.hyperparameter && !Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
           const value = plot.hyperparameter ? hyperparameters[plot.hyperparameter] : null;
@@ -1524,7 +1602,7 @@
           : "averaged across all runs";
         title.append(
           node("h3", "", chartTitle),
-          node("p", "", `${useLog ? "Log scale · " : ""}Outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
+          node("p", "", `${useLog ? "Log scale · " : ""}${plot.unit} trend · outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
         const headMeta = node("div", "chart-head-meta");
@@ -1539,6 +1617,7 @@
             kind: plot.secondaryHyperparameter ? "trend3d" : "line",
             zLabel: plot.secondaryHyperparameter,
             scale: useLog ? "log-modulus" : "linear",
+            xLabel: plot.unit,
           })),
           plotExpandButton(card, `trend:${plot.id}:${quantity.id}`),
           plotRemoveButton(plot),
@@ -1551,8 +1630,8 @@
         canvas.setAttribute(
           "aria-label",
           plot.hyperparameter
-            ? `${quantity.label} over epochs by hyperparameter value`
-            : `${quantity.label} over epochs averaged across all runs`,
+            ? `${quantity.label} over ${plot.unit}s by hyperparameter value`
+            : `${quantity.label} over ${plot.unit}s averaged across all runs`,
         );
         wrap.append(canvas);
         const legend = node("div", "chart-legend analysis-legend");
@@ -1571,6 +1650,7 @@
         controls.append(
           plotGroupingControl(plot),
           plotDimensionControl(plot),
+          plotTrendUnitControl(plot),
           plotTrendLogControl(plot),
         );
         if (plot.secondaryHyperparameter) {
@@ -1586,7 +1666,7 @@
             kind: "trend",
             canvas,
             lines,
-            xLabel: "epoch",
+            xLabel: plot.unit,
             yLabel: quantity.label,
             zLabel: plot.secondaryHyperparameter,
             cameraKey,
@@ -1602,6 +1682,7 @@
             legendValues,
             epochLabel,
             hoverIndex: null,
+            xLabel: plot.unit,
             scale: useLog ? "log-modulus" : "linear",
           };
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
@@ -1641,7 +1722,7 @@
 
   function appendCombinedTrendPlot(plot, grid) {
     const data = state.analysisData;
-    const options = analysisQuantityOptions(data.quantities);
+    const options = analysisTrendQuantityOptions(plot.unit);
     const first = options.find((option) => option.id === plot.quantity);
     const second = options.find((option) => option.id === plot.quantity2);
     if (!first || !second) return false;
@@ -1653,7 +1734,10 @@
     for (const [leftQuantity, rightQuantity] of combinedQuantityPairs(first, second)) {
       const buckets = new Map();
       for (const series of data.series) {
-        if (![leftQuantity.id, rightQuantity.id].includes(series.quantity_id)) continue;
+        if (
+          ![leftQuantity.id, rightQuantity.id].includes(series.quantity_id)
+          || (series.unit || "epoch") !== plot.unit
+        ) continue;
         const hyperparameters = configurations.get(series.configuration) || {};
         if (!Object.hasOwn(hyperparameters, plot.hyperparameter)) continue;
         const value = hyperparameters[plot.hyperparameter];
@@ -1666,21 +1750,29 @@
         if (!bucket.left.length || !bucket.right.length) return [];
         const left = aggregateMetricLines(bucket.left);
         const right = aggregateMetricLines(bucket.right);
-        const epochs = Math.min(left.values.length, right.values.length);
+        const pointCount = Math.min(left.values.length, right.values.length);
+        const xValues = (
+          Array.isArray(left.xValues) && left.xValues.length >= pointCount
+            ? left.xValues
+            : (Array.isArray(right.xValues) && right.xValues.length >= pointCount
+              ? right.xValues
+              : Array.from({ length: pointCount }, (_item, point) => point + 1))
+        ).slice(0, pointCount);
         return [{
           id: analysisValueKey(bucket.value),
           label: `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)} (n=${Math.min(left.sampleCount, right.sampleCount)})`,
           color: palette[index % palette.length],
           primaryValue: bucket.value,
-          leftValues: left.values.slice(0, epochs),
-          rightValues: right.values.slice(0, epochs),
-          leftStd: left.values.slice(0, epochs).map((value, epoch) =>
-            Number.isFinite(value) && Number.isFinite(left.band.upper[epoch])
-              ? left.band.upper[epoch] - value
+          xValues,
+          leftValues: left.values.slice(0, pointCount),
+          rightValues: right.values.slice(0, pointCount),
+          leftStd: left.values.slice(0, pointCount).map((value, point) =>
+            Number.isFinite(value) && Number.isFinite(left.band.upper[point])
+              ? left.band.upper[point] - value
               : null),
-          rightStd: right.values.slice(0, epochs).map((value, epoch) =>
-            Number.isFinite(value) && Number.isFinite(right.band.upper[epoch])
-              ? right.band.upper[epoch] - value
+          rightStd: right.values.slice(0, pointCount).map((value, point) =>
+            Number.isFinite(value) && Number.isFinite(right.band.upper[point])
+              ? right.band.upper[point] - value
               : null),
         }];
       });
@@ -1690,7 +1782,7 @@
       const title = node("div", "chart-title");
       title.append(
         node("h3", "", `${leftQuantity.label} × ${rightQuantity.label}`),
-        node("p", "", `${plot.log ? "Log scale · " : ""}3D epoch trajectory grouped by ${plot.hyperparameter}`),
+        node("p", "", `${plot.log ? "Log scale · " : ""}3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}`),
       );
       const headMeta = node("div", "chart-head-meta");
       headMeta.append(
@@ -1698,13 +1790,14 @@
         plotCodeButton(() => ({
           kind: "trajectory3d",
           title: `${leftQuantity.label} × ${rightQuantity.label}`,
-          subtitle: `3D epoch trajectory grouped by ${plot.hyperparameter}`,
-          xLabel: "epoch",
+          subtitle: `3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}`,
+          xLabel: plot.unit,
           yLabel: leftQuantity.label,
           zLabel: rightQuantity.label,
           scale: plot.log ? "log-modulus" : "linear",
           series: lines.map((line) => ({
             label: line.label,
+            xValues: line.xValues,
             leftValues: line.leftValues,
             rightValues: line.rightValues,
             leftStd: line.leftStd,
@@ -1722,6 +1815,7 @@
       const cameraKey = `${plot.id}:${leftQuantity.id}:${rightQuantity.id}`;
       controls.append(
         plotGroupingControl(plot),
+        plotTrendUnitControl(plot),
         plotTrendLogControl(plot),
         plot3DAlignmentControl(cameraKey),
       );
@@ -1730,7 +1824,7 @@
       canvas.setAttribute("role", "img");
       canvas.setAttribute(
         "aria-label",
-        `${leftQuantity.label} and ${rightQuantity.label} over epochs grouped by ${plot.hyperparameter}`,
+        `${leftQuantity.label} and ${rightQuantity.label} over ${plot.unit}s grouped by ${plot.hyperparameter}`,
       );
       wrap.append(canvas);
       const legend = node("div", "chart-legend analysis-legend");
@@ -1747,7 +1841,7 @@
         kind: "combined",
         canvas,
         lines,
-        xLabel: "epoch",
+        xLabel: plot.unit,
         yLabel: leftQuantity.label,
         zLabel: rightQuantity.label,
         cameraKey,
@@ -2886,6 +2980,15 @@
     ctx.strokeStyle = color; ctx.lineWidth = 2.4; ctx.stroke();
   }
 
+  function analysisLineXValues(line, length) {
+    if (Array.isArray(line.xValues) && line.xValues.length >= length) {
+      return line.xValues.slice(0, length).map((value, index) => (
+        Number.isFinite(Number(value)) ? Number(value) : index + 1
+      ));
+    }
+    return Array.from({ length }, (_item, index) => index + 1);
+  }
+
   function drawAnalysis3DChart(chart) {
     chart.hitRegions = [];
     const prepared = prepareAnalysis3DCanvas(chart.canvas);
@@ -2893,6 +2996,11 @@
     const { ctx, width, height, gridColor, labelColor, dotCenter } = prepared;
     const project = analysis3DProjector(width, height, chart.camera || analysisCamera(chart.cameraKey));
     if (chart.kind === "combined") {
+      const xValues = chart.lines.flatMap((line) => analysisLineXValues(
+        line, Math.min(line.leftValues.length, line.rightValues.length),
+      ));
+      const xAxisValues = xValues.length ? xValues : [1];
+      const xExtent = analysisExtent(xAxisValues);
       const leftValues = chart.lines.flatMap((line) => line.leftValues).filter(Number.isFinite);
       const rightValues = chart.lines.flatMap((line) => line.rightValues).filter(Number.isFinite);
       const leftScale = createValueScale(leftValues, chart.scale || "linear");
@@ -2903,18 +3011,21 @@
         ctx, project,
         { x: chart.xLabel, y: chart.yLabel, z: chart.zLabel },
         { y: { min: leftScale.invert(yExtent.min), max: leftScale.invert(yExtent.max) } },
-        labelColor, gridColor,
+        labelColor, gridColor, {
+          x: [Math.min(...xAxisValues), Math.max(...xAxisValues)],
+        },
       );
       for (const line of chart.lines) {
-        const epochs = Math.min(line.leftValues.length, line.rightValues.length);
+        const pointCount = Math.min(line.leftValues.length, line.rightValues.length);
+        const lineXValues = analysisLineXValues(line, pointCount);
         ctx.beginPath();
         let drawing = false;
-        for (let index = 0; index < epochs; index += 1) {
+        for (let index = 0; index < pointCount; index += 1) {
           const left = line.leftValues[index];
           const right = line.rightValues[index];
           if (!Number.isFinite(left) || !Number.isFinite(right)) { drawing = false; continue; }
           const point = project(
-            epochs <= 1 ? 0.5 : index / (epochs - 1),
+            normalizedValue(lineXValues[index], xExtent),
             normalizedValue(leftScale.transform(left), yExtent),
             normalizedValue(rightScale.transform(right), zExtent),
           );
@@ -2925,7 +3036,7 @@
             epochIndex: index,
             title: line.label,
             lines: [
-              `epoch ${index + 1}`,
+              `${chart.xLabel} ${formatNumber(lineXValues[index])}`,
               `${chart.yLabel}: mean ${formatNumber(left)} · std ${formatNumber(line.leftStd[index])}`,
               `${chart.zLabel}: mean ${formatNumber(right)} · std ${formatNumber(line.rightStd[index])}`,
             ],
@@ -2936,12 +3047,13 @@
       }
       if (Number.isInteger(chart.hoverEpoch)) {
         for (const line of chart.lines) {
-          const epochs = Math.min(line.leftValues.length, line.rightValues.length);
+          const pointCount = Math.min(line.leftValues.length, line.rightValues.length);
+          const lineXValues = analysisLineXValues(line, pointCount);
           const left = line.leftValues[chart.hoverEpoch];
           const right = line.rightValues[chart.hoverEpoch];
           if (!Number.isFinite(left) || !Number.isFinite(right)) continue;
           drawAnalysis3DHoverDot(ctx, project(
-            epochs <= 1 ? 0.5 : chart.hoverEpoch / (epochs - 1),
+            normalizedValue(lineXValues[chart.hoverEpoch], xExtent),
             normalizedValue(leftScale.transform(left), yExtent),
             normalizedValue(rightScale.transform(right), zExtent),
           ), line.color, dotCenter);
@@ -2960,6 +3072,11 @@
       min: trendValueScale.invert(yExtent.min),
       max: trendValueScale.invert(yExtent.max),
     };
+    const allXValues = chart.lines.flatMap((line) => (
+      analysisLineXValues(line, line.values.length)
+    ));
+    const xAxisValues = allXValues.length ? allXValues : [1];
+    const xExtent = analysisExtent(xAxisValues);
     const zValues = [...new Map(chart.lines.map(
       (line) => [analysisValueKey(line.secondaryValue), line.secondaryValue],
     )).values()].sort(compareAnalysisValues);
@@ -2968,27 +3085,31 @@
       ctx, project,
       { x: chart.xLabel, y: chart.yLabel, z: chart.zLabel },
       { y: displayedYExtent }, labelColor, gridColor,
-      { z: zValues },
+      {
+        x: [Math.min(...xAxisValues), Math.max(...xAxisValues)],
+        z: zValues,
+      },
     );
     for (const line of chart.lines) {
       const z = zValues.length <= 1
         ? 0.5
         : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
-      const epochs = line.values.length;
+      const pointCount = line.values.length;
+      const lineXValues = analysisLineXValues(line, pointCount);
       const bandPoints = [];
-      for (let index = 0; index < epochs; index += 1) {
+      for (let index = 0; index < pointCount; index += 1) {
         const upper = line.band.upper[index];
         if (!validTrendValue(upper)) continue;
         bandPoints.push(project(
-          epochs <= 1 ? 0.5 : index / (epochs - 1),
+          normalizedValue(lineXValues[index], xExtent),
           normalizedValue(transformTrendValue(upper), yExtent), z,
         ));
       }
-      for (let index = epochs - 1; index >= 0; index -= 1) {
+      for (let index = pointCount - 1; index >= 0; index -= 1) {
         const lower = line.band.lower[index];
         if (!validTrendValue(lower)) continue;
         bandPoints.push(project(
-          epochs <= 1 ? 0.5 : index / (epochs - 1),
+          normalizedValue(lineXValues[index], xExtent),
           normalizedValue(transformTrendValue(lower), yExtent), z,
         ));
       }
@@ -3002,11 +3123,11 @@
       }
       ctx.beginPath();
       let drawing = false;
-      for (let index = 0; index < epochs; index += 1) {
+      for (let index = 0; index < pointCount; index += 1) {
         const value = line.values[index];
         if (!validTrendValue(value)) { drawing = false; continue; }
         const point = project(
-          epochs <= 1 ? 0.5 : index / (epochs - 1),
+          normalizedValue(lineXValues[index], xExtent),
           normalizedValue(transformTrendValue(value), yExtent), z,
         );
         const std = Number.isFinite(line.band.upper[index])
@@ -3019,7 +3140,7 @@
           epochIndex: index,
           title: line.label,
           lines: [
-            `epoch ${index + 1}`,
+            `${chart.xLabel} ${formatNumber(lineXValues[index])}`,
             `mean ${formatNumber(value)} · std ${formatNumber(std)}`,
           ],
         });
@@ -3031,11 +3152,12 @@
       for (const line of chart.lines) {
         const value = line.values[chart.hoverEpoch];
         if (!validTrendValue(value)) continue;
+        const lineXValues = analysisLineXValues(line, line.values.length);
         const z = zValues.length <= 1
           ? 0.5
           : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
         drawAnalysis3DHoverDot(ctx, project(
-          line.values.length <= 1 ? 0.5 : chart.hoverEpoch / (line.values.length - 1),
+          normalizedValue(lineXValues[chart.hoverEpoch], xExtent),
           normalizedValue(transformTrendValue(value), yExtent), z,
         ), line.color, dotCenter);
       }
@@ -5357,11 +5479,16 @@
     return reference.values.map((_value, index) => index + 1);
   }
 
+  function chartXLabel(chart, capitalize = false) {
+    const label = chart.xLabel || metricUnitLabel();
+    return capitalize ? `${label[0].toUpperCase()}${label.slice(1)}` : label;
+  }
+
   function updateChartReadout(chart) {
     const xValues = chartXValues(chart);
     chart.epochLabel.textContent = chart.hoverIndex === null
       ? "Latest"
-      : `${metricUnitLabel(true)} ${formatNumber(xValues[chart.hoverIndex])}`;
+      : `${chartXLabel(chart, true)} ${formatNumber(xValues[chart.hoverIndex])}`;
     for (const line of chart.group.lines) {
       chart.legendValues.get(line.id).textContent = formatLineReadout(
         line,
@@ -5551,7 +5678,7 @@
     ctx.fillStyle = labelColor; ctx.textAlign = "center"; ctx.textBaseline = "top";
     ctx.fillText(formatNumber(minX), x(minX), height - margin.bottom + 8);
     if (minX !== maxX) ctx.fillText(formatNumber(maxX), x(maxX), height - margin.bottom + 8);
-    ctx.fillStyle = labelColor; ctx.fillText(metricUnitLabel(), margin.left + plotWidth / 2, height - 10);
+    ctx.fillStyle = labelColor; ctx.fillText(chartXLabel(chart), margin.left + plotWidth / 2, height - 10);
 
     ctx.save();
     ctx.beginPath();
@@ -5778,6 +5905,11 @@
   });
   el("analysis-plot-type").addEventListener("change", (event) => {
     state.analysisPlotType = event.target.value;
+    persistState();
+    renderAnalysis();
+  });
+  el("analysis-unit").addEventListener("change", (event) => {
+    state.analysisUnit = event.target.value === "step" ? "step" : "epoch";
     persistState();
     renderAnalysis();
   });

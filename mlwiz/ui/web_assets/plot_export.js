@@ -178,18 +178,18 @@ secondary_values.sort(key=lambda value: (not isinstance(value, (int, float)), la
 
 for series in DATA["series"]:
     values = numeric(series["values"])
-    epochs = np.arange(1, len(values) + 1)
+    positions = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
     z_value = secondary_values.index(series["secondary"])
     valid = np.isfinite(values)
     color = ax._get_lines.get_next_color()
-    ax.plot(epochs[valid], values[valid], np.full(valid.sum(), z_value), color=color, label=series["label"])
+    ax.plot(positions[valid], values[valid], np.full(valid.sum(), z_value), color=color, label=series["label"])
     if series.get("lower") and series.get("upper"):
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
         band_valid = np.isfinite(lower) & np.isfinite(upper)
         polygon = [
-            *[(x, y, z_value) for x, y in zip(epochs[band_valid], lower[band_valid])],
-            *[(x, y, z_value) for x, y in zip(epochs[band_valid][::-1], upper[band_valid][::-1])],
+            *[(x, y, z_value) for x, y in zip(positions[band_valid], lower[band_valid])],
+            *[(x, y, z_value) for x, y in zip(positions[band_valid][::-1], upper[band_valid][::-1])],
         ]
         if len(polygon) >= 3:
             ax.add_collection3d(Poly3DCollection([polygon], facecolor=color, alpha=0.12, edgecolor="none"))
@@ -215,9 +215,10 @@ ax = fig.add_subplot(111, projection="3d")
 for series in DATA["series"]:
     left = numeric(series["leftValues"])
     right = numeric(series["rightValues"])
-    epochs = np.arange(1, min(len(left), len(right)) + 1)
-    valid = np.isfinite(left[:len(epochs)]) & np.isfinite(right[:len(epochs)])
-    ax.plot(epochs[valid], left[:len(epochs)][valid], right[:len(epochs)][valid], label=series["label"])
+    point_count = min(len(left), len(right))
+    positions = numeric(series.get("xValues") or list(range(1, point_count + 1)))[:point_count]
+    valid = np.isfinite(left[:point_count]) & np.isfinite(right[:point_count])
+    ax.plot(positions[valid], left[:point_count][valid], right[:point_count][valid], label=series["label"])
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))

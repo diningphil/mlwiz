@@ -880,6 +880,12 @@ axis. The default is ``None``, so existing configurations continue to record
 epoch histories only. Epoch-level scores still use their configured aggregation
 rule; step scores are computed on the sampled training batch.
 
+When step histories are enabled, the exact global step at each completed epoch
+is also persisted. If training resumes from an epoch checkpoint, samples from a
+later incomplete epoch are removed before that epoch is replayed. The replayed
+samples therefore replace the discarded values at the same global step numbers
+instead of being appended after them.
+
 
 Loading and storing graphs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -983,7 +989,7 @@ or run. The separate **Model Selection Analysis** tab answers a different
 question: how did recorded quantities behave for each value of a tried
 hyperparameter? It reads the live model-selection runs for one experiment,
 outer fold, and inner fold, so its plots update as new epochs are flushed to
-``metrics_data.torch``.
+``metrics_data.torch`` or sampled training steps are recorded.
 
 Choosing the analysis scope
 """"""""""""""""""""""""""""""""""""""""
@@ -1028,7 +1034,9 @@ Adding and managing plots
 """"""""""""""""""""""""""""""""""""""""
 
 Choose a plot type and quantity in the controls at the top, then click **Add
-plot**. Adding another plot never replaces the existing plots, even when its
+plot**. For Trend or Combined Trend plots, **Trend unit** chooses epoch or
+sampled training step for the next plot; each resulting card retains its own
+**Unit** selector. Adding another plot never replaces the existing plots, even when its
 type differs. Every card has independent **Group by** and presentation
 controls, an ``×`` button for removal, and an expand/shrink button. Changing a
 card's grouping or display mode preserves its position on the page. Plot
@@ -1039,11 +1047,12 @@ The available plot types have different aggregation semantics:
 
 **Trend Plots**
   For every value of the selected hyperparameter, MLWiz aligns the recorded
-  epochs and plots their mean with a standard-deviation band. The legend maps
+  epochs or sampled global steps and plots their mean with a standard-deviation
+  band. The legend maps
   each line to its hyperparameter value and reports the latest mean ± standard
   deviation and number of contributing runs. Choose **3D** and a **Second
   parameter** to separate curves by a second hyperparameter while retaining
-  epoch and the recorded quantity as the other axes. The default **2D** view
+  epoch or step and the recorded quantity as the other axes. The default **2D** view
   remains available. Enable the per-card **Log scale** control to transform
   values as ``sign(x) * log10(1 + abs(x))`` in either view. Unlike a conventional
   logarithmic axis, this keeps zero and negative observations and
@@ -1053,8 +1062,9 @@ The available plot types have different aggregation semantics:
   standard-deviation band from all runs.
 
 **Combined Trends**
-  This always-3D view combines two epoch histories. Its axes are epoch, the
-  first quantity, and the second quantity; one trajectory is drawn for each
+  This always-3D view combines two histories recorded with the same unit. Its
+  axes are epoch or sampled step, the first quantity, and the second quantity;
+  one trajectory is drawn for each
   value of the selected hyperparameter. Compatible multi-layer/component
   families are paired automatically, so related information is rendered
   together rather than hidden behind another selector. Its persistent **Log

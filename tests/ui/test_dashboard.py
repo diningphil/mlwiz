@@ -187,6 +187,7 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     metrics["step"] = {
         "steps": [2, 4],
         "last_step": 5,
+        "epoch_last_steps": {0: 5},
         "losses": {"training_main_loss": [0.9, 0.7]},
         "scores": {"training_main_score": [0.4, 0.6]},
     }
@@ -208,7 +209,18 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     }
 
     analysis = repository.model_selection_analysis(experiment.name, 1, 1)
-    assert len(analysis["series"]) == 4
+    assert len(analysis["series"]) == 6
+    assert analysis["units"] == ["epoch", "step"]
+    analysis_steps = [item for item in analysis["series"] if item["unit"] == "step"]
+    assert len(analysis_steps) == 2
+    assert analysis_steps[0]["x_values"] == pytest.approx([2, 4])
+    assert all(item["selected_value"] is None for item in analysis_steps)
+    training_loss = next(
+        item
+        for item in analysis["quantities"]
+        if item["id"] == "losses:training_main_loss"
+    )
+    assert training_loss["units"] == ["epoch", "step"]
 
 
 def test_model_selection_analysis_discovers_varying_hyperparameters_and_curves(
@@ -959,6 +971,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="smoothing-value"' in page
         assert 'id="analysis-tab"' in page
         assert 'id="analysis-plot-type"' in page
+        assert 'id="analysis-unit"' in page
         assert 'id="analysis-hyperparameter"' in page
         assert 'id="analysis-quantity"' in page
         assert 'id="analysis-second-quantity"' in page
@@ -1029,6 +1042,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/api/experiment-filter" in app_script
         assert "/api/model-selection-analysis" in app_script
         assert "analysisQuantityOptions" in app_script
+        assert "analysisTrendQuantityOptions" in app_script
+        assert "plotTrendUnitControl" in app_script
+        assert '(series.unit || "epoch") !== plot.unit' in app_script
+        assert "xLabel: plot.unit" in app_script
         assert "renderAnalysisCharts" in app_script
         assert "analysisQuantities" in app_script
         assert "analysisPlots" in app_script
@@ -1156,6 +1173,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "debiasWeight" in app_script
         assert "rawValues: line.values" in app_script
         assert 'kind: "trajectory3d"' in app_script
+        assert 'series.get("xValues")' in plot_export_script
         assert ".content { min-width: 0;" in stylesheet
         assert "overflow: visible;" in stylesheet
         assert "[hidden] { display: none !important; }" in stylesheet
