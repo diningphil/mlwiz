@@ -103,14 +103,39 @@ def numeric(values):
     return np.asarray([np.nan if value is None else float(value) for value in values])
 
 
-def log_modulus(values):
-    values = np.asarray(values, dtype=float)
-    return np.sign(values) * np.log10(1.0 + np.abs(values))
+def finite_values(values):
+    values = np.asarray(values, dtype=float).ravel()
+    return values[np.isfinite(values)]
 
 
-def inverse_log_modulus(values):
+def adaptive_linear_threshold(values):
+    magnitudes = np.abs(finite_values(values))
+    magnitudes = magnitudes[magnitudes > 0]
+    if not len(magnitudes):
+        return 1.0
+    return max(magnitudes.min(), magnitudes.max() * 1e-6, np.finfo(float).tiny)
+
+
+def adaptive_log_transform(values, reference=None):
     values = np.asarray(values, dtype=float)
-    return np.sign(values) * (np.power(10.0, np.abs(values)) - 1.0)
+    reference = finite_values(values if reference is None else reference)
+    if len(reference) and np.all(reference > 0):
+        return np.log10(values)
+    threshold = adaptive_linear_threshold(reference)
+    scaled = np.abs(values) / threshold
+    magnitude = np.where(scaled <= 1.0, scaled, 1.0 + np.log10(np.maximum(scaled, 1.0)))
+    return np.sign(values) * magnitude
+
+
+def set_adaptive_log_scale(axis, direction, values):
+    values = finite_values(values)
+    setter = getattr(axis, f"set_{direction}scale")
+    if len(values) and np.all(values > 0):
+        setter("log")
+        return
+    setter(
+        "symlog", base=10, linthresh=adaptive_linear_threshold(values), linscale=0.9,
+    )
 `;
   }
 
@@ -127,14 +152,17 @@ plt.show()
     return `${commonPreamble(spec, options)}
 
 fig, ax = plt.subplots()
+scale_values = []
 for series in DATA["series"]:
     values = numeric(series["values"])
     positions = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
     valid = np.isfinite(values)
+    scale_values.extend(values[valid])
     color = ax._get_lines.get_next_color()
     raw_values = numeric(series.get("rawValues") or [])
     if len(raw_values):
         raw_valid = np.isfinite(raw_values)
+        scale_values.extend(raw_values[raw_valid])
         (raw_line,) = ax.plot(
             positions[raw_valid], raw_values[raw_valid],
             color=color, linewidth=1, alpha=0.22, label="_nolegend_", zorder=1,
@@ -150,16 +178,14 @@ for series in DATA["series"]:
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
         band_valid = np.isfinite(lower) & np.isfinite(upper)
+        scale_values.extend(lower[band_valid])
+        scale_values.extend(upper[band_valid])
         ax.fill_between(positions, lower, upper, where=band_valid, color=line.get_color(), alpha=0.16)
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "symlog":
-    ax.set_yscale("symlog")
-elif DATA.get("scale") == "log":
-    ax.set_yscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", scale_values)
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -171,6 +197,7 @@ ${finishingCode(spec, options)}`;
 fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
 secondary_values = []
+scale_values = []
 for series in DATA["series"]:
     if series["secondary"] not in secondary_values:
         secondary_values.append(series["secondary"])
@@ -181,12 +208,15 @@ for series in DATA["series"]:
     positions = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
     z_value = secondary_values.index(series["secondary"])
     valid = np.isfinite(values)
+    scale_values.extend(values[valid])
     color = ax._get_lines.get_next_color()
     ax.plot(positions[valid], values[valid], np.full(valid.sum(), z_value), color=color, label=series["label"])
     if series.get("lower") and series.get("upper"):
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
         band_valid = np.isfinite(lower) & np.isfinite(upper)
+        scale_values.extend(lower[band_valid])
+        scale_values.extend(upper[band_valid])
         polygon = [
             *[(x, y, z_value) for x, y in zip(positions[band_valid], lower[band_valid])],
             *[(x, y, z_value) for x, y in zip(positions[band_valid][::-1], upper[band_valid][::-1])],
@@ -198,10 +228,8 @@ ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
 ax.set_zlabel(DATA.get("zLabel", "group"))
 ax.set_zticks(range(len(secondary_values)), [label(value) for value in secondary_values])
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "log":
-    ax.set_yscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", scale_values)
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -212,20 +240,24 @@ ${finishingCode(spec, options)}`;
 
 fig = plt.figure()
 ax = fig.add_subplot(111, projection="3d")
+left_scale_values = []
+right_scale_values = []
 for series in DATA["series"]:
     left = numeric(series["leftValues"])
     right = numeric(series["rightValues"])
     point_count = min(len(left), len(right))
     positions = numeric(series.get("xValues") or list(range(1, point_count + 1)))[:point_count]
     valid = np.isfinite(left[:point_count]) & np.isfinite(right[:point_count])
+    left_scale_values.extend(left[:point_count][valid])
+    right_scale_values.extend(right[:point_count][valid])
     ax.plot(positions[valid], left[:point_count][valid], right[:point_count][valid], label=series["label"])
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))
 ax.set_zlabel(DATA.get("zLabel", "value"))
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-    ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", left_scale_values)
+    set_adaptive_log_scale(ax, "z", right_scale_values)
 if ${pythonBoolean(options.legend)}:
     ax.legend()
 ${finishingCode(spec, options)}`;
@@ -242,10 +274,8 @@ ax.bar(x, means, yerr=stds, capsize=3)
 ax.set_xticks(x, [label(series["primary"]) for series in DATA["series"]], rotation=30, ha="right")
 ax.set_xlabel(DATA.get("xLabel", "hyperparameter"))
 ax.set_ylabel(DATA.get("yLabel", "metric"))
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "log":
-    ax.set_yscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", np.concatenate([means, means - stds, means + stds]))
 ${finishingCode(spec, options)}`;
   }
 
@@ -267,10 +297,8 @@ if DATA.get("showPoints"):
 ax.set_xticks(np.arange(1, len(DATA["series"]) + 1), [label(series["primary"]) for series in DATA["series"]], rotation=30, ha="right")
 ax.set_xlabel(DATA.get("xLabel", "hyperparameter"))
 ax.set_ylabel(DATA.get("yLabel", "metric"))
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "log":
-    ax.set_yscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", np.concatenate(samples) if samples else [])
 ${finishingCode(spec, options)}`;
   }
 
@@ -288,10 +316,8 @@ for series in DATA["series"]:
         secondary_values.append(series["secondary"])
 
 heights = np.asarray([series["mean"] for series in DATA["series"]], dtype=float)
-if DATA.get("scale") == "log-modulus":
-    color_values = log_modulus(heights)
-elif DATA.get("scale") == "log":
-    color_values = np.log10(np.maximum(heights, np.finfo(float).tiny))
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    color_values = adaptive_log_transform(heights)
 else:
     color_values = heights
 normalizer = plt.Normalize(np.nanmin(color_values), np.nanmax(color_values) if np.nanmax(color_values) != np.nanmin(color_values) else np.nanmin(color_values) + 1)
@@ -305,10 +331,8 @@ ax.set_ylabel(DATA.get("zLabel", "second hyperparameter"))
 ax.set_zlabel(DATA.get("yLabel", "metric"))
 ax.set_xticks(range(len(primary_values)), [label(value) for value in primary_values])
 ax.set_yticks(range(len(secondary_values)), [label(value) for value in secondary_values])
-if DATA.get("scale") == "log-modulus":
-    ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "log":
-    ax.set_zscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "z", heights)
 ${finishingCode(spec, options)}`;
   }
 
@@ -325,12 +349,14 @@ for series in DATA["series"]:
     if series["secondary"] not in secondary_values:
         secondary_values.append(series["secondary"])
 colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+scale_values = []
 
 for index, series in enumerate(DATA["series"]):
     values = numeric(series["samples"])
     values = values[np.isfinite(values)]
     if not len(values):
         continue
+    scale_values.extend(values)
     x = primary_values.index(series["primary"])
     z = secondary_values.index(series["secondary"])
     spread = max(float(np.ptp(values)), np.finfo(float).eps)
@@ -350,10 +376,8 @@ ax.set_ylabel(DATA.get("yLabel", "metric"))
 ax.set_zlabel(DATA.get("zLabel", "second hyperparameter"))
 ax.set_xticks(range(len(primary_values)), [label(value) for value in primary_values])
 ax.set_zticks(range(len(secondary_values)), [label(value) for value in secondary_values])
-if DATA.get("scale") == "log-modulus":
-    ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))
-elif DATA.get("scale") == "log":
-    ax.set_yscale("log")
+if DATA.get("scale") in ("log", "log-modulus", "symlog"):
+    set_adaptive_log_scale(ax, "y", scale_values)
 ${finishingCode(spec, options)}`;
   }
 

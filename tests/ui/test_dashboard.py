@@ -1066,12 +1066,16 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "plotDimensionControl" in app_script
         assert "plotTrendLogControl" in app_script
         assert "createValueScale(values, scale = state.scale)" in app_script
-        assert 'scale: useLog ? "log-modulus" : "linear"' in app_script
-        assert 'scale: plot.log ? "log-modulus" : "linear"' in app_script
-        assert 'state.scale === "log-modulus" ? "linear" : "log-modulus"' in app_script
-        assert 'return ["log-modulus", "symlog"].includes(value)' in app_script
-        assert 'scale === "log-modulus"' in app_script
-        assert "Math.sign(value) * Math.log10(1 + Math.abs(value))" in app_script
+        assert 'scale: useLog ? "log" : "linear"' in app_script
+        assert 'scale: plot.log ? "log" : "linear"' in app_script
+        assert 'state.scale === "log" ? "linear" : "log"' in app_script
+        assert 'return ["log", "log-modulus", "symlog"].includes(value)' in app_script
+        assert "adaptiveLinearThreshold" in app_script
+        assert 'finite.every((value) => value > 0)' in app_script
+        assert 'kind: "log"' in app_script
+        assert 'kind: "symlog"' in app_script
+        assert "maxMagnitude * 1e-6" in app_script
+        assert "1 + Math.log10(scaled)" in app_script
         assert 'node("span", "", "Log scale")' in app_script
         assert "plot3DAlignmentControl" in app_script
         assert "Look along the ${axis} axis" in app_script
@@ -1162,11 +1166,14 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "palettes.${options.palette}" in plot_export_script
         assert 'palette: "paultol_muted"' in plot_export_script
         assert "function generatePython" in plot_export_script
-        assert "def log_modulus(values):" in plot_export_script
-        assert 'ax.set_yscale("function", functions=(log_modulus, inverse_log_modulus))' in plot_export_script
-        assert 'ax.set_zscale("function", functions=(log_modulus, inverse_log_modulus))' in plot_export_script
-        assert "color_values = log_modulus(heights)" in plot_export_script
-        assert 'elif DATA.get("scale") == "log"' in plot_export_script
+        assert "def adaptive_linear_threshold(values):" in plot_export_script
+        assert "def adaptive_log_transform(values, reference=None):" in plot_export_script
+        assert "def set_adaptive_log_scale(axis, direction, values):" in plot_export_script
+        assert 'setter("log")' in plot_export_script
+        assert '"symlog", base=10' in plot_export_script
+        assert 'set_adaptive_log_scale(ax, "y"' in plot_export_script
+        assert 'set_adaptive_log_scale(ax, "z"' in plot_export_script
+        assert "color_values = adaptive_log_transform(heights)" in plot_export_script
         assert 'series.get("rawValues")' in plot_export_script
         assert 'label="_nolegend_"' in plot_export_script
         assert "function smoothMetricValues" in app_script

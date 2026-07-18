@@ -380,9 +380,13 @@ Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
 short-term noise and retain a faint raw trace for context. The chosen value is
 preserved for the dashboard session and included with reproducible plot exports.
-The **Log scale** control applies the sign-preserving log-modulus
-transform `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values
-remain visible. Each experiment has its own lazy-loaded
+The **Log scale** control uses a conventional base-10 logarithmic axis when
+every displayed value is positive. If zero or negative values are present, it
+automatically uses an adaptive symmetric-log axis: a small neighborhood around
+zero stays linear and larger magnitudes are logarithmic. The linear threshold
+is derived from the displayed data and limited to six decades below its largest
+magnitude, so the behavior is independent of whether a metric is naturally
+measured near `1`, `0.01`, or another scale. Each experiment has its own lazy-loaded
 configuration filter: choose any discovered score or loss, compare it with a
 threshold using `≥` or `≤`, choose training or validation values, and combine
 multiple conditions with AND or OR. Completed experiments use their aggregated
@@ -405,17 +409,17 @@ Trends and 3D plots require real grouping parameters and do not offer None.
   for runs sharing a hyperparameter value. Select the unit for the next plot
   or change it independently on an existing card. Add a second hyperparameter
   for a 3D view, or enable
-  the persistent per-card **Log scale** control. It applies
-  `sign(x) · log10(1 + |x|)`, so positive, zero, and negative values remain
-  visible in both dimensions. In 2D, Group by None produces one mean curve and
+  the persistent per-card **Log scale** control. It uses a conventional
+  logarithmic axis for all-positive values and automatically falls back to the
+  adaptive symmetric-log axis when zero or negative values occur. In 2D, Group by None produces one mean curve and
   deviation band across every run.
 - **Combined Trends** place epoch or sampled step and two recorded quantities
-  on a 3D trajectory grouped by one hyperparameter. Their **Log scale** control applies the same
-  sign-preserving transform to both recorded-quantity axes.
+  on a 3D trajectory grouped by one hyperparameter. Their **Log scale** control
+  selects the appropriate logarithmic mode independently for each recorded-quantity axis.
 - **Metric vs Hyper-Parameter** compares each run's best-checkpoint metric value,
   falling back to its last recorded value. It supports 2D histograms, 3D
   heatmap bars for two hyperparameters, violin distributions with optional raw
-  points, sign-preserving logarithmic scaling, Markdown tables, and a 2D
+  points, automatic logarithmic/symmetric-log scaling, Markdown tables, and a 2D
   all-runs aggregate.
 
 Numeric custom histories in `metrics_data.torch` are discovered alongside

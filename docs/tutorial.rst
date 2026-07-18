@@ -1053,10 +1053,13 @@ The available plot types have different aggregation semantics:
   deviation and number of contributing runs. Choose **3D** and a **Second
   parameter** to separate curves by a second hyperparameter while retaining
   epoch or step and the recorded quantity as the other axes. The default **2D** view
-  remains available. Enable the per-card **Log scale** control to transform
-  values as ``sign(x) * log10(1 + abs(x))`` in either view. Unlike a conventional
-  logarithmic axis, this keeps zero and negative observations and
-  uncertainty-band bounds visible while compressing large magnitudes. The
+  remains available. Enable the per-card **Log scale** control to use a
+  conventional base-10 logarithmic axis when all displayed values are positive.
+  If zero or negative observations or uncertainty-band bounds are present,
+  MLWiz automatically falls back to an adaptive symmetric-log axis. Its linear
+  region is derived from the displayed magnitudes and limited to six decades
+  below the largest magnitude, keeping the behavior independent of the metric's
+  units. The
   choice persists with the plot and is included in exported Python code. In
   2D, selecting **None — average all runs** produces one mean curve and
   standard-deviation band from all runs.
@@ -1068,8 +1071,8 @@ The available plot types have different aggregation semantics:
   value of the selected hyperparameter. Compatible multi-layer/component
   families are paired automatically, so related information is rendered
   together rather than hidden behind another selector. Its persistent **Log
-  scale** control applies ``sign(x) * log10(1 + abs(x))`` to both recorded-
-  quantity axes, including zero and negative values.
+  scale** control selects conventional log or adaptive symmetric-log
+  independently for each recorded-quantity axis.
 
 **Metric vs Hyper-Parameter**
   This view reduces every run to one value before grouping it. MLWiz first uses
@@ -1086,9 +1089,9 @@ The available plot types have different aggregation semantics:
   heatmap-bar grid: the two horizontal axes contain the tried hyperparameter
   values, while bar height and heatmap color both encode the mean metric.
   Missing combinations remain gaps. Violin remains available in 3D. Enable
-  **Log scale** to apply ``sign(x) * log10(1 + abs(x))`` consistently to bars,
-  heatmap colors, violins, raw points, and their axes. Positive, zero, and
-  negative values are all retained. Alternatively, switch the individual plot
+  **Log scale** to apply the same automatic log/symmetric-log selection
+  consistently to bars, heatmap colors, violins, raw points, and their axes.
+  Positive, zero, and negative values are all retained. Alternatively, switch the individual plot
   to **Markdown table** to copy exact means, deviations, run counts, and value
   sources.
 

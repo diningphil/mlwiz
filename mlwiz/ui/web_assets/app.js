@@ -70,7 +70,7 @@
   }
 
   function normalizedScale(value) {
-    return ["log-modulus", "symlog"].includes(value) ? "log-modulus" : "linear";
+    return ["log", "log-modulus", "symlog"].includes(value) ? "log" : "linear";
   }
 
   function normalizedSmoothing(value) {
@@ -359,7 +359,7 @@
       xLabel: ungrouped ? "runs" : plot.hyperparameter,
       yLabel: quantity.label,
       zLabel: plot.secondaryHyperparameter,
-      scale: useLog ? "log-modulus" : "linear",
+      scale: useLog ? "log" : "linear",
       showPoints: Boolean(plot.showPoints),
       series: bars.map((bar) => ({
         label: [
@@ -1283,7 +1283,7 @@
     const input = document.createElement("input");
     input.type = "checkbox";
     input.checked = Boolean(plot.log);
-    control.title = "Use a sign-preserving log-modulus axis for positive, zero, and negative values";
+    control.title = "Use a logarithmic axis for positive values and an adaptive symmetric-log axis when zero or negative values are present";
     input.addEventListener("change", () => {
       updateAnalysisPlot(plot, { log: input.checked });
     });
@@ -1487,13 +1487,13 @@
   }
 
   function metricHeatmapRange(bars, log) {
-    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
-    const values = bars
+    const rawValues = bars
       .map((bar) => bar.mean)
-      .filter(Number.isFinite)
-      .map(valueScale.transform);
-    if (!values.length) return { min: 0, max: 1 };
-    return { min: Math.min(...values), max: Math.max(...values) };
+      .filter(Number.isFinite);
+    const valueScale = createValueScale(rawValues, log ? "log" : "linear");
+    const values = rawValues.map(valueScale.transform);
+    if (!values.length) return { min: 0, max: 1, valueScale };
+    return { min: Math.min(...values), max: Math.max(...values), valueScale };
   }
 
   function metricHeatmapColor(value, range) {
@@ -1517,8 +1517,7 @@
 
   function metricHeatmapLegend(bars, log) {
     const range = metricHeatmapRange(bars, log);
-    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
-    const display = (value) => formatNumber(valueScale.invert(value));
+    const display = (value) => formatNumber(range.valueScale.invert(value));
     const legend = node("div", "analysis-heatmap-legend");
     legend.append(
       node("span", "analysis-heatmap-legend-title", log ? "Mean · log scale" : "Mean"),
@@ -1616,7 +1615,7 @@
             lines,
             kind: plot.secondaryHyperparameter ? "trend3d" : "line",
             zLabel: plot.secondaryHyperparameter,
-            scale: useLog ? "log-modulus" : "linear",
+            scale: useLog ? "log" : "linear",
             xLabel: plot.unit,
           })),
           plotExpandButton(card, `trend:${plot.id}:${quantity.id}`),
@@ -1670,7 +1669,7 @@
             yLabel: quantity.label,
             zLabel: plot.secondaryHyperparameter,
             cameraKey,
-            scale: useLog ? "log-modulus" : "linear",
+            scale: useLog ? "log" : "linear",
           };
           attachAnalysis3DInteraction(chart);
           attachAnalysisHover(chart, wrap);
@@ -1683,7 +1682,7 @@
             epochLabel,
             hoverIndex: null,
             xLabel: plot.unit,
-            scale: useLog ? "log-modulus" : "linear",
+            scale: useLog ? "log" : "linear",
           };
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
           canvas.addEventListener("pointerleave", () => {
@@ -1806,7 +1805,7 @@
           xLabel: plot.unit,
           yLabel: leftQuantity.label,
           zLabel: rightQuantity.label,
-          scale: plot.log ? "log-modulus" : "linear",
+          scale: plot.log ? "log" : "linear",
           series: lines.map((line) => ({
             label: line.label,
             xValues: line.xValues,
@@ -1857,7 +1856,7 @@
         yLabel: leftQuantity.label,
         zLabel: rightQuantity.label,
         cameraKey,
-        scale: plot.log ? "log-modulus" : "linear",
+        scale: plot.log ? "log" : "linear",
       };
       attachAnalysis3DInteraction(chart);
       attachAnalysisHover(chart, wrap);
@@ -2633,11 +2632,14 @@
     const styles = getComputedStyle(document.documentElement);
     const gridColor = styles.getPropertyValue("--chart-grid").trim() || "#edf0ed";
     const labelColor = styles.getPropertyValue("--chart-label").trim() || "#8a94a1";
-    const rawValues = [
-      0,
-      ...bars.flatMap((bar) => [bar.mean, bar.mean - bar.std, bar.mean + bar.std]),
-    ].filter(Number.isFinite);
-    const valueScale = createValueScale(rawValues, log ? "log-modulus" : "linear");
+    const measuredValues = bars
+      .flatMap((bar) => [bar.mean, bar.mean - bar.std, bar.mean + bar.std])
+      .filter(Number.isFinite);
+    if (!measuredValues.length) return;
+    const valueScale = createValueScale(measuredValues, log ? "log" : "linear");
+    const rawValues = valueScale.kind === "log"
+      ? measuredValues
+      : [0, ...measuredValues];
     const transform = valueScale.transform;
     let min = Math.min(...rawValues.map(transform));
     let max = Math.max(...rawValues.map(transform));
@@ -2662,7 +2664,7 @@
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const y = (value) => margin.top + ((max - transform(value)) / (max - min)) * plotHeight;
-    const baseline = y(0);
+    const baseline = valueScale.kind === "log" ? margin.top + plotHeight : y(0);
     ctx.textBaseline = "middle";
     for (let tick = 0; tick <= 4; tick += 1) {
       const transformed = min + ((max - min) * tick) / 4;
@@ -2721,12 +2723,12 @@
     const styles = getComputedStyle(document.documentElement);
     const gridColor = styles.getPropertyValue("--chart-grid").trim() || "#edf0ed";
     const labelColor = styles.getPropertyValue("--chart-label").trim() || "#8a94a1";
-    const valueScale = createValueScale([], log ? "log-modulus" : "linear");
+    const rawSamples = bars.flatMap((bar) => bar.samples)
+      .filter(Number.isFinite);
+    if (!rawSamples.length) return;
+    const valueScale = createValueScale(rawSamples, log ? "log" : "linear");
     const transform = valueScale.transform;
-    const samples = bars.flatMap((bar) => bar.samples)
-      .filter(Number.isFinite)
-      .map(transform);
-    if (!samples.length) return;
+    const samples = rawSamples.map(transform);
     let min = Math.min(...samples);
     let max = Math.max(...samples);
     if (min === max) max += Math.abs(max || 1) * 0.05;
@@ -3197,13 +3199,14 @@
     )).values()].sort(compareAnalysisValues);
     const xIndex = new Map(primaryValues.map((value, index) => [analysisValueKey(value), index]));
     const zIndex = new Map(secondaryValues.map((value, index) => [analysisValueKey(value), index]));
-    const valueScale = createValueScale([], chart.log ? "log-modulus" : "linear");
-    const transform = valueScale.transform;
     const heatmapRange = metricHeatmapRange(chart.bars, chart.log);
-    const yExtent = analysisExtent([0, ...chart.bars
-      .map((bar) => bar.mean)]
-      .filter(Number.isFinite)
-      .map(transform));
+    const valueScale = heatmapRange.valueScale;
+    const transform = valueScale.transform;
+    const measuredValues = chart.bars.map((bar) => bar.mean).filter(Number.isFinite);
+    const domainValues = valueScale.kind === "log"
+      ? measuredValues
+      : [0, ...measuredValues];
+    const yExtent = analysisExtent(domainValues.map(transform));
     drawAnalysis3DAxes(
       ctx, project,
       { x: chart.hyperparameter, y: chart.metricLabel || "metric", z: chart.secondaryHyperparameter },
@@ -3211,7 +3214,9 @@
       labelColor, gridColor,
       { x: primaryValues, z: secondaryValues },
     );
-    const zero = normalizedValue(transform(0), yExtent);
+    const baseline = valueScale.kind === "log"
+      ? 0
+      : normalizedValue(transform(0), yExtent);
     const faces = chart.bars.flatMap((bar) => {
       if (!Number.isFinite(bar.mean)) return [];
       const primaryIndex = xIndex.get(analysisValueKey(bar.value));
@@ -3221,10 +3226,10 @@
       const transformedMean = transform(bar.mean);
       const y = normalizedValue(transformedMean, yExtent);
       const bottomCorners = [
-        project(xMin, zero, zMin),
-        project(xMax, zero, zMin),
-        project(xMax, zero, zMax),
-        project(xMin, zero, zMax),
+        project(xMin, baseline, zMin),
+        project(xMax, baseline, zMin),
+        project(xMax, baseline, zMax),
+        project(xMin, baseline, zMax),
       ];
       const topCorners = [
         project(xMin, y, zMin),
@@ -3283,7 +3288,8 @@
     )).values()].sort(compareAnalysisValues);
     const xIndex = new Map(primaryValues.map((value, index) => [analysisValueKey(value), index]));
     const zIndex = new Map(secondaryValues.map((value, index) => [analysisValueKey(value), index]));
-    const valueScale = createValueScale([], chart.log ? "log-modulus" : "linear");
+    const rawSamples = chart.bars.flatMap((bar) => bar.samples).filter(Number.isFinite);
+    const valueScale = createValueScale(rawSamples, chart.log ? "log" : "linear");
     const transform = valueScale.transform;
     const yExtent = analysisExtent(chart.bars.flatMap((bar) =>
       bar.samples.filter(Number.isFinite).map(transform)));
@@ -5528,36 +5534,48 @@
     return `${formatNumber(value)} ± ${formatNumber(std)}`;
   }
 
-  function createValueScale(values, scale = state.scale) {
-    if (scale === "log-modulus") {
-      return {
-        transform: (value) => Math.sign(value) * Math.log10(1 + Math.abs(value)),
-        invert: (value) => Math.sign(value) * (10 ** Math.abs(value) - 1),
-      };
+  function adaptiveLinearThreshold(values) {
+    let maxMagnitude = 0;
+    let minMagnitude = Infinity;
+    for (const value of values) {
+      if (!Number.isFinite(value)) continue;
+      const magnitude = Math.abs(value);
+      if (magnitude === 0) continue;
+      maxMagnitude = Math.max(maxMagnitude, magnitude);
+      minMagnitude = Math.min(minMagnitude, magnitude);
     }
-    if (scale === "log") {
+    if (!Number.isFinite(minMagnitude)) return 1;
+    return Math.max(minMagnitude, maxMagnitude * 1e-6, Number.MIN_VALUE);
+  }
+
+  function createValueScale(values, scale = state.scale) {
+    const finite = values.filter((value) => value !== null && Number.isFinite(value));
+    const useLog = ["log", "log-modulus", "symlog"].includes(scale);
+    if (!useLog) {
+      return { kind: "linear", transform: (value) => value, invert: (value) => value };
+    }
+    if (finite.length && finite.every((value) => value > 0)) {
       return {
+        kind: "log",
         transform: (value) => Math.log10(value),
         invert: (value) => 10 ** value,
       };
     }
-    if (scale !== "symlog") {
-      return { transform: (value) => value, invert: (value) => value };
-    }
-    let maxMagnitude = 1;
-    let minMagnitude = Infinity;
-    for (const value of values) {
-      const magnitude = Math.abs(value);
-      if (magnitude > 0) {
-        maxMagnitude = Math.max(maxMagnitude, magnitude);
-        minMagnitude = Math.min(minMagnitude, magnitude);
-      }
-    }
-    if (!Number.isFinite(minMagnitude)) minMagnitude = maxMagnitude;
-    const linearThreshold = Math.max(minMagnitude, maxMagnitude * 1e-6, 1e-12);
+    const linearThreshold = adaptiveLinearThreshold(finite);
     return {
-      transform: (value) => Math.sign(value) * Math.log10(1 + Math.abs(value) / linearThreshold),
-      invert: (value) => Math.sign(value) * linearThreshold * (10 ** Math.abs(value) - 1),
+      kind: "symlog",
+      linearThreshold,
+      transform: (value) => {
+        const scaled = Math.abs(value) / linearThreshold;
+        const magnitude = scaled <= 1 ? scaled : 1 + Math.log10(scaled);
+        return Math.sign(value) * magnitude;
+      },
+      invert: (value) => {
+        const magnitude = Math.abs(value) <= 1
+          ? Math.abs(value)
+          : 10 ** (Math.abs(value) - 1);
+        return Math.sign(value) * linearThreshold * magnitude;
+      },
     };
   }
 
@@ -5633,11 +5651,10 @@
     const guideColor = themeStyles.getPropertyValue("--chart-guide").trim() || "#b5bec8";
     const dotCenter = themeStyles.getPropertyValue("--panel").trim() || "#ffffff";
     const scale = chart.scale || state.scale;
-    const validValue = (value) => value !== null
-      && Number.isFinite(value)
-      && (scale !== "log" || value > 0);
+    const validValue = (value) => value !== null && Number.isFinite(value);
     const values = group.lines.flatMap((line) => [
       ...line.values,
+      ...(line.rawValues || []),
       ...(line.band?.lower || []),
       ...(line.band?.upper || []),
     ]).filter(validValue);
@@ -6072,7 +6089,7 @@
     });
   });
   el("scale-toggle").addEventListener("click", () => {
-    state.scale = state.scale === "log-modulus" ? "linear" : "log-modulus";
+    state.scale = state.scale === "log" ? "linear" : "log";
     persistState();
     syncScaleButton();
     state.charts.forEach((chart) => drawChart(chart));
@@ -6201,7 +6218,7 @@
 
   function syncScaleButton() {
     const button = el("scale-toggle");
-    const active = state.scale === "log-modulus";
+    const active = state.scale === "log";
     button.classList.toggle("active", active);
     button.setAttribute("aria-pressed", String(active));
     button.textContent = active ? "Log scale · on" : "Log scale";
