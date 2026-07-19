@@ -1275,6 +1275,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "metadataScrolls" in app_script
         assert "restoreScroll" in app_script
         assert "expandJsonDescendants" in app_script
+        assert 'item.path.endsWith("#config")' in app_script
+        assert "key === null || (expandCollections && hasChildren)" in app_script
         assert ".json-inspector" in stylesheet
         assert ".model-graph-section" in stylesheet
         assert ".parameter-legend" in stylesheet

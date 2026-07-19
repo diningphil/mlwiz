@@ -6155,7 +6155,9 @@
     });
   }
 
-  function renderJsonValue(value, key, disclosurePrefix, jsonPath = []) {
+  function renderJsonValue(
+    value, key, disclosurePrefix, jsonPath = [], expandCollections = false,
+  ) {
     const kind = jsonValueKind(value);
     const row = node("div", "json-row");
 
@@ -6168,11 +6170,14 @@
     }
 
     const entries = Array.isArray(value) ? value.entries() : Object.entries(value);
+    const hasChildren = Array.isArray(value)
+      ? value.length > 0
+      : Object.keys(value).length > 0;
     const collection = node("details", `json-collection json-${kind}`);
     bindDisclosure(
       collection,
       `${disclosurePrefix}:${JSON.stringify(jsonPath)}`,
-      key === null,
+      key === null || (expandCollections && hasChildren),
     );
     const summary = node("summary", "json-collection-summary");
     if (key !== null) summary.append(node("span", "json-key", String(key)));
@@ -6186,6 +6191,7 @@
         childKey,
         disclosurePrefix,
         [...jsonPath, childKey],
+        expandCollections,
       ));
     }
     if (!children.childElementCount) children.append(node("span", "json-empty", "Empty"));
@@ -6210,7 +6216,14 @@
     toolbar.append(structuredButton, rawButton);
 
     const structured = node("div", "json-inspector");
-    structured.append(renderJsonValue(item.data, null, `metadata-json:${item.path}`));
+    const configurationInspector = item.path.endsWith("#config");
+    structured.append(renderJsonValue(
+      item.data,
+      null,
+      `metadata-json:${item.path}`,
+      [],
+      configurationInspector,
+    ));
     const raw = node("pre", "metadata-raw", JSON.stringify(item.data, null, 2));
     raw.hidden = true;
 

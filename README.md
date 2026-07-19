@@ -482,7 +482,9 @@ The metadata section also exposes the resolved configuration associated with a
 selected run or configuration as a dedicated, collapsible JSON inspector. Run
 configurations come from `model_manifest.json`; completed configuration entries
 come from `config_results.json`, with a live-run manifest fallback while an
-experiment is still running.
+experiment is still running. Nested fields in these dedicated configuration
+inspectors are expanded automatically on first view; manually collapsed fields
+retain their state across refreshes.
 
 The collapsible **Model graph** panel loads graph information only when opened.
 For a running job it reads `last_checkpoint.pth`; for a completed job it prefers

@@ -14,7 +14,8 @@
 - added a default combined view for layer/component trend families, with a
   persistent per-card Together/Separate series control and complete legends
 - added dedicated resolved-configuration inspectors when selecting a run or a
-  model-selection configuration, including live manifest fallback
+  model-selection configuration, including live manifest fallback and automatic
+  first-view expansion of nested fields
 
 ## Fixed
 
