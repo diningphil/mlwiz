@@ -172,11 +172,66 @@ def test_details_loads_run_metrics_and_context(tmp_path):
     )
     assert validation_score["values"] == pytest.approx([0.2, 0.5, 0.75])
     assert [item["label"] for item in details["metadata"]] == [
+        "Run configuration",
         "Configuration results",
         "Selected configuration",
         "Outer-fold results",
         "Assessment results",
     ]
+
+
+def test_details_exposes_associated_run_and_configuration_files(tmp_path):
+    """Run and configuration selections should expose their resolved config."""
+    experiment, config, selection_run, final_run = _write_fixture_results(tmp_path)
+    run_configuration = {"model": "example.Model", "batch_size": 16}
+    for run in (selection_run, final_run):
+        (run / "model_manifest.json").write_text(
+            json.dumps({"version": 1, "config": run_configuration})
+        )
+    repository = ResultsRepository(experiment.parent)
+
+    run_details = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )
+    run_metadata = run_details["metadata"][0]
+    assert run_metadata == {
+        "label": "Run configuration",
+        "path": (
+            f"{selection_run.relative_to(experiment.parent).as_posix()}"
+            "/model_manifest.json#config"
+        ),
+        "data": run_configuration,
+    }
+
+    final_details = repository.details(
+        final_run.relative_to(experiment.parent).as_posix()
+    )
+    assert final_details["metadata"][0]["data"] == run_configuration
+
+    config_details = repository.details(
+        config.relative_to(experiment.parent).as_posix()
+    )
+    config_metadata = config_details["metadata"][0]
+    assert config_metadata["label"] == "Configuration file"
+    assert config_metadata["path"].endswith("config_results.json#config")
+    assert config_metadata["data"] == {"lr": 0.01}
+
+
+def test_configuration_file_falls_back_to_live_run_manifest(tmp_path):
+    """An unfinished configuration should remain inspectable while it runs."""
+    experiment, config, selection_run, _ = _write_fixture_results(tmp_path)
+    (config / "config_results.json").unlink()
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps({"config": {"optimizer": {"lr": 0.02}}})
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    details = repository.details(config.relative_to(experiment.parent).as_posix())
+
+    metadata = details["metadata"][0]
+    assert metadata["label"] == "Configuration file"
+    assert metadata["path"].endswith("model_manifest.json#config")
+    assert metadata["data"] == {"optimizer": {"lr": 0.02}}
 
 
 def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
@@ -968,6 +1023,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "/assets/mlwiz-logo.png" in page
         assert 'id="scale-toggle"' in page
         assert 'id="smoothing-slider"' in page
+        assert 'id="outlier-filter"' in page
         assert 'id="smoothing-value"' in page
         assert 'id="analysis-tab"' in page
         assert 'id="analysis-plot-type"' in page
@@ -1068,6 +1124,18 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "plotSecondaryGroupingControl" in app_script
         assert "plotDimensionControl" in app_script
         assert "plotTrendLogControl" in app_script
+        assert "plotOutlierControl" in app_script
+        assert "plotFamilyModeControl" in app_script
+        assert 'node("span", "", "Series")' in app_script
+        assert '"Together"' in app_script
+        assert 'familyMode: "together"' in app_script
+        assert 'plot.familyMode !== "separate"' in app_script
+        assert 'label: `${quantity.label} · ${line.label}`' in app_script
+        assert "filterIqrOutliers" in app_script
+        assert "firstQuartile - (1.5 * interquartileRange)" in app_script
+        assert "thirdQuartile + (1.5 * interquartileRange)" in app_script
+        assert "removeOutliers: Boolean(plot.removeOutliers)" in app_script
+        assert "renderOutlierFilter" in app_script
         assert "createValueScale(values, scale = state.scale)" in app_script
         assert 'scale: useLog ? "log" : "linear"' in app_script
         assert 'scale: plot.log ? "log" : "linear"' in app_script

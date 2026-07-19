@@ -290,6 +290,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 #source-field { margin-left: 0; }
 .aggregation-toggle { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 0.5625rem; font-weight: 750; cursor: pointer; user-select: none; }
 .aggregation-toggle:has(input:checked) { color: #0b7552; border-color: #a8d7c1; background: #e4f4eb; }
+.aggregation-toggle:has(input:disabled) { opacity: .45; cursor: default; }
 .aggregation-toggle input { width: 13px; height: 13px; margin: 0; accent-color: var(--green); }
 .metric-search { width: 180px; padding: 7px 9px; }
 .plot-navigator { position: sticky; top: 10px; z-index: 20; display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px 16px; margin: 0 0 16px; padding: 9px 11px; border: 1px solid #cfded6; border-radius: 11px; background: rgba(255,255,255,.94); box-shadow: 0 8px 24px rgba(17,45,33,.1); backdrop-filter: blur(10px); }

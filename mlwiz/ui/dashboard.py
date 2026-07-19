@@ -2024,6 +2024,22 @@ class ResultsRepository:
         metadata = []
         seen = set()
 
+        def add_configuration(label: str, path: Path) -> bool:
+            """Expose the resolved configuration nested in a persisted artifact."""
+            payload = _read_json(path)
+            if not isinstance(payload, dict) or not isinstance(
+                payload.get("config"), dict
+            ):
+                return False
+            metadata.append(
+                {
+                    "label": label,
+                    "path": f"{self._relative(path)}#config",
+                    "data": _json_safe(payload["config"]),
+                }
+            )
+            return True
+
         def add(label: str, path: Path) -> None:
             """Append a readable JSON artifact once when it exists."""
             if path in seen:
@@ -2038,6 +2054,41 @@ class ResultsRepository:
                         "data": _json_safe(payload),
                     }
                 )
+
+        if _RUN_PATTERN.fullmatch(target.name) or _FINAL_RUN_PATTERN.fullmatch(
+            target.name
+        ):
+            has_configuration = add_configuration(
+                "Run configuration", target / MODEL_MANIFEST_FILENAME
+            )
+            if not has_configuration:
+                config_folder = next(
+                    (
+                        ancestor
+                        for ancestor in self._ancestors_within_root(target)
+                        if _CONFIG_PATTERN.fullmatch(ancestor.name)
+                    ),
+                    None,
+                )
+                if config_folder is not None:
+                    add_configuration(
+                        "Run configuration",
+                        config_folder / "config_results.json",
+                    )
+                elif _FINAL_RUN_PATTERN.fullmatch(target.name):
+                    add_configuration(
+                        "Run configuration",
+                        target.parent / "MODEL_SELECTION" / "winner_config.json",
+                    )
+        elif _CONFIG_PATTERN.fullmatch(target.name):
+            results_path = target / "config_results.json"
+            if not add_configuration("Configuration file", results_path):
+                manifest_path = next(
+                    iter(sorted(target.glob("INNER_FOLD_*/run_*/model_manifest.json"))),
+                    None,
+                )
+                if manifest_path is not None:
+                    add_configuration("Configuration file", manifest_path)
 
         for ancestor in self._ancestors_within_root(target):
             if _CONFIG_PATTERN.fullmatch(ancestor.name):

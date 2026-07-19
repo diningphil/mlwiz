@@ -141,6 +141,7 @@
     query: storedState.query || "",
     scale: normalizedScale(storedState.scale),
     smoothing: normalizedSmoothing(storedState.smoothing),
+    removeOutliers: Boolean(storedState.removeOutliers),
     theme: ["dark", "day"].includes(storedTheme)
       ? storedTheme
       : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
@@ -248,6 +249,7 @@
         query: state.query,
         scale: state.scale,
         smoothing: state.smoothing,
+        removeOutliers: state.removeOutliers,
         theme: state.theme,
         font: state.font,
         fontSize: state.fontSize,
@@ -354,8 +356,8 @@
       kind: violin ? (is3D ? "violin3d" : "violin") : (is3D ? "bar3d" : "bar"),
       title: quantity.label,
       subtitle: ungrouped
-        ? "Averaged across all runs"
-        : `Grouped by ${plot.hyperparameter}${is3D ? ` × ${plot.secondaryHyperparameter}` : ""}`,
+        ? `Averaged across all runs${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`
+        : `Grouped by ${plot.hyperparameter}${is3D ? ` × ${plot.secondaryHyperparameter}` : ""}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
       xLabel: ungrouped ? "runs" : plot.hyperparameter,
       yLabel: quantity.label,
       zLabel: plot.secondaryHyperparameter,
@@ -827,6 +829,7 @@
           log: plot.view !== "table" && Boolean(plot.log),
           shape: plot.shape === "violin" ? "violin" : "histogram",
           showPoints: plot.shape === "violin" && Boolean(plot.showPoints),
+          removeOutliers: Boolean(plot.removeOutliers),
         }] : [];
       }
       if (plot.type === "combined-trends") {
@@ -845,6 +848,8 @@
           unit,
           hyperparameter: grouping.hyperparameter,
           log: Boolean(plot.log),
+          removeOutliers: Boolean(plot.removeOutliers),
+          familyMode: plot.familyMode === "separate" ? "separate" : "together",
         }] : [];
       }
       const unit = normalizedAnalysisUnit(plot.unit || "epoch", data);
@@ -859,6 +864,8 @@
         quantity,
         unit,
         log: Boolean(plot.log),
+        removeOutliers: Boolean(plot.removeOutliers),
+        familyMode: plot.familyMode === "separate" ? "separate" : "together",
         ...grouping,
       }] : [];
     }).map((plot) => plot.secondaryHyperparameter === plot.hyperparameter
@@ -874,6 +881,8 @@
           ? null
           : state.analysisHyperparameter,
         log: false,
+        removeOutliers: false,
+        familyMode: "together",
       }];
     }
     state.analysisQuantities = state.analysisPlots
@@ -965,6 +974,8 @@
           hyperparameter,
           secondaryHyperparameter: null,
           log: false,
+          removeOutliers: false,
+          familyMode: "together",
         }
         : null;
     }
@@ -980,6 +991,8 @@
           unit: state.analysisUnit,
           hyperparameter,
           log: false,
+          removeOutliers: false,
+          familyMode: "together",
         }
         : null;
     }
@@ -992,6 +1005,7 @@
       log: false,
       shape: "histogram",
       showPoints: false,
+      removeOutliers: false,
     } : null;
   }
 
@@ -1291,6 +1305,45 @@
     return control;
   }
 
+  function plotOutlierControl(plot) {
+    const control = node("label", "aggregation-toggle");
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = Boolean(plot.removeOutliers);
+    control.title = "Exclude values outside the 1.5×IQR fences within each plotted group";
+    input.addEventListener("change", () => {
+      updateAnalysisPlot(plot, { removeOutliers: input.checked });
+    });
+    control.append(input, node("span", "", "Remove outliers"));
+    return control;
+  }
+
+  function plotFamilyModeControl(plot, memberCount) {
+    const control = node("div", "analysis-plot-dimension-control");
+    control.append(node("span", "", "Series"));
+    const choices = node("div", "segmented");
+    choices.setAttribute("role", "group");
+    choices.setAttribute("aria-label", "Family series layout");
+    const together = plot.familyMode !== "separate";
+    const togetherButton = node("button", together ? "active" : "", "Together");
+    togetherButton.type = "button";
+    togetherButton.setAttribute("aria-pressed", String(together));
+    togetherButton.title = `Overlay all ${memberCount} family members with a legend`;
+    const separateButton = node("button", together ? "" : "active", "Separate");
+    separateButton.type = "button";
+    separateButton.setAttribute("aria-pressed", String(!together));
+    separateButton.title = `Show ${memberCount} individual plots`;
+    togetherButton.addEventListener("click", () => {
+      updateAnalysisPlot(plot, { familyMode: "together" });
+    });
+    separateButton.addEventListener("click", () => {
+      updateAnalysisPlot(plot, { familyMode: "separate" });
+    });
+    choices.append(togetherButton, separateButton);
+    control.append(choices);
+    return control;
+  }
+
   function plotTrendUnitControl(plot) {
     const control = node(
       "label", "analysis-plot-group-control analysis-plot-unit-control",
@@ -1320,6 +1373,15 @@
     });
     control.append(select);
     return control;
+  }
+
+  function analysisSeriesColor(index) {
+    const palette = [
+      "#138a62", "#4776e6", "#ef8354", "#8257e5",
+      "#d14d72", "#a36b16", "#1992a3", "#53606f",
+    ];
+    if (index < palette.length) return palette[index];
+    return `hsl(${Math.round((index * 137.508) % 360)} 62% 46%)`;
   }
 
   function redrawAnalysisCamera(cameraKey) {
@@ -1539,7 +1601,6 @@
     const configurations = new Map(
       data.configurations.map((config) => [config.number, config.hyperparameters]),
     );
-    const palette = ["#138a62", "#4776e6", "#ef8354", "#8257e5", "#d14d72", "#a36b16", "#1992a3", "#53606f"];
     const grid = el("analysis-chart-grid");
     grid.replaceChildren();
     state.metricBarCharts = [];
@@ -1550,6 +1611,7 @@
       const quantityOptions = analysisTrendQuantityOptions(plot.unit);
       const plotOption = quantityOptions.find((option) => option.id === plot.quantity);
       if (!plotOption) continue;
+      const quantityGroups = [];
       for (const quantity of plotOption.quantities) {
         const buckets = new Map();
         for (const series of data.series) {
@@ -1574,11 +1636,13 @@
           buckets.get(key).lines.push(series);
         }
         const lines = [...buckets.values()].map((bucket, index) => {
-          const aggregate = aggregateMetricLines(bucket.lines);
+          const aggregate = aggregateMetricLines(
+            bucket.lines, plot.removeOutliers,
+          );
           return {
             id: analysisValueKey([bucket.value, bucket.secondaryValue]),
             split: "other",
-            color: palette[index % palette.length],
+            color: analysisSeriesColor(index),
             label: [
               plot.hyperparameter
                 ? `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)}`
@@ -1586,7 +1650,7 @@
               plot.secondaryHyperparameter
                 ? `${plot.secondaryHyperparameter} = ${analysisValueLabel(bucket.secondaryValue)}`
                 : null,
-              `(n=${aggregate.sampleCount})`,
+              `(${aggregateSampleLabel(aggregate, plot.removeOutliers)})`,
             ].filter(Boolean).join(" · "),
             primaryValue: bucket.value,
             secondaryValue: bucket.secondaryValue,
@@ -1594,20 +1658,55 @@
           };
         });
         if (!lines.length) continue;
+        quantityGroups.push({ quantity, lines });
+      }
+      const familyLabel = plotOption.label.replace(
+        / \(\d+ (layers|components)\)$/, "",
+      );
+      const showTogether = plot.familyMode !== "separate"
+        && quantityGroups.length > 1;
+      const chartGroups = showTogether
+        ? [{
+          key: plotOption.id,
+          title: plotOption.label,
+          yLabel: familyLabel,
+          quantity: {
+            group: "family",
+            name: familyLabel,
+            label: familyLabel,
+          },
+          lines: quantityGroups.flatMap(({ quantity, lines }) =>
+            lines.map((line) => ({
+              ...line,
+              id: `${quantity.id}:${line.id}`,
+              label: `${quantity.label} · ${line.label}`,
+            }))),
+        }]
+        : quantityGroups.map(({ quantity, lines }) => ({
+          key: quantity.id,
+          title: plotOption.quantities.length > 1
+            ? `${familyLabel} · ${quantity.label}`
+            : plotOption.label,
+          yLabel: quantity.label,
+          quantity,
+          lines,
+        }));
+      for (const chartGroup of chartGroups) {
+        const lines = chartGroup.lines.map((line, index) => ({
+          ...line,
+          color: analysisSeriesColor(index),
+        }));
         const useLog = Boolean(plot.log);
         const card = node("article", "chart-card analysis-chart-card");
         const head = node("div", "chart-head");
         const title = node("div", "chart-title");
-        const familyLabel = plotOption.label.replace(/ \(\d+ (layers|components)\)$/, "");
-        const chartTitle = plotOption.quantities.length > 1
-          ? `${familyLabel} · ${quantity.label}`
-          : plotOption.label;
+        const chartTitle = chartGroup.title;
         const groupingSummary = plot.hyperparameter
           ? `averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`
           : "averaged across all runs";
         title.append(
           node("h3", "", chartTitle),
-          node("p", "", `${useLog ? "Log scale · " : ""}${plot.unit} trend · outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
+          node("p", "", `${useLog ? "Log scale · " : ""}${plot.removeOutliers ? "1.5×IQR filter · " : ""}${plot.unit} trend · outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
         const headMeta = node("div", "chart-head-meta");
@@ -1616,15 +1715,15 @@
           node("span", "chart-type", plot.secondaryHyperparameter ? "3D · mean ± std" : "mean ± std"),
           plotCodeButton(() => linePlotExportSpec({
             title: chartTitle,
-            subtitle: `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}`,
-            yLabel: quantity.label,
+            subtitle: `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
+            yLabel: chartGroup.yLabel,
             lines,
             kind: plot.secondaryHyperparameter ? "trend3d" : "line",
             zLabel: plot.secondaryHyperparameter,
             scale: useLog ? "log" : "linear",
             xLabel: plot.unit,
           })),
-          plotExpandButton(card, `trend:${plot.id}:${quantity.id}`),
+          plotExpandButton(card, `trend:${plot.id}:${chartGroup.key}`),
           plotRemoveButton(plot),
         );
         head.append(title, headMeta);
@@ -1635,8 +1734,8 @@
         canvas.setAttribute(
           "aria-label",
           plot.hyperparameter
-            ? `${quantity.label} over ${plot.unit}s by hyperparameter value`
-            : `${quantity.label} over ${plot.unit}s averaged across all runs`,
+            ? `${chartGroup.yLabel} over ${plot.unit}s by hyperparameter value`
+            : `${chartGroup.yLabel} over ${plot.unit}s averaged across all runs`,
         );
         wrap.append(canvas);
         const legend = node("div", "chart-legend analysis-legend");
@@ -1651,13 +1750,19 @@
           legend.append(item);
         }
         const controls = node("div", "analysis-plot-controls");
-        const cameraKey = `${plot.id}:${quantity.id}`;
+        const cameraKey = `${plot.id}:${chartGroup.key}`;
         controls.append(
           plotGroupingControl(plot),
           plotDimensionControl(plot),
           plotTrendUnitControl(plot),
+          plotOutlierControl(plot),
           plotTrendLogControl(plot),
         );
+        if (plotOption.quantities.length > 1) {
+          controls.append(
+            plotFamilyModeControl(plot, plotOption.quantities.length),
+          );
+        }
         if (plot.secondaryHyperparameter) {
           controls.append(
             plotSecondaryGroupingControl(plot),
@@ -1672,7 +1777,7 @@
             canvas,
             lines,
             xLabel: plot.unit,
-            yLabel: quantity.label,
+            yLabel: chartGroup.yLabel,
             zLabel: plot.secondaryHyperparameter,
             cameraKey,
             scale: useLog ? "log" : "linear",
@@ -1683,7 +1788,12 @@
         } else {
           const chart = {
             canvas,
-            group: { source: "model selection", group: quantity.group, metric: quantity.name, lines },
+            group: {
+              source: "model selection",
+              group: chartGroup.quantity.group,
+              metric: chartGroup.quantity.name,
+              lines,
+            },
             legendValues,
             epochLabel,
             hoverIndex: null,
@@ -1734,9 +1844,10 @@
     const configurations = new Map(
       data.configurations.map((config) => [config.number, config.hyperparameters]),
     );
-    const palette = ["#138a62", "#4776e6", "#ef8354", "#8257e5", "#d14d72", "#a36b16", "#1992a3", "#53606f"];
+    const pairs = combinedQuantityPairs(first, second);
+    const pairGroups = [];
     let rendered = false;
-    for (const [leftQuantity, rightQuantity] of combinedQuantityPairs(first, second)) {
+    for (const [leftQuantity, rightQuantity] of pairs) {
       const buckets = new Map();
       for (const series of data.series) {
         if (
@@ -1753,8 +1864,8 @@
       }
       const lines = [...buckets.values()].flatMap((bucket, index) => {
         if (!bucket.left.length || !bucket.right.length) return [];
-        const left = aggregateMetricLines(bucket.left);
-        const right = aggregateMetricLines(bucket.right);
+        const left = aggregateMetricLines(bucket.left, plot.removeOutliers);
+        const right = aggregateMetricLines(bucket.right, plot.removeOutliers);
         const leftIndices = new Map(
           left.xValues.map((position, point) => [position, point]),
         );
@@ -1771,8 +1882,8 @@
         ));
         return [{
           id: analysisValueKey(bucket.value),
-          label: `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)} (n=${Math.min(left.sampleCount, right.sampleCount)})`,
-          color: palette[index % palette.length],
+          label: `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)} (${aggregateSampleLabel({ sampleCount: Math.min(left.sampleCount, right.sampleCount), outlierCount: left.outlierCount + right.outlierCount }, plot.removeOutliers)})`,
+          color: analysisSeriesColor(index),
           primaryValue: bucket.value,
           xValues,
           leftValues,
@@ -1794,26 +1905,57 @@
         }];
       });
       if (!lines.length) continue;
+      pairGroups.push({ leftQuantity, rightQuantity, lines });
+    }
+    const firstLabel = first.label.replace(/ \(\d+ (layers|components)\)$/, "");
+    const secondLabel = second.label.replace(/ \(\d+ (layers|components)\)$/, "");
+    const showTogether = plot.familyMode !== "separate" && pairGroups.length > 1;
+    const chartGroups = showTogether
+      ? [{
+        key: `${first.id}:${second.id}`,
+        title: `${first.label} × ${second.label}`,
+        yLabel: firstLabel,
+        zLabel: secondLabel,
+        lines: pairGroups.flatMap(({ leftQuantity, rightQuantity, lines }) =>
+          lines.map((line) => ({
+            ...line,
+            id: `${leftQuantity.id}:${rightQuantity.id}:${line.id}`,
+            label: `${leftQuantity.label} × ${rightQuantity.label} · ${line.label}`,
+          }))),
+      }]
+      : pairGroups.map(({ leftQuantity, rightQuantity, lines }) => ({
+        key: `${leftQuantity.id}:${rightQuantity.id}`,
+        title: `${leftQuantity.label} × ${rightQuantity.label}`,
+        yLabel: leftQuantity.label,
+        zLabel: rightQuantity.label,
+        lines,
+      }));
+    for (const chartGroup of chartGroups) {
+      const lines = chartGroup.lines.map((line, index) => ({
+        ...line,
+        color: analysisSeriesColor(index),
+      }));
       const card = node("article", "chart-card analysis-chart-card");
       const head = node("div", "chart-head");
       const title = node("div", "chart-title");
       title.append(
-        node("h3", "", `${leftQuantity.label} × ${rightQuantity.label}`),
-        node("p", "", `${plot.log ? "Log scale · " : ""}3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}`),
+        node("h3", "", chartGroup.title),
+        node("p", "", `${plot.log ? "Log scale · " : ""}${plot.removeOutliers ? "1.5×IQR filter · " : ""}3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}`),
       );
       const headMeta = node("div", "chart-head-meta");
       headMeta.append(
         node("span", "chart-type", "3D trajectory"),
         plotCodeButton(() => ({
           kind: "trajectory3d",
-          title: `${leftQuantity.label} × ${rightQuantity.label}`,
-          subtitle: `3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}`,
+          title: chartGroup.title,
+          subtitle: `3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
           xLabel: plot.unit,
-          yLabel: leftQuantity.label,
-          zLabel: rightQuantity.label,
+          yLabel: chartGroup.yLabel,
+          zLabel: chartGroup.zLabel,
           scale: plot.log ? "log" : "linear",
           series: lines.map((line) => ({
             label: line.label,
+            color: line.color,
             xValues: line.xValues,
             leftValues: line.leftValues,
             rightValues: line.rightValues,
@@ -1823,25 +1965,29 @@
         })),
         plotExpandButton(
           card,
-          `combined:${plot.id}:${leftQuantity.id}:${rightQuantity.id}`,
+          `combined:${plot.id}:${chartGroup.key}`,
         ),
         plotRemoveButton(plot),
       );
       head.append(title, headMeta);
       const controls = node("div", "analysis-plot-controls");
-      const cameraKey = `${plot.id}:${leftQuantity.id}:${rightQuantity.id}`;
+      const cameraKey = `${plot.id}:${chartGroup.key}`;
       controls.append(
         plotGroupingControl(plot),
         plotTrendUnitControl(plot),
+        plotOutlierControl(plot),
         plotTrendLogControl(plot),
-        plot3DAlignmentControl(cameraKey),
       );
+      if (pairs.length > 1) {
+        controls.append(plotFamilyModeControl(plot, pairs.length));
+      }
+      controls.append(plot3DAlignmentControl(cameraKey));
       const wrap = node("div", "chart-wrap analysis-chart-wrap analysis-chart-3d");
       const canvas = document.createElement("canvas");
       canvas.setAttribute("role", "img");
       canvas.setAttribute(
         "aria-label",
-        `${leftQuantity.label} and ${rightQuantity.label} over ${plot.unit}s grouped by ${plot.hyperparameter}`,
+        `${chartGroup.yLabel} and ${chartGroup.zLabel} over ${plot.unit}s grouped by ${plot.hyperparameter}`,
       );
       wrap.append(canvas);
       const legend = node("div", "chart-legend analysis-legend");
@@ -1859,8 +2005,8 @@
         canvas,
         lines,
         xLabel: plot.unit,
-        yLabel: leftQuantity.label,
-        zLabel: rightQuantity.label,
+        yLabel: chartGroup.yLabel,
+        zLabel: chartGroup.zLabel,
         cameraKey,
         scale: plot.log ? "log" : "linear",
       };
@@ -2393,21 +2539,38 @@
       const key = analysisValueKey([value, secondaryValue]);
       if (!buckets.has(key)) {
         buckets.set(key, {
-          value, secondaryValue, samples: [], best: 0, last: 0,
+          value, secondaryValue, samples: [], sources: [],
         });
       }
       const bucket = buckets.get(key);
       bucket.samples.push(Number(series.selected_value));
-      if (series.selected_value_source === "best_checkpoint") bucket.best += 1;
-      else bucket.last += 1;
+      bucket.sources.push(series.selected_value_source);
     }
     return [...buckets.values()].map((bucket) => {
-      const mean = bucket.samples.reduce((sum, value) => sum + value, 0)
-        / bucket.samples.length;
-      const std = Math.sqrt(bucket.samples.reduce(
+      const filtered = filterIqrOutliers(
+        bucket.samples, plot.removeOutliers,
+      );
+      const samples = filtered.values;
+      const retainedSources = filtered.indices.map(
+        (index) => bucket.sources[index],
+      );
+      const mean = samples.reduce((sum, value) => sum + value, 0)
+        / samples.length;
+      const std = Math.sqrt(samples.reduce(
         (sum, value) => sum + ((value - mean) ** 2), 0,
-      ) / bucket.samples.length);
-      return { ...bucket, mean, std, count: bucket.samples.length };
+      ) / samples.length);
+      return {
+        value: bucket.value,
+        secondaryValue: bucket.secondaryValue,
+        samples,
+        mean,
+        std,
+        count: samples.length,
+        rawCount: filtered.rawCount,
+        outlierCount: filtered.removed,
+        best: retainedSources.filter((source) => source === "best_checkpoint").length,
+        last: retainedSources.filter((source) => source !== "best_checkpoint").length,
+      };
     }).sort((left, right) => {
       const primary = compareAnalysisValues(left.value, right.value);
       return primary || compareAnalysisValues(left.secondaryValue, right.secondaryValue);
@@ -2455,6 +2618,9 @@
     const useLog = Boolean(plot.log);
     const ungrouped = !plot.hyperparameter;
     const cameraKey = `${plot.id}:metric:${quantity.id}`;
+    const outlierCount = bars.reduce(
+      (total, bar) => total + bar.outlierCount, 0,
+    );
     const card = node("article", "chart-card analysis-chart-card");
     const head = node("div", "chart-head");
     const title = node("div", "chart-title");
@@ -2468,7 +2634,7 @@
       ),
       node(
         "p", "",
-        `${useLog ? "Log scale · " : ""}${ungrouped ? "Averaged across all runs" : `Grouped by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`} · best checkpoint value when available; otherwise last recorded epoch`,
+        `${useLog ? "Log scale · " : ""}${plot.removeOutliers ? `1.5×IQR filter (${outlierCount} removed) · ` : ""}${ungrouped ? "Averaged across all runs" : `Grouped by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`} · best checkpoint value when available; otherwise last recorded epoch`,
       ),
     );
     const sources = bars.reduce(
@@ -2543,6 +2709,7 @@
       plotDimensionControl(plot),
       output,
       shape,
+      plotOutlierControl(plot),
       logControl,
       pointsControl,
     );
@@ -3834,6 +4001,7 @@
     ]);
     renderPlotMode();
     renderInnerFoldAggregation();
+    renderOutlierFilter();
     renderSourceFilter(sources);
     renderPlotNavigator();
 
@@ -4023,6 +4191,23 @@
     checkbox.checked = Boolean(state.innerFoldAggregate);
   }
 
+  function runOutlierFilteringAvailable() {
+    const mode = resolvedPlotMode();
+    return mode === "final-aggregate"
+      || (mode === "inner-fold" && state.innerFoldAggregate);
+  }
+
+  function renderOutlierFilter() {
+    const field = el("outlier-filter-field");
+    const checkbox = el("outlier-filter");
+    const available = runOutlierFilteringAvailable();
+    checkbox.checked = state.removeOutliers;
+    checkbox.disabled = !available;
+    field.title = available
+      ? "Exclude values outside the 1.5×IQR fences when aggregating runs"
+      : "Outlier removal is available in mean ± std aggregate views";
+  }
+
   function renderSourceFilter(sources) {
     const field = el("source-field");
     const select = el("source-select");
@@ -4176,7 +4361,54 @@
     return [[], [7, 3], [2, 3], [9, 3, 2, 3]][Math.abs(index) % 4];
   }
 
-  function aggregateMetricLines(lines) {
+  function sortedQuantile(sortedValues, fraction) {
+    if (!sortedValues.length) return null;
+    const position = (sortedValues.length - 1) * fraction;
+    const lower = Math.floor(position);
+    const upper = Math.ceil(position);
+    const weight = position - lower;
+    return sortedValues[lower]
+      + ((sortedValues[upper] - sortedValues[lower]) * weight);
+  }
+
+  function filterIqrOutliers(values, enabled = false) {
+    const samples = values.flatMap((value, index) => (
+      Number.isFinite(value) ? [{ value, index }] : []
+    ));
+    if (!enabled || samples.length < 4) {
+      return {
+        values: samples.map((sample) => sample.value),
+        indices: samples.map((sample) => sample.index),
+        rawCount: samples.length,
+        removed: 0,
+      };
+    }
+    const sorted = samples.map((sample) => sample.value)
+      .sort((left, right) => left - right);
+    const firstQuartile = sortedQuantile(sorted, 0.25);
+    const thirdQuartile = sortedQuantile(sorted, 0.75);
+    const interquartileRange = thirdQuartile - firstQuartile;
+    const lowerFence = firstQuartile - (1.5 * interquartileRange);
+    const upperFence = thirdQuartile + (1.5 * interquartileRange);
+    const retained = samples.filter(
+      (sample) => sample.value >= lowerFence && sample.value <= upperFence,
+    );
+    return {
+      values: retained.map((sample) => sample.value),
+      indices: retained.map((sample) => sample.index),
+      rawCount: samples.length,
+      removed: samples.length - retained.length,
+    };
+  }
+
+  function aggregateSampleLabel(aggregate, removeOutliers) {
+    const sampleLabel = `n=${aggregate.sampleCount}`;
+    return removeOutliers
+      ? `${sampleLabel}; ${aggregate.outlierCount} removed`
+      : sampleLabel;
+  }
+
+  function aggregateMetricLines(lines, removeOutliers = false) {
     const positions = [...new Set(lines.flatMap(seriesXValues))]
       .sort((left, right) => left - right);
     const indexedLines = lines.map((line) => new Map(
@@ -4185,10 +4417,14 @@
     const values = [];
     const lower = [];
     const upper = [];
+    let outlierCount = 0;
     for (const position of positions) {
-      const samples = indexedLines
+      const availableSamples = indexedLines
         .map((line) => line.get(position))
         .filter((value) => value !== null && Number.isFinite(value));
+      const filtered = filterIqrOutliers(availableSamples, removeOutliers);
+      const samples = filtered.values;
+      outlierCount += filtered.removed;
       if (!samples.length) {
         values.push(null); lower.push(null); upper.push(null);
         continue;
@@ -4205,6 +4441,7 @@
       xValues: positions,
       band: { lower, upper },
       sampleCount: lines.length,
+      outlierCount,
     };
   }
 
@@ -4268,11 +4505,13 @@
           const suffix = aggregateInnerFolds ? "mean ± std across runs" : "mean ± std";
           groups.set(key, { source: `${bucket.scope} · ${suffix}`, group: bucket.group, metric: bucket.metric, lines: [] });
         }
-        const aggregate = aggregateMetricLines(bucket.lines);
+        const aggregate = aggregateMetricLines(
+          bucket.lines, state.removeOutliers,
+        );
         groups.get(key).lines.push({
           id: `${key}\u0000${bucket.split}`,
           split: bucket.split,
-          label: `${bucket.split} mean ± std (n=${aggregate.sampleCount})`,
+          label: `${bucket.split} mean ± std (${aggregateSampleLabel(aggregate, state.removeOutliers)})`,
           ...aggregate,
         });
       }
@@ -6037,6 +6276,11 @@
     persistState();
     if (state.details) renderChartsPreservingScroll();
   });
+  el("outlier-filter").addEventListener("change", (event) => {
+    state.removeOutliers = event.target.checked;
+    persistState();
+    if (state.details) renderChartsPreservingScroll();
+  });
   el("source-select").addEventListener("change", (event) => {
     state.source = event.target.value;
     persistState();
@@ -6051,6 +6295,7 @@
       return;
     }
     renderInnerFoldAggregation();
+    renderOutlierFilter();
     renderSourceFilter([...new Set(metricSeries().map((series) => series.source))]);
     renderPlotNavigator();
     renderCharts();
@@ -6059,6 +6304,7 @@
   el("inner-fold-aggregate").addEventListener("change", (event) => {
     state.innerFoldAggregate = event.target.checked;
     persistState();
+    renderOutlierFilter();
     renderCharts();
   });
   el("fold-select").addEventListener("change", (event) => {

@@ -5,6 +5,13 @@
 ## Added
 
 - added epoch/step unit selection to Model Selection Analysis trend and combined-trend plots, including sampled-step aggregation, axes, hover values, and reproducible Python exports
+- added opt-in 1.5×IQR outlier removal for aggregate Run Explorer views and
+  per-plot Model Selection Analysis trends, distributions, and tables, with
+  removed-value counts and filtered reproducible exports
+- added a default combined view for layer/component trend families, with a
+  persistent per-card Together/Separate series control and complete legends
+- added dedicated resolved-configuration inspectors when selecting a run or a
+  model-selection configuration, including live manifest fallback
 
 ## Fixed
 

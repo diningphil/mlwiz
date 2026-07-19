@@ -380,6 +380,13 @@ Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
 short-term noise and retain a faint raw trace for context. The chosen value is
 preserved for the dashboard session and included with reproducible plot exports.
+Use **Remove outliers** in a mean ± standard-deviation Run Explorer view, or on
+an individual Model Selection Analysis plot, to exclude values outside Tukey's
+1.5×IQR fences. Trend filtering is performed independently at each epoch or
+sampled step within each plotted group; distributions are filtered within each
+hyperparameter bucket. At least four finite samples are required, removed-value
+counts are shown in the plot, and individual run histories and stored artifacts
+remain unchanged. Reproducible plot exports contain the displayed, filtered data.
 The **Log scale** control uses a conventional base-10 logarithmic axis when
 every displayed value is positive. If zero or negative values are present, it
 automatically uses an adaptive symmetric-log axis: a small neighborhood around
@@ -424,10 +431,12 @@ Trends and 3D plots require real grouping parameters and do not offer None.
 
 Numeric custom histories in `metrics_data.torch` are discovered alongside
 losses and scores. Rectangular epoch-by-layer/component data is treated as one
-family: selecting it automatically renders every related layer or component as
-a separate plot instead of requiring manual selection. All 3D views support
-drag rotation, mouse-wheel zoom, X/Y/Z alignment, hover values, and per-card
-expand/shrink controls. See the
+family: selecting it overlays every related layer or component in one plot with
+a legend by default. Use the per-card **Series: Together / Separate** control to
+switch between that shared view and one plot per family member. The same control
+is available for combined trends that resolve to multiple quantity pairs. All
+3D views support drag rotation, mouse-wheel zoom, X/Y/Z alignment, hover values,
+and per-card expand/shrink controls. See the
 [model-selection analysis tutorial](docs/tutorial.rst#model-selection-analysis)
 for the aggregation rules, plot semantics, and custom `WidthPlotter` example.
 
@@ -464,6 +473,11 @@ configurations; recorded compute time; average and median run duration; and an
 estimated remaining compute budget. Timing comes from the profiler markers in
 each `experiment.log`. The remaining estimate is deliberately reported as
 compute time because parallel execution may complete in less wall-clock time.
+The metadata section also exposes the resolved configuration associated with a
+selected run or configuration as a dedicated, collapsible JSON inspector. Run
+configurations come from `model_manifest.json`; completed configuration entries
+come from `config_results.json`, with a live-run manifest fallback while an
+experiment is still running.
 
 The collapsible **Model graph** panel loads graph information only when opened.
 For a running job it reads `last_checkpoint.pth`; for a completed job it prefers
