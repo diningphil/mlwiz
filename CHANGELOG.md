@@ -8,6 +8,8 @@
 
 ## Fixed
 
+- shaded and disabled the per-plot unit selector when a trend is available for
+  epochs or steps only, while keeping the sole available unit visible
 - fixed dashboard log scaling for metrics below one by using a conventional
   base-10 log axis for all-positive plots and an adaptive, data-scaled
   symmetric-log axis whenever zero or negative values are present; Python plot

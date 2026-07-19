@@ -1292,7 +1292,9 @@
   }
 
   function plotTrendUnitControl(plot) {
-    const control = node("label", "analysis-plot-group-control");
+    const control = node(
+      "label", "analysis-plot-group-control analysis-plot-unit-control",
+    );
     control.append(node("span", "", "Unit"));
     const select = document.createElement("select");
     const units = availableAnalysisUnits().filter((unit) => {
@@ -1309,6 +1311,10 @@
     }
     select.value = plot.unit || "epoch";
     select.disabled = units.length < 2;
+    if (units.length === 1) {
+      const unitLabel = units[0] === "step" ? "Step" : "Epoch";
+      control.title = `Only ${unitLabel} histories are available for this plot`;
+    }
     select.addEventListener("change", () => {
       updateAnalysisPlot(plot, { unit: select.value });
     });

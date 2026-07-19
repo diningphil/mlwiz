@@ -1044,6 +1044,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "analysisQuantityOptions" in app_script
         assert "analysisTrendQuantityOptions" in app_script
         assert "plotTrendUnitControl" in app_script
+        assert "analysis-plot-group-control analysis-plot-unit-control" in app_script
+        assert "Only ${unitLabel} histories are available for this plot" in app_script
+        assert ".analysis-plot-unit-control select:disabled" in stylesheet
         assert '(series.unit || "epoch") !== plot.unit' in app_script
         assert "xLabel: plot.unit" in app_script
         assert "renderAnalysisCharts" in app_script

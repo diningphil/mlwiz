@@ -181,6 +181,8 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .analysis-metric-card-controls, .analysis-plot-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 0 0 12px; }
 .analysis-plot-group-control { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 0.5rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .analysis-plot-group-control select { max-width: 190px; padding: 5px 24px 5px 7px; border: 1px solid var(--line); border-radius: 7px; outline: 0; color: var(--ink); background: var(--panel); font-size: 0.5625rem; font-weight: 700; letter-spacing: 0; text-transform: none; }
+.analysis-plot-unit-control:has(select:disabled) { color: color-mix(in srgb, var(--faint) 68%, var(--line)); }
+.analysis-plot-unit-control select:disabled { color: var(--faint); border-color: color-mix(in srgb, var(--line) 82%, var(--faint)); background: color-mix(in srgb, var(--panel) 76%, var(--line)); opacity: .72; cursor: not-allowed; }
 .analysis-plot-dimension-control, .analysis-plot-alignment-control { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 0.5rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .analysis-plot-remove { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; color: #55806a; background: transparent; font-size: 1.0625rem; line-height: 1; cursor: pointer; }
 .analysis-plot-remove:hover { color: #9d3c33; background: #f7e3e0; }
