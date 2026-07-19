@@ -394,12 +394,17 @@ zero stays linear and larger magnitudes are logarithmic. The linear threshold
 is derived from the displayed data and limited to six decades below its largest
 magnitude, so the behavior is independent of whether a metric is naturally
 measured near `1`, `0.01`, or another scale. Each experiment has its own lazy-loaded
-configuration filter: choose any discovered score or loss, compare it with a
-threshold using `≥` or `≤`, choose training or validation values, and combine
-multiple conditions with AND or OR. Completed experiments use their aggregated
-results; running experiments use the latest values available in
-`metrics_data.torch`. While a filter is active, final runs are hidden and an
-experiment with no matching configuration shows only its filter controls.
+configuration filter: choose any discovered score or loss and compare its
+training or validation value with a threshold using `≥` or `≤`, or choose a
+hyper-parameter and match one of its tried values using `=` or `≠`. Nested
+hyper-parameters are displayed as dotted paths such as `optimizer.lr`; parameters
+with only one discovered value are omitted. Multiple metric and hyper-parameter
+conditions can be combined with AND or OR. Completed
+experiments use their aggregated metric results; running experiments use the
+latest values available in `metrics_data.torch` and configuration values from
+live run manifests when necessary. While a filter is active, final runs are
+hidden and an experiment with no matching configuration shows only its filter
+controls.
 
 #### Model Selection Analysis
 

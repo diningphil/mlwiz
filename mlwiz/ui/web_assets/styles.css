@@ -100,7 +100,7 @@ code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 .filter-head { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-bottom: 6px; }
 .filter-status { color: #425247; font-size: 0.5625rem; font-weight: 750; }
 .filter-source { color: #98a198; font-size: 0.5rem; }
-.filter-clause { display: grid; grid-template-columns: 58px minmax(0, 1fr) 34px 54px 20px; gap: 3px; align-items: center; }
+.filter-clause { display: grid; grid-template-columns: 76px minmax(0, 1fr) 34px 62px 20px; gap: 3px; align-items: center; }
 .filter-clause select, .filter-clause input, .filter-logic { min-width: 0; height: 25px; border: 1px solid #d9ded7; border-radius: 6px; outline: 0; color: #455347; background: #fff; font-size: 0.5rem; }
 .filter-clause select:focus, .filter-clause input:focus, .filter-logic:focus { border-color: #72af96; }
 .filter-metric { padding: 0 4px; }

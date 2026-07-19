@@ -4,6 +4,9 @@
 
 ## Added
 
+- added exact-value configuration filtering for discovered, varying
+  hyperparameters, including nested parameters, live run-manifest fallback,
+  and mixed metric / hyperparameter AND/OR clauses
 - added epoch/step unit selection to Model Selection Analysis trend and combined-trend plots, including sampled-step aggregation, axes, hover values, and reproducible Python exports
 - added opt-in 1.5×IQR outlier removal for aggregate Run Explorer views and
   per-plot Model Selection Analysis trends, distributions, and tables, with

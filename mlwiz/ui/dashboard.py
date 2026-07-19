@@ -1245,6 +1245,7 @@ class ResultsRepository:
 
         experiment_complete = (assessment / "assessment_results.json").is_file()
         options: dict[str, dict[str, str]] = {}
+        hyperparameter_values: dict[str, dict[str, Any]] = {}
         configurations = {}
         for outer_number, outer_folder in _numbered_directories(
             assessment, _OUTER_FOLD_PATTERN
@@ -1259,10 +1260,19 @@ class ResultsRepository:
                 else:
                     values = self._running_filter_values(config_folder, options)
                     value_source = "last recorded training/validation epoch"
+                hyperparameters = _configuration_leaves(
+                    self._filter_configuration(config_folder)
+                )
+                for name, value in hyperparameters.items():
+                    value_key = json.dumps(value, sort_keys=True, ensure_ascii=False)
+                    hyperparameter_values.setdefault(name, {}).setdefault(
+                        value_key, value
+                    )
                 configurations[self._relative(config_folder)] = {
                     "outer_fold": outer_number,
                     "configuration": config_number,
                     "values": values,
+                    "hyperparameters": hyperparameters,
                 }
 
         sorted_options = sorted(
@@ -1280,6 +1290,17 @@ class ResultsRepository:
             default_metric = "losses:main_loss"
         else:
             default_metric = sorted_options[0]["id"] if sorted_options else None
+        hyperparameters = [
+            {
+                "id": name,
+                "label": name.replace("_", " "),
+                "values": list(values.values()),
+            }
+            for name, values in sorted(
+                hyperparameter_values.items(), key=lambda item: item[0].lower()
+            )
+            if len(values) > 1
+        ]
         return {
             "experiment": self._relative(experiment),
             "complete": experiment_complete,
@@ -1288,6 +1309,7 @@ class ResultsRepository:
             "default_split": "validation",
             "splits": ["validation", "training"],
             "metrics": sorted_options,
+            "hyperparameters": hyperparameters,
             "configurations": configurations,
             "cache": self.cache_status(),
         }
@@ -1464,6 +1486,20 @@ class ResultsRepository:
         if isinstance(results, dict) and isinstance(results.get("config"), dict):
             return results["config"]
         for manifest_path in sorted(inner_folder.glob("run_*/model_manifest.json")):
+            manifest = _read_json(manifest_path)
+            if isinstance(manifest, dict) and isinstance(manifest.get("config"), dict):
+                return manifest["config"]
+        return {}
+
+    @staticmethod
+    def _filter_configuration(config_folder: Path) -> dict:
+        """Read filterable hyperparameters from results or any live run."""
+        results = _read_json(config_folder / "config_results.json")
+        if isinstance(results, dict) and isinstance(results.get("config"), dict):
+            return results["config"]
+        for manifest_path in sorted(
+            config_folder.glob("INNER_FOLD_*/run_*/model_manifest.json")
+        ):
             manifest = _read_json(manifest_path)
             if isinstance(manifest, dict) and isinstance(manifest.get("config"), dict):
                 return manifest["config"]

@@ -3679,10 +3679,8 @@
         definition.logic = definition.logic || "AND";
         persistState();
       } else if (definition) {
-        const metricIds = new Set(data.metrics.map((metric) => metric.id));
         for (const clause of definition.clauses) {
-          if (!metricIds.has(clause.metric)) clause.metric = data.default_metric;
-          if (!data.splits.includes(clause.split)) clause.split = data.default_split;
+          normalizeFilterClause(clause, data);
         }
         persistState();
       }
@@ -3754,7 +3752,7 @@
       panel.append(combine);
     }
     clauses.forEach((clause, index) => {
-      panel.append(renderFilterClause(experiment.path, clause, index, data.metrics));
+      panel.append(renderFilterClause(experiment.path, clause, index, data));
     });
 
     const actions = node("div", "filter-actions");
@@ -3777,36 +3775,63 @@
     return panel;
   }
 
-  function renderFilterClause(experimentPath, clause, index, metrics) {
+  function renderFilterClause(experimentPath, clause, index, data) {
     const row = node("div", "filter-clause");
-    const split = node("select", "filter-split");
-    split.setAttribute("aria-label", "Training or validation metric");
-    for (const value of state.filterData[experimentPath].splits) {
+    const source = node("select", "filter-split");
+    source.setAttribute("aria-label", "Configuration filter source");
+    for (const value of data.splits) {
       const option = node("option", "", value[0].toUpperCase() + value.slice(1));
       option.value = value;
-      split.append(option);
+      source.append(option);
     }
-    split.value = clause.split;
-    split.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "split", event.target.value));
+    if ((data.hyperparameters || []).length) {
+      const option = node("option", "", "Hyper-parameter");
+      option.value = "hyperparameter";
+      source.append(option);
+    }
+    source.value = clause.type === "hyperparameter" ? "hyperparameter" : clause.split;
+    source.addEventListener("change", (event) => updateFilterClauseSource(
+      experimentPath, index, event.target.value,
+    ));
 
-    const metric = node("select", "filter-metric");
-    metric.setAttribute("aria-label", "Metric to filter");
-    for (const [kind, label] of [["score", "Scores"], ["loss", "Losses"]]) {
-      const optionGroup = node("optgroup", "");
-      optionGroup.label = label;
-      for (const descriptor of metrics.filter((item) => item.kind === kind)) {
+    const target = node("select", "filter-metric");
+    if (clause.type === "hyperparameter") {
+      target.setAttribute("aria-label", "Hyper-parameter to filter");
+      for (const descriptor of data.hyperparameters || []) {
         const option = node("option", "", descriptor.label);
         option.value = descriptor.id;
-        optionGroup.append(option);
+        target.append(option);
       }
-      if (optionGroup.children.length) metric.append(optionGroup);
+      target.value = clause.hyperparameter;
+      target.addEventListener("change", (event) => updateFilterClause(
+        experimentPath, index, "hyperparameter", event.target.value,
+      ));
+    } else {
+      target.setAttribute("aria-label", "Metric to filter");
+      for (const [kind, label] of [["score", "Scores"], ["loss", "Losses"]]) {
+        const optionGroup = node("optgroup", "");
+        optionGroup.label = label;
+        for (const descriptor of data.metrics.filter((item) => item.kind === kind)) {
+          const option = node("option", "", descriptor.label);
+          option.value = descriptor.id;
+          optionGroup.append(option);
+        }
+        if (optionGroup.children.length) target.append(optionGroup);
+      }
+      target.value = clause.metric;
+      target.addEventListener("change", (event) => updateFilterClause(
+        experimentPath, index, "metric", event.target.value,
+      ));
     }
-    metric.value = clause.metric;
-    metric.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "metric", event.target.value));
 
     const operator = node("select", "filter-operator");
-    operator.setAttribute("aria-label", "Metric comparison");
-    for (const [value, label] of [["gte", "≥"], ["lte", "≤"]]) {
+    operator.setAttribute("aria-label", clause.type === "hyperparameter"
+      ? "Hyper-parameter comparison"
+      : "Metric comparison");
+    const operators = clause.type === "hyperparameter"
+      ? [["eq", "="], ["neq", "≠"]]
+      : [["gte", "≥"], ["lte", "≤"]];
+    for (const [value, label] of operators) {
       const option = node("option", "", label);
       option.value = value;
       operator.append(option);
@@ -3814,13 +3839,32 @@
     operator.value = clause.operator;
     operator.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "operator", event.target.value));
 
-    const threshold = node("input", "filter-value");
-    threshold.type = "number";
-    threshold.step = "any";
-    threshold.placeholder = "value";
-    threshold.value = clause.value;
-    threshold.setAttribute("aria-label", "Filter threshold");
-    threshold.addEventListener("change", (event) => updateFilterClause(experimentPath, index, "value", event.target.value));
+    let filterValue;
+    if (clause.type === "hyperparameter") {
+      filterValue = node("select", "filter-value");
+      filterValue.setAttribute("aria-label", "Hyper-parameter value");
+      const descriptor = data.hyperparameters.find(
+        (item) => item.id === clause.hyperparameter,
+      );
+      const values = [...new Map((descriptor?.values || []).map((value) => [
+        configurationFilterValueKey(value), value,
+      ])).values()].sort(compareAnalysisValues);
+      for (const value of values) {
+        const option = node("option", "", analysisValueLabel(value));
+        option.value = configurationFilterValueKey(value);
+        filterValue.append(option);
+      }
+    } else {
+      filterValue = node("input", "filter-value");
+      filterValue.type = "number";
+      filterValue.step = "any";
+      filterValue.placeholder = "value";
+      filterValue.setAttribute("aria-label", "Filter threshold");
+    }
+    filterValue.value = clause.value;
+    filterValue.addEventListener("change", (event) => updateFilterClause(
+      experimentPath, index, "value", event.target.value,
+    ));
 
     const remove = node("button", "filter-remove", "×");
     remove.type = "button";
@@ -3834,8 +3878,19 @@
       persistState();
       renderTree();
     });
-    row.append(split, metric, operator, threshold, remove);
+    row.append(source, target, operator, filterValue, remove);
     return row;
+  }
+
+  function updateFilterClauseSource(experimentPath, index, source) {
+    const clause = state.experimentFilters[experimentPath].clauses[index];
+    const type = source === "hyperparameter" ? "hyperparameter" : "metric";
+    if (clause.type !== type) clause.value = "";
+    clause.type = type;
+    if (clause.type === "metric") clause.split = source;
+    normalizeFilterClause(clause, state.filterData[experimentPath]);
+    persistState();
+    renderTree();
   }
 
   function updateFilterClause(experimentPath, index, key, value) {
@@ -3844,6 +3899,9 @@
     if (key === "metric") {
       const descriptor = state.filterData[experimentPath].metrics.find((metric) => metric.id === value);
       clause.operator = descriptor?.kind === "loss" ? "lte" : "gte";
+    } else if (key === "hyperparameter") {
+      clause.value = "";
+      normalizeFilterClause(clause, state.filterData[experimentPath]);
     }
     persistState();
     renderTree();
@@ -3851,28 +3909,93 @@
 
   function newFilterClause(data) {
     const descriptor = data.metrics.find((metric) => metric.id === data.default_metric);
-    return {
+    if (descriptor) return {
+      type: "metric",
       metric: data.default_metric,
       split: data.default_split,
       operator: descriptor?.kind === "loss" ? "lte" : "gte",
       value: "",
     };
+    const hyperparameter = (data.hyperparameters || [])[0];
+    if (!hyperparameter) return {
+      type: "metric",
+      metric: null,
+      split: data.default_split,
+      operator: "gte",
+      value: "",
+    };
+    return {
+      type: "hyperparameter",
+      hyperparameter: hyperparameter.id,
+      operator: "eq",
+      value: hyperparameter.values.length
+        ? configurationFilterValueKey(hyperparameter.values[0])
+        : "",
+    };
+  }
+
+  function normalizeFilterClause(clause, data) {
+    const hyperparameters = data.hyperparameters || [];
+    if (clause.type === "hyperparameter" && hyperparameters.length) {
+      const descriptor = hyperparameters.find(
+        (item) => item.id === clause.hyperparameter,
+      ) || hyperparameters[0];
+      clause.hyperparameter = descriptor.id;
+      if (!new Set(descriptor.values.map(configurationFilterValueKey)).has(clause.value)) {
+        clause.value = descriptor.values.length
+          ? configurationFilterValueKey(descriptor.values[0])
+          : "";
+      }
+      if (!["eq", "neq"].includes(clause.operator)) clause.operator = "eq";
+      return;
+    }
+    clause.type = "metric";
+    const descriptor = data.metrics.find((metric) => metric.id === clause.metric)
+      || data.metrics.find((metric) => metric.id === data.default_metric)
+      || data.metrics[0];
+    clause.metric = descriptor?.id || null;
+    if (!data.splits.includes(clause.split)) clause.split = data.default_split;
+    if (!["gte", "lte"].includes(clause.operator)) {
+      clause.operator = descriptor?.kind === "loss" ? "lte" : "gte";
+    }
+  }
+
+  function configurationFilterValueKey(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value);
+    if (Array.isArray(value)) {
+      return `[${value.map(configurationFilterValueKey).join(",")}]`;
+    }
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${configurationFilterValueKey(value[key])}`
+    ).join(",")}}`;
   }
 
   function activeFilterClauses(experimentPath) {
     const definition = state.experimentFilters[experimentPath];
     if (!definition?.enabled) return [];
-    return (definition.clauses || []).filter((clause) =>
-      clause.metric && clause.value !== "" && Number.isFinite(Number(clause.value))
-    );
+    return (definition.clauses || []).filter((clause) => {
+      if (clause.type === "hyperparameter") {
+        return clause.hyperparameter && clause.value !== "";
+      }
+      return clause.metric && clause.value !== "" && Number.isFinite(Number(clause.value));
+    });
   }
 
   function configurationPassesFilter(experimentPath, configPath) {
     const clauses = activeFilterClauses(experimentPath);
     const data = state.filterData[experimentPath];
     if (!clauses.length || !data?.configurations) return true;
-    const values = data.configurations[configPath]?.values || {};
+    const configuration = data.configurations[configPath] || {};
+    const values = configuration.values || {};
     const matches = clauses.map((clause) => {
+      if (clause.type === "hyperparameter") {
+        const hyperparameters = configuration.hyperparameters || {};
+        if (!Object.hasOwn(hyperparameters, clause.hyperparameter)) return false;
+        const equal = configurationFilterValueKey(
+          hyperparameters[clause.hyperparameter],
+        ) === clause.value;
+        return clause.operator === "neq" ? !equal : equal;
+      }
       const metricValue = values[`${clause.split}:${clause.metric}`];
       if (!Number.isFinite(metricValue)) return false;
       return clause.operator === "lte"

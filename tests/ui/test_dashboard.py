@@ -478,16 +478,68 @@ def test_completed_experiment_filter_uses_aggregated_results(tmp_path):
         metric for metric in data["metrics"] if metric["id"] == "scores:aux"
     )
     assert aux_metric["label"] == "Aux"
+    assert data["hyperparameters"] == []
+    assert data["configurations"][config_path]["hyperparameters"] == {"lr": 0.01}
+
+
+def test_experiment_filter_discovers_nested_hyperparameter_values(tmp_path):
+    """Filter data should expose every tried value and its owning config."""
+    experiment, first_config, _, _ = _write_fixture_results(tmp_path)
+    first_results_path = first_config / "config_results.json"
+    first_results = json.loads(first_results_path.read_text())
+    first_results["config"] = {
+        "optimizer": {"lr": 0.01, "name": "adam"},
+        "layers": [32, 16],
+        "batch_size": 32,
+    }
+    first_results_path.write_text(json.dumps(first_results))
+    second_config = first_config.parent / "config_3"
+    second_config.mkdir()
+    (second_config / "config_results.json").write_text(
+        json.dumps(
+            {
+                "config": {
+                    "optimizer": {"lr": 0.1, "name": "sgd"},
+                    "layers": [64, 16],
+                    "batch_size": 32,
+                },
+                "avg_validation_score": 0.7,
+            }
+        )
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    data = repository.experiment_filter_data(experiment.name)
+
+    descriptors = {item["id"]: item for item in data["hyperparameters"]}
+    assert descriptors["optimizer.lr"]["values"] == [0.01, 0.1]
+    assert descriptors["optimizer.name"]["values"] == ["adam", "sgd"]
+    assert descriptors["layers"]["values"] == [[32, 16], [64, 16]]
+    assert "batch_size" not in descriptors
+    second_path = second_config.relative_to(experiment.parent).as_posix()
+    assert data["configurations"][second_path]["hyperparameters"] == {
+        "optimizer.lr": 0.1,
+        "optimizer.name": "sgd",
+        "layers": [64, 16],
+        "batch_size": 32,
+    }
 
 
 def test_running_experiment_filter_uses_last_recorded_metrics(tmp_path):
     """In-progress experiments should use the latest validation history value."""
-    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    experiment, config, selection_run, _ = _write_fixture_results(tmp_path)
     (experiment / "MODEL_ASSESSMENT" / "assessment_results.json").unlink()
     metrics_path = selection_run / "metrics_data.torch"
     metrics = torch.load(metrics_path, weights_only=True)
     metrics["scores"]["validation_aux"] = [0.1, 0.4, 0.7]
     torch.save(metrics, metrics_path)
+    results_path = config / "config_results.json"
+    results = json.loads(results_path.read_text())
+    results.pop("config")
+    results_path.write_text(json.dumps(results))
+    (selection_run / "model_manifest.json").write_text(
+        json.dumps({"config": {"optimizer": {"lr": 0.02}}})
+    )
     repository = ResultsRepository(experiment.parent)
 
     data = repository.experiment_filter_data(experiment.name)
@@ -499,6 +551,7 @@ def test_running_experiment_filter_uses_last_recorded_metrics(tmp_path):
     assert config_values["validation:scores:aux"] == pytest.approx(0.7)
     assert config_values["validation:losses:main_loss"] == pytest.approx(0.4)
     assert config_values["training:scores:main_score"] == pytest.approx(0.8)
+    assert data["hyperparameters"] == []
 
 
 def test_selected_experiment_overview_summarizes_run_times(tmp_path):
@@ -1209,6 +1262,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "drawMetricBand" in app_script
         assert "aggregate_final_runs=1" in app_script
         assert "configurationPassesFilter" in app_script
+        assert 'node("option", "", "Hyper-parameter")' in app_script
+        assert "configurationFilterValueKey" in app_script
+        assert 'clause.type === "hyperparameter"' in app_script
         assert "scheduleRefresh" in app_script
         assert "applyTheme" in app_script
         assert "applyFont" in app_script
