@@ -1741,7 +1741,7 @@
           lines,
         }));
       for (const chartGroup of chartGroups) {
-        const lines = chartGroup.lines.map((line, index) => ({
+        const lines = chartGroup.lines.map((line, index) => smoothMetricLine({
           ...line,
           color: analysisSeriesColor(index),
         }));
@@ -1771,6 +1771,7 @@
             zLabel: plot.secondaryHyperparameter,
             scale: useLog ? "log" : "linear",
             xLabel: plot.unit,
+            smoothing: state.smoothing,
           })),
           plotExpandButton(card, `trend:${plot.id}:${chartGroup.key}`),
           plotRemoveButton(plot),
@@ -1984,7 +1985,7 @@
         lines,
       }));
     for (const chartGroup of chartGroups) {
-      const lines = chartGroup.lines.map((line, index) => ({
+      const lines = chartGroup.lines.map((line, index) => smoothCombinedTrendLine({
         ...line,
         color: analysisSeriesColor(index),
       }));
@@ -2006,12 +2007,15 @@
           yLabel: chartGroup.yLabel,
           zLabel: chartGroup.zLabel,
           scale: plot.log ? "log" : "linear",
+          smoothing: state.smoothing,
           series: lines.map((line) => ({
             label: line.label,
             color: line.color,
             xValues: line.xValues,
             leftValues: line.leftValues,
             rightValues: line.rightValues,
+            rawLeftValues: line.rawLeftValues || null,
+            rawRightValues: line.rawRightValues || null,
             leftStd: line.leftStd,
             rightStd: line.rightStd,
           })),
@@ -3236,6 +3240,28 @@
     ctx.strokeStyle = color; ctx.lineWidth = 2.4; ctx.stroke();
   }
 
+  function drawAnalysis3DRawLine(ctx, points, color, opacity) {
+    ctx.beginPath();
+    let drawing = false;
+    for (const point of points) {
+      if (!point) {
+        drawing = false;
+        continue;
+      }
+      if (!drawing) {
+        ctx.moveTo(point.x, point.y);
+        drawing = true;
+      } else {
+        ctx.lineTo(point.x, point.y);
+      }
+    }
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.22 * opacity;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+
   function analysisLineXValues(line, length) {
     if (Array.isArray(line.xValues) && line.xValues.length >= length) {
       return line.xValues.slice(0, length).map((value, index) => (
@@ -3257,8 +3283,12 @@
       ));
       const xAxisValues = xValues.length ? xValues : [1];
       const xExtent = analysisExtent(xAxisValues);
-      const leftValues = chart.lines.flatMap((line) => line.leftValues).filter(Number.isFinite);
-      const rightValues = chart.lines.flatMap((line) => line.rightValues).filter(Number.isFinite);
+      const leftValues = chart.lines.flatMap((line) => [
+        ...line.leftValues, ...(line.rawLeftValues || []),
+      ]).filter(Number.isFinite);
+      const rightValues = chart.lines.flatMap((line) => [
+        ...line.rightValues, ...(line.rawRightValues || []),
+      ]).filter(Number.isFinite);
       const leftScale = createValueScale(leftValues, chart.scale || "linear");
       const rightScale = createValueScale(rightValues, chart.scale || "linear");
       const yExtent = analysisExtent(leftValues.map(leftScale.transform));
@@ -3275,6 +3305,23 @@
         const opacity = chartLineOpacity(chart, line);
         const pointCount = Math.min(line.leftValues.length, line.rightValues.length);
         const lineXValues = analysisLineXValues(line, pointCount);
+        if (Array.isArray(line.rawLeftValues) && Array.isArray(line.rawRightValues)) {
+          const rawPointCount = Math.min(
+            line.rawLeftValues.length, line.rawRightValues.length,
+          );
+          const rawXValues = analysisLineXValues(line, rawPointCount);
+          const rawPoints = Array.from({ length: rawPointCount }, (_item, index) => {
+            const left = line.rawLeftValues[index];
+            const right = line.rawRightValues[index];
+            if (!Number.isFinite(left) || !Number.isFinite(right)) return null;
+            return project(
+              normalizedValue(rawXValues[index], xExtent),
+              normalizedValue(leftScale.transform(left), yExtent),
+              normalizedValue(rightScale.transform(right), zExtent),
+            );
+          });
+          drawAnalysis3DRawLine(ctx, rawPoints, line.color, opacity);
+        }
         ctx.beginPath();
         let drawing = false;
         for (let index = 0; index < pointCount; index += 1) {
@@ -3325,7 +3372,7 @@
       return;
     }
     const trendValues = chart.lines.flatMap((line) => [
-      ...line.values, ...line.band.lower, ...line.band.upper,
+      ...line.values, ...(line.rawValues || []), ...line.band.lower, ...line.band.upper,
     ]).filter(Number.isFinite);
     const trendValueScale = createValueScale(trendValues, chart.scale || "linear");
     const validTrendValue = (value) => Number.isFinite(value);
@@ -3360,6 +3407,17 @@
         : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
       const pointCount = line.values.length;
       const lineXValues = analysisLineXValues(line, pointCount);
+      if (Array.isArray(line.rawValues)) {
+        const rawXValues = analysisLineXValues(line, line.rawValues.length);
+        const rawPoints = line.rawValues.map((value, index) => {
+          if (!validTrendValue(value)) return null;
+          return project(
+            normalizedValue(rawXValues[index], xExtent),
+            normalizedValue(transformTrendValue(value), yExtent), z,
+          );
+        });
+        drawAnalysis3DRawLine(ctx, rawPoints, line.color, opacity);
+      }
       const bandPoints = [];
       for (let index = 0; index < pointCount; index += 1) {
         const upper = line.band.upper[index];
@@ -3768,7 +3826,7 @@
       state.filterData[experimentPath] = data;
       renderCacheStatus(data.cache);
       const definition = state.experimentFilters[experimentPath];
-      if (definition && (!definition.clauses || !definition.clauses.length)) {
+      if (definition && !Array.isArray(definition.clauses)) {
         definition.clauses = [newFilterClause(data)];
         definition.logic = definition.logic || "AND";
         persistState();
@@ -3796,7 +3854,7 @@
         state.experimentFilters[experiment.path] = {
           enabled: true,
           logic: "AND",
-          clauses: [],
+          clauses: null,
         };
         persistState();
         loadExperimentFilter(experiment.path);
@@ -3860,7 +3918,7 @@
     const clear = node("button", "", "Clear");
     clear.type = "button";
     clear.addEventListener("click", () => {
-      definition.clauses = [newFilterClause(data)];
+      definition.clauses = [];
       persistState();
       refreshConfigurationFilterViews(experiment.path);
     });
@@ -3966,9 +4024,6 @@
     remove.addEventListener("click", () => {
       const definition = state.experimentFilters[experimentPath];
       definition.clauses.splice(index, 1);
-      if (!definition.clauses.length) {
-        definition.clauses.push(newFilterClause(state.filterData[experimentPath]));
-      }
       persistState();
       refreshConfigurationFilterViews(experimentPath);
     });
@@ -4685,6 +4740,19 @@
         lower: smoothMetricValues(line.band.lower, state.smoothing),
         upper: smoothMetricValues(line.band.upper, state.smoothing),
       } : undefined,
+    };
+  }
+
+  function smoothCombinedTrendLine(line) {
+    if (state.smoothing <= 0) return line;
+    return {
+      ...line,
+      rawLeftValues: line.leftValues,
+      rawRightValues: line.rightValues,
+      leftValues: smoothMetricValues(line.leftValues, state.smoothing),
+      rightValues: smoothMetricValues(line.rightValues, state.smoothing),
+      leftStd: smoothMetricValues(line.leftStd, state.smoothing),
+      rightStd: smoothMetricValues(line.rightStd, state.smoothing),
     };
   }
 
@@ -6530,11 +6598,22 @@
     persistState();
     renderDetails();
   });
-  el("smoothing-slider").addEventListener("input", (event) => {
-    state.smoothing = normalizedSmoothing(event.target.value);
+  function updateSmoothing(value) {
+    state.smoothing = normalizedSmoothing(value);
     syncSmoothingControl();
     persistState();
-    if (state.details) renderChartsPreservingScroll();
+    if (state.activeTab === "analysis") {
+      if (state.analysisData) renderAnalysisPlotsPreservingScroll();
+    } else if (state.details) {
+      renderChartsPreservingScroll();
+    }
+  }
+
+  el("smoothing-slider").addEventListener("input", (event) => {
+    updateSmoothing(event.target.value);
+  });
+  el("analysis-smoothing-slider").addEventListener("input", (event) => {
+    updateSmoothing(event.target.value);
   });
   el("outlier-filter").addEventListener("change", (event) => {
     state.removeOutliers = event.target.checked;
@@ -6737,11 +6816,16 @@
   }
 
   function syncSmoothingControl() {
-    const slider = el("smoothing-slider");
-    slider.value = String(state.smoothing);
-    el("smoothing-value").value = state.smoothing
+    const formatted = state.smoothing
       .toFixed(2)
       .replace(/0+$/, "")
       .replace(/\.$/, "");
+    for (const [sliderId, outputId] of [
+      ["smoothing-slider", "smoothing-value"],
+      ["analysis-smoothing-slider", "analysis-smoothing-value"],
+    ]) {
+      el(sliderId).value = String(state.smoothing);
+      el(outputId).value = formatted;
+    }
   }
 })();

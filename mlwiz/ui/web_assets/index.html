@@ -310,7 +310,25 @@
               <h2>Model selection analysis</h2>
               <p>Build a mixed collection of training trends and checkpoint-aware metric comparisons.</p>
             </div>
-            <span class="freshness" id="analysis-freshness">Waiting for data</span>
+            <div class="analysis-head-actions">
+              <span class="freshness" id="analysis-freshness">Waiting for data</span>
+              <label
+                class="smoothing-control"
+                title="Apply TensorBoard-style exponential smoothing to analysis trend curves; faint curves show the raw values"
+              >
+                <span>Smoothing</span>
+                <input
+                  id="analysis-smoothing-slider"
+                  type="range"
+                  min="0"
+                  max="0.99"
+                  step="0.01"
+                  value="0"
+                  aria-label="Model analysis curve smoothing"
+                />
+                <output id="analysis-smoothing-value" for="analysis-smoothing-slider">0</output>
+              </label>
+            </div>
           </div>
           <div class="analysis-controls">
             <label><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option><option value="parallel-coordinates">Parallel Coordinates</option></select></label>

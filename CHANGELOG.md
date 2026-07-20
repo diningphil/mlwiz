@@ -2,6 +2,11 @@
 
 ## [1.7.4]
 
+## Added
+
+- added shared curve smoothing to Model Selection Analysis trend and combined
+  trend plots, including faint raw traces and reproducible plot exports
+
 ## Fixed
 
 - fixed Operators graph tracing for adaptive ESM models by keeping padding-mask
@@ -12,6 +17,8 @@
   large operator graph exceeds the dashboard's visible-node limit
 - applied configuration filters to Model Selection Analysis plots and exports,
   and made long chart legends vertically scrollable and hover-focusable
+- allowed the final configuration-filter condition to be removed without
+  automatically recreating a default condition
 
 ## Changed
 

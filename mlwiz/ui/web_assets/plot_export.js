@@ -210,6 +210,14 @@ for series in DATA["series"]:
     valid = np.isfinite(values)
     scale_values.extend(values[valid])
     color = ax._get_lines.get_next_color()
+    raw_values = numeric(series.get("rawValues") or [])
+    if len(raw_values):
+        raw_valid = np.isfinite(raw_values)
+        scale_values.extend(raw_values[raw_valid])
+        ax.plot(
+            positions[raw_valid], raw_values[raw_valid], np.full(raw_valid.sum(), z_value),
+            color=color, linewidth=1, alpha=0.22, label="_nolegend_",
+        )
     ax.plot(positions[valid], values[valid], np.full(valid.sum(), z_value), color=color, label=series["label"])
     if series.get("lower") and series.get("upper"):
         lower = numeric(series["lower"])
@@ -250,7 +258,25 @@ for series in DATA["series"]:
     valid = np.isfinite(left[:point_count]) & np.isfinite(right[:point_count])
     left_scale_values.extend(left[:point_count][valid])
     right_scale_values.extend(right[:point_count][valid])
-    ax.plot(positions[valid], left[:point_count][valid], right[:point_count][valid], label=series["label"])
+    color = ax._get_lines.get_next_color()
+    raw_left = numeric(series.get("rawLeftValues") or [])
+    raw_right = numeric(series.get("rawRightValues") or [])
+    raw_count = min(len(raw_left), len(raw_right), len(positions))
+    if raw_count:
+        raw_valid = np.isfinite(raw_left[:raw_count]) & np.isfinite(raw_right[:raw_count])
+        left_scale_values.extend(raw_left[:raw_count][raw_valid])
+        right_scale_values.extend(raw_right[:raw_count][raw_valid])
+        ax.plot(
+            positions[:raw_count][raw_valid],
+            raw_left[:raw_count][raw_valid],
+            raw_right[:raw_count][raw_valid],
+            color=color, linewidth=1, alpha=0.22,
+            label="_nolegend_",
+        )
+    ax.plot(
+        positions[valid], left[:point_count][valid], right[:point_count][valid],
+        color=color, label=series["label"],
+    )
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))

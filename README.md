@@ -378,8 +378,10 @@ frequency. To additionally record training-batch histories, configure
 Hover over a chart to inspect the values at one epoch or sampled training step.
 Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
-short-term noise and retain a faint raw trace for context. The chosen value is
-preserved for the dashboard session and included with reproducible plot exports.
+short-term noise and retain a faint raw trace for context. The mirrored control
+in Model Selection Analysis applies the same value to 2D, 3D, and combined
+trend curves. The chosen value is preserved for the dashboard session and
+included with reproducible plot exports.
 Use **Remove outliers** in a mean ± standard-deviation Run Explorer view, or on
 an individual Model Selection Analysis plot, to exclude values outside Tukey's
 1.5×IQR fences. Trend filtering is performed independently at each epoch or
@@ -402,7 +404,9 @@ with only one discovered value are omitted. Multiple metric and hyper-parameter
 conditions can be combined with AND or OR. Completed
 experiments use their aggregated metric results; running experiments use the
 latest values available in `metrics_data.torch` and configuration values from
-live run manifests when necessary. While a filter is active, final runs are
+live run manifests when necessary. Remove the final condition with **×**, or
+use **Clear**, to return to the unfiltered view while keeping the filter controls
+open. While a filter is active, final runs are
 hidden, Model Selection Analysis plots and exports include only matching
 configurations, and an experiment with no matching configuration shows only its
 filter controls.

@@ -1073,6 +1073,10 @@ def test_frontend_filters_analysis_and_interacts_with_legends():
     assert "parallelCoordinateRows(filteredAnalysisData(), axes)" in app_script
     assert "refreshConfigurationFilterViews" in app_script
     assert "No configurations match the active filters for this fold." in app_script
+    assert "if (definition && !Array.isArray(definition.clauses))" in app_script
+    assert "clauses: null" in app_script
+    assert "definition.clauses = [];" in app_script
+    assert "definition.clauses.push(newFilterClause(state.filterData" not in app_script
     assert "function attachLegendFocus" in app_script
     assert app_script.count("attachLegendFocus(") == 5
     assert app_script.count(
@@ -1086,6 +1090,27 @@ def test_frontend_filters_analysis_and_interacts_with_legends():
     assert ".chart-legend { min-height: 30px; max-height: 96px;" in stylesheet
     assert "overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;" in stylesheet
     assert ".chart-legend.has-focus .legend-item:not(.is-focused)" in stylesheet
+
+
+def test_frontend_smooths_model_analysis_trends():
+    """Analysis trend plots should share smoothing with run-detail curves."""
+    assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
+    page = (assets / "index.html").read_text(encoding="utf-8")
+    app_script = (assets / "app.js").read_text(encoding="utf-8")
+    plot_export_script = (assets / "plot_export.js").read_text(encoding="utf-8")
+
+    assert 'id="analysis-smoothing-slider"' in page
+    assert 'id="analysis-smoothing-value"' in page
+    assert 'aria-label="Model analysis curve smoothing"' in page
+    assert "function updateSmoothing" in app_script
+    assert "if (state.analysisData) renderAnalysisPlotsPreservingScroll();" in app_script
+    assert "chartGroup.lines.map((line, index) => smoothMetricLine" in app_script
+    assert "function smoothCombinedTrendLine" in app_script
+    assert "rawLeftValues: line.leftValues" in app_script
+    assert "rawRightValues: line.rightValues" in app_script
+    assert app_script.count("smoothing: state.smoothing") >= 3
+    assert 'series.get("rawLeftValues")' in plot_export_script
+    assert 'series.get("rawRightValues")' in plot_export_script
 
 
 def test_http_server_serves_frontend_and_api(tmp_path):
@@ -1184,6 +1209,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="smoothing-slider"' in page
         assert 'id="outlier-filter"' in page
         assert 'id="smoothing-value"' in page
+        assert 'id="analysis-smoothing-slider"' in page
+        assert 'id="analysis-smoothing-value"' in page
         assert 'id="analysis-tab"' in page
         assert 'id="analysis-plot-type"' in page
         assert 'id="analysis-unit"' in page
