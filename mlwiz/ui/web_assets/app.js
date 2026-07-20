@@ -194,6 +194,7 @@
     other: "#8257e5",
   };
   let refreshTimer = null;
+  const activeModelGraphRequests = new Set();
   let metadataScrollTimer = null;
   let graphPointerDrag = null;
   let analysisPlotSequence = 0;
@@ -596,7 +597,26 @@
     return JSON.stringify(value);
   }
 
-  function parallelCoordinateAxisOptions(data = state.analysisData) {
+  function filteredAnalysisData(data = state.analysisData) {
+    if (!data) return data;
+    const experimentPath = data.experiment || state.analysisExperiment;
+    if (!activeFilterClauses(experimentPath).length) return data;
+    const configurations = data.configurations.filter((configuration) =>
+      configurationPassesFilter(experimentPath, configuration.path)
+    );
+    const configurationNumbers = new Set(
+      configurations.map((configuration) => configuration.number),
+    );
+    return {
+      ...data,
+      configurations,
+      series: data.series.filter((series) =>
+        configurationNumbers.has(series.configuration)
+      ),
+    };
+  }
+
+  function parallelCoordinateAxisOptions(data = filteredAnalysisData()) {
     if (!data) return [];
     const axes = data.hyperparameters.map((hyperparameter) => {
       const values = data.configurations.flatMap((configuration) =>
@@ -748,6 +768,7 @@
 
   function renderAnalysis() {
     const data = state.analysisData;
+    const visibleData = filteredAnalysisData(data);
     const notice = el("analysis-notice");
     el("analysis-freshness").textContent = formatTime(data.modified_at);
     const analysisUnits = availableAnalysisUnits(data);
@@ -798,7 +819,7 @@
     state.analysisMetricQuantity = resolveAnalysisQuantityId(
       state.analysisMetricQuantity, metricOptions,
     ) || metricIds[0] || null;
-    const parallelAxisOptions = parallelCoordinateAxisOptions(data);
+    const parallelAxisOptions = parallelCoordinateAxisOptions(visibleData);
     state.analysisParallelAxes = normalizedParallelAxes(
       state.analysisParallelAxes, parallelAxisOptions,
     );
@@ -1597,7 +1618,7 @@
   }
 
   function renderAnalysisCharts(trendPlots) {
-    const data = state.analysisData;
+    const data = filteredAnalysisData();
     const configurations = new Map(
       data.configurations.map((config) => [config.number, config.hyperparameters]),
     );
@@ -1836,7 +1857,7 @@
   }
 
   function appendCombinedTrendPlot(plot, grid) {
-    const data = state.analysisData;
+    const data = filteredAnalysisData();
     const options = analysisTrendQuantityOptions(plot.unit);
     const first = options.find((option) => option.id === plot.quantity);
     const second = options.find((option) => option.id === plot.quantity2);
@@ -2409,7 +2430,7 @@
       return axis ? [axis] : [];
     });
     if (axes.length < 2) return false;
-    const rows = parallelCoordinateRows(state.analysisData, axes);
+    const rows = parallelCoordinateRows(filteredAnalysisData(), axes);
     if (!rows.length) return false;
     const card = node("article", "chart-card analysis-chart-card parallel-chart-card");
     const head = node("div", "chart-head");
@@ -2481,6 +2502,19 @@
   }
 
   function renderAnalysisPlots() {
+    const data = filteredAnalysisData();
+    if (
+      state.analysisData.configurations.length
+      && !data.configurations.length
+      && activeFilterClauses(data.experiment).length
+    ) {
+      const notice = el("analysis-notice");
+      notice.hidden = false;
+      notice.className = "notice";
+      notice.textContent = "No configurations match the active filters for this fold.";
+      clearAnalysisCharts();
+      return;
+    }
     const trendPlots = state.analysisPlots.filter((plot) => plot.type === "trends");
     state.analysisQuantities = [...new Set(trendPlots.map((plot) => plot.quantity))];
     const grid = el("analysis-chart-grid");
@@ -2514,7 +2548,7 @@
   }
 
   function metricHyperparameterBars(plot, quantityId = plot.quantity) {
-    const data = state.analysisData;
+    const data = filteredAnalysisData();
     const configurations = new Map(
       data.configurations.map((config) => [config.number, config.hyperparameters]),
     );
@@ -3665,6 +3699,17 @@
     return foldDetails;
   }
 
+  function refreshConfigurationFilterViews(experimentPath) {
+    renderTree();
+    if (
+      state.activeTab === "analysis"
+      && state.analysisExperiment === experimentPath
+      && state.analysisData
+    ) {
+      renderAnalysisPreservingScroll();
+    }
+  }
+
   async function loadExperimentFilter(experimentPath, rerender = true) {
     if (state.filterLoading[experimentPath]) return;
     state.filterLoading[experimentPath] = true;
@@ -3688,7 +3733,7 @@
       state.filterData[experimentPath] = { error: error.message };
     } finally {
       state.filterLoading[experimentPath] = false;
-      if (rerender) renderTree();
+      if (rerender) refreshConfigurationFilterViews(experimentPath);
     }
   }
 
@@ -3746,7 +3791,7 @@
       logic.addEventListener("change", (event) => {
         definition.logic = event.target.value;
         persistState();
-        renderTree();
+        refreshConfigurationFilterViews(experiment.path);
       });
       combine.append(logic);
       panel.append(combine);
@@ -3761,14 +3806,14 @@
     add.addEventListener("click", () => {
       definition.clauses.push(newFilterClause(data));
       persistState();
-      renderTree();
+      refreshConfigurationFilterViews(experiment.path);
     });
     const clear = node("button", "", "Clear");
     clear.type = "button";
     clear.addEventListener("click", () => {
       definition.clauses = [newFilterClause(data)];
       persistState();
-      renderTree();
+      refreshConfigurationFilterViews(experiment.path);
     });
     actions.append(add, clear);
     panel.append(actions);
@@ -3876,7 +3921,7 @@
         definition.clauses.push(newFilterClause(state.filterData[experimentPath]));
       }
       persistState();
-      renderTree();
+      refreshConfigurationFilterViews(experimentPath);
     });
     row.append(source, target, operator, filterValue, remove);
     return row;
@@ -3890,7 +3935,7 @@
     if (clause.type === "metric") clause.split = source;
     normalizeFilterClause(clause, state.filterData[experimentPath]);
     persistState();
-    renderTree();
+    refreshConfigurationFilterViews(experimentPath);
   }
 
   function updateFilterClause(experimentPath, index, key, value) {
@@ -3904,7 +3949,7 @@
       normalizeFilterClause(clause, state.filterData[experimentPath]);
     }
     persistState();
-    renderTree();
+    refreshConfigurationFilterViews(experimentPath);
   }
 
   function newFilterClause(data) {
@@ -4802,12 +4847,15 @@
   }
 
   async function loadModelGraph(path) {
+    let checkpointChoice = state.graphCheckpointChoices[path] || "auto";
+    const requestKey = `${path}\u0000${checkpointChoice}\u0000${state.graphMode}`;
+    if (activeModelGraphRequests.has(requestKey)) return;
+    activeModelGraphRequests.add(requestKey);
     const requestId = ++state.graphRequestId;
     const pathChanged = state.graphPath !== path;
     state.graphPath = path;
     const status = el("model-graph-status");
     const message = el("model-graph-message");
-    let checkpointChoice = state.graphCheckpointChoices[path] || "auto";
     el("model-graph-mode-select").disabled = true;
     el("model-graph-checkpoint-select").disabled = true;
     if (pathChanged) {
@@ -4857,6 +4905,8 @@
       message.textContent = error.message;
       el("model-graph-mode-select").disabled = false;
       el("model-graph-checkpoint-select").disabled = false;
+    } finally {
+      activeModelGraphRequests.delete(requestKey);
     }
   }
 
@@ -4899,7 +4949,11 @@
       graph.checkpoint.cache_hit ? "Graph cache hit" : "Loaded from checkpoint",
     ]) stats.append(node("span", "model-graph-stat", text));
     if (graph.summary.truncated) {
-      stats.append(node("span", "model-graph-stat", `Showing first ${graph.summary.visible_nodes} of ${graph.summary.nodes}`));
+      stats.append(node(
+        "span",
+        "model-graph-stat",
+        `Showing ${graph.summary.visible_nodes} computation nodes of ${graph.summary.nodes} total nodes`,
+      ));
     }
     syncGraphExplorerControls();
     renderModelGraphCanvas();

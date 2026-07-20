@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.7.4]
+
+## Fixed
+
+- fixed Operators graph tracing for adaptive ESM models by keeping padding-mask
+  handling and amino-acid pooling validation compatible with `torch.export`
+- serialized operator-graph tracing and coalesced duplicate browser requests so
+  auto-refresh cannot occupy PyTorch's proxy-dispatch tracing slot twice
+- prioritized executable ATen operations over parameter placeholders when a
+  large operator graph exceeds the dashboard's visible-node limit
+- applied configuration filters to Model Selection Analysis plots and exports,
+  and made long chart legends vertically scrollable
+
+## Changed
+
+- bumped the package version to 1.7.4
+
 ## [1.7.3]
 
 ## Added

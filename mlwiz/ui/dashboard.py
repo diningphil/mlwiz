@@ -50,11 +50,14 @@ _ASSET_DIRECTORY = Path(__file__).with_name("web_assets")
 _MAX_METRICS_FILES_PER_SELECTION = 256
 _MAX_GRAPH_NODES = 600
 _MAX_GRAPH_INPUT_SPEC_BYTES = 64 * 1024
-_MODEL_GRAPH_SCHEMA_VERSION = 3
+_MODEL_GRAPH_SCHEMA_VERSION = 4
 _MEBIBYTE = 1024 * 1024
 _DEFAULT_CACHE_BYTES = 256 * _MEBIBYTE
 _MAX_CACHE_BYTES = 64 * 1024 * _MEBIBYTE
 _GRAPH_MODES = {"architecture", "operators"}
+# PyTorch's proxy-dispatch tracing slot is process-global. The HTTP server is
+# threaded, so auto-refresh and user actions must not enter export concurrently.
+_OPERATOR_GRAPH_LOCK = threading.RLock()
 _FILTER_RESULT_PATTERN = re.compile(r"^avg_(training|validation)_(.+)$")
 _ELAPSED_PATTERN = re.compile(
     r"Total time of the experiment in seconds: (\d+(?:\.\d+)?)"
@@ -443,9 +446,12 @@ class ResultsRepository:
             input_spec_signature,
         )
         cache_key = self._model_graph_cache_key(checkpoint, graph_mode)
-        graph = self.metrics_cache.get(cache_key, signature)
-        cache_hit = graph is not None
-        if graph is None:
+
+        def load_graph() -> tuple[dict[str, Any], bool]:
+            graph = self.metrics_cache.get(cache_key, signature)
+            cache_hit = graph is not None
+            if graph is not None:
+                return graph, cache_hit
             try:
                 graph = self._load_checkpoint_graph(
                     checkpoint,
@@ -475,6 +481,15 @@ class ResultsRepository:
                 ),
             ) == signature:
                 self.metrics_cache.put(cache_key, signature, graph)
+            return graph, cache_hit
+
+        if graph_mode == "operators":
+            # Keep the cache lookup inside the lock so requests queued behind
+            # an active trace reuse its result instead of tracing a second time.
+            with _OPERATOR_GRAPH_LOCK:
+                graph, cache_hit = load_graph()
+        else:
+            graph, cache_hit = load_graph()
 
         return {
             **graph,
@@ -809,7 +824,9 @@ class ResultsRepository:
             raise ValueError(f"Unknown operator tracer {tracer!r}.")
 
         graph_nodes = list(graph_module.graph.nodes)
-        visible_graph_nodes = graph_nodes[:_MAX_GRAPH_NODES]
+        visible_graph_nodes = self._visible_operator_graph_nodes(
+            graph_nodes, input_metadata
+        )
         visible_ids = {item.name for item in visible_graph_nodes}
         parameters = {
             name: (value.numel(), value.requires_grad)
@@ -877,6 +894,35 @@ class ResultsRepository:
                 "input": input_summary,
             },
         }
+
+    @staticmethod
+    def _visible_operator_graph_nodes(
+        graph_nodes: list[torch.fx.Node],
+        input_metadata: dict[str, dict[str, str]],
+    ) -> list[torch.fx.Node]:
+        """Prefer executable nodes when a large exported graph is truncated."""
+        if len(graph_nodes) <= _MAX_GRAPH_NODES:
+            return graph_nodes
+
+        user_inputs = [
+            node
+            for node in graph_nodes
+            if input_metadata.get(node.name, {}).get("kind") == "user_input"
+        ]
+        operators = [
+            node
+            for node in graph_nodes
+            if node.op in {"call_function", "call_method", "call_module"}
+        ]
+        outputs = [node for node in graph_nodes if node.op == "output"]
+        computation = [*user_inputs, *operators, *outputs]
+        if len(computation) > _MAX_GRAPH_NODES:
+            computation = [
+                *user_inputs,
+                *operators[: max(0, _MAX_GRAPH_NODES - len(user_inputs))],
+            ][:_MAX_GRAPH_NODES]
+        visible_ids = {node.name for node in computation}
+        return [node for node in graph_nodes if node.name in visible_ids]
 
     @staticmethod
     def _proxy_graph_input_metadata(

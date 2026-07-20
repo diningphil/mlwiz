@@ -7,6 +7,7 @@ import shutil
 import sys
 import threading
 import zipfile
+from pathlib import Path
 from pydoc import locate
 from urllib.request import Request, urlopen
 
@@ -743,6 +744,84 @@ def test_running_model_graph_uses_last_checkpoint_and_manifest(tmp_path):
     assert info["modes"]["operators"]["available"] is True
 
 
+def test_concurrent_operator_graph_requests_share_one_trace(tmp_path, monkeypatch):
+    """Threaded refreshes must not enter PyTorch graph tracing concurrently."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    torch.save(
+        {"epoch": 0, "model_state": {}},
+        selection_run / "last_checkpoint.pth",
+    )
+    repository = ResultsRepository(experiment.parent)
+    relative = selection_run.relative_to(experiment.parent).as_posix()
+    trace_started = threading.Event()
+    concurrent_trace = threading.Event()
+    release_trace = threading.Event()
+    trace_calls = 0
+
+    def slow_graph(*_args, **_kwargs):
+        nonlocal trace_calls
+        trace_calls += 1
+        if trace_calls > 1:
+            concurrent_trace.set()
+        trace_started.set()
+        assert release_trace.wait(timeout=2)
+        return {
+            "graph_kind": "test operators",
+            "nodes": [],
+            "edges": [],
+            "modules": [],
+            "summary": {},
+            "epoch": 1,
+            "warning": None,
+        }
+
+    monkeypatch.setattr(repository, "_load_checkpoint_graph", slow_graph)
+    results = []
+    errors = []
+
+    def load():
+        try:
+            results.append(repository.model_graph(relative, graph_mode="operators"))
+        except Exception as error:  # pragma: no cover - assertion reports details
+            errors.append(error)
+
+    first = threading.Thread(target=load)
+    second = threading.Thread(target=load)
+    first.start()
+    assert trace_started.wait(timeout=2)
+    second.start()
+    assert not concurrent_trace.wait(timeout=0.1)
+    release_trace.set()
+    first.join(timeout=2)
+    second.join(timeout=2)
+
+    assert not errors
+    assert trace_calls == 1
+    assert len(results) == 2
+    assert sorted(
+        item["checkpoint"]["cache_hit"] for item in results
+    ) == [False, True]
+
+
+def test_large_operator_graph_prioritizes_computation_nodes(tmp_path, monkeypatch):
+    """Truncation should not spend the visible-node budget on parameters."""
+    model = torch.nn.Sequential(*[torch.nn.Linear(2, 2) for _ in range(8)])
+    repository = ResultsRepository(tmp_path)
+    monkeypatch.setattr("mlwiz.ui.dashboard._MAX_GRAPH_NODES", 5)
+
+    graph = repository._operator_graph(
+        model,
+        (torch.zeros(1, 2),),
+        {"shape": [1, 2], "dtype": "torch.float32", "bytes": 8},
+    )
+
+    assert graph["summary"]["truncated"] is True
+    assert graph["summary"]["visible_nodes"] == 5
+    assert sum(node["op"] == "call_function" for node in graph["nodes"]) == 4
+    assert sum(node["type"] == "User Input" for node in graph["nodes"]) == 1
+    assert not any(node["type"] == "Parameter" for node in graph["nodes"])
+
+
 def test_model_graph_never_loads_parallel_optimizer_checkpoint(
     tmp_path, monkeypatch
 ):
@@ -980,6 +1059,22 @@ def test_dashboard_project_root_imports_custom_model(monkeypatch, tmp_path):
     assert resolved_root == tmp_path.resolve()
     assert sys.path[0] == str(tmp_path.resolve())
     assert locate(f"{module_name}.ProjectModel") is not None
+
+
+def test_frontend_filters_analysis_and_scrolls_long_legends():
+    """Analysis plots should share sidebar filters and constrain long legends."""
+    assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
+    app_script = (assets / "app.js").read_text(encoding="utf-8")
+    stylesheet = (assets / "styles.css").read_text(encoding="utf-8")
+
+    assert "function filteredAnalysisData" in app_script
+    assert "configurationPassesFilter(experimentPath, configuration.path)" in app_script
+    assert app_script.count("const data = filteredAnalysisData();") == 4
+    assert "parallelCoordinateRows(filteredAnalysisData(), axes)" in app_script
+    assert "refreshConfigurationFilterViews" in app_script
+    assert "No configurations match the active filters for this fold." in app_script
+    assert ".chart-legend { min-height: 30px; max-height: 96px;" in stylesheet
+    assert "overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;" in stylesheet
 
 
 def test_http_server_serves_frontend_and_api(tmp_path):

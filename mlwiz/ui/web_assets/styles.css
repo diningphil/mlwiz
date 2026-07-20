@@ -329,7 +329,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .chart-type { padding: 4px 7px; border-radius: 99px; color: #46604f; background: #edf5ef; font-size: 0.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .chart-wrap { width: 100%; height: 205px; position: relative; }
 .chart-wrap canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: pan-y; }
-.chart-legend { min-height: 30px; display: flex; flex-wrap: wrap; gap: 6px 13px; padding-top: 6px; }
+.chart-legend { min-height: 30px; max-height: 96px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px 13px; padding: 6px 4px 2px 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 0.5625rem; }
 .legend-swatch { width: 7px; height: 7px; border-radius: 2px; }
 .legend-swatch.band { box-shadow: inset 0 0 0 2px rgba(255,255,255,.6); opacity: .75; }
