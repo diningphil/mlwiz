@@ -1061,8 +1061,8 @@ def test_dashboard_project_root_imports_custom_model(monkeypatch, tmp_path):
     assert locate(f"{module_name}.ProjectModel") is not None
 
 
-def test_frontend_filters_analysis_and_scrolls_long_legends():
-    """Analysis plots should share sidebar filters and constrain long legends."""
+def test_frontend_filters_analysis_and_interacts_with_legends():
+    """Analysis filters and scrollable, focusable legends should stay wired."""
     assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
     app_script = (assets / "app.js").read_text(encoding="utf-8")
     stylesheet = (assets / "styles.css").read_text(encoding="utf-8")
@@ -1073,8 +1073,19 @@ def test_frontend_filters_analysis_and_scrolls_long_legends():
     assert "parallelCoordinateRows(filteredAnalysisData(), axes)" in app_script
     assert "refreshConfigurationFilterViews" in app_script
     assert "No configurations match the active filters for this fold." in app_script
+    assert "function attachLegendFocus" in app_script
+    assert app_script.count("attachLegendFocus(") == 5
+    assert app_script.count(
+        "attachLegendFocus(legend, chart, legendEntries, drawAnalysis3DChart)"
+    ) == 2
+    assert app_script.count(
+        "attachLegendFocus(legend, chart, legendEntries, drawChart)"
+    ) == 2
+    assert "chartLineOpacity(chart, line)" in app_script
+    assert "Hover or focus an entry to emphasize its line." in app_script
     assert ".chart-legend { min-height: 30px; max-height: 96px;" in stylesheet
     assert "overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;" in stylesheet
+    assert ".chart-legend.has-focus .legend-item:not(.is-focused)" in stylesheet
 
 
 def test_http_server_serves_frontend_and_api(tmp_path):

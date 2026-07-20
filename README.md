@@ -441,8 +441,9 @@ family: selecting it overlays every related layer or component in one plot with
 a legend by default. Use the per-card **Series: Together / Separate** control to
 switch between that shared view and one plot per family member. The same control
 is available for combined trends that resolve to multiple quantity pairs. Long
-chart legends are capped and scroll vertically. All 3D views support drag
-rotation, mouse-wheel zoom, X/Y/Z alignment, hover values, and per-card
+chart legends are capped and scroll vertically; hover over or keyboard-focus a
+legend entry to emphasize its line and fade the others. All 3D views support
+drag rotation, mouse-wheel zoom, X/Y/Z alignment, hover values, and per-card
 expand/shrink controls. See the
 [model-selection analysis tutorial](docs/tutorial.rst#model-selection-analysis)
 for the aggregation rules, plot semantics, and custom `WidthPlotter` example.

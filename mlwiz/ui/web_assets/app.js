@@ -1479,6 +1479,34 @@
     return button;
   }
 
+  function chartLineOpacity(chart, line) {
+    return !chart.focusedLineId || chart.focusedLineId === line.id ? 1 : 0.14;
+  }
+
+  function attachLegendFocus(legend, chart, entries, redraw) {
+    if (entries.length < 2) return;
+    legend.setAttribute(
+      "aria-label",
+      "Chart legend. Hover or focus an entry to emphasize its line.",
+    );
+    const setFocus = (lineId) => {
+      if (chart.focusedLineId === lineId) return;
+      chart.focusedLineId = lineId;
+      legend.classList.toggle("has-focus", lineId !== null);
+      for (const entry of entries) {
+        entry.item.classList.toggle("is-focused", entry.line.id === lineId);
+      }
+      redraw(chart);
+    };
+    for (const entry of entries) {
+      entry.item.tabIndex = 0;
+      entry.item.addEventListener("pointerenter", () => setFocus(entry.line.id));
+      entry.item.addEventListener("pointerleave", () => setFocus(null));
+      entry.item.addEventListener("focus", () => setFocus(entry.line.id));
+      entry.item.addEventListener("blur", () => setFocus(null));
+    }
+  }
+
   function attachAnalysisHover(chart, wrap) {
     const tooltip = node("div", "tooltip analysis-chart-tooltip");
     tooltip.hidden = true;
@@ -1761,6 +1789,7 @@
         wrap.append(canvas);
         const legend = node("div", "chart-legend analysis-legend");
         const legendValues = new Map();
+        const legendEntries = [];
         for (const line of lines) {
           const item = node("span", "legend-item");
           const swatch = node("span", "legend-swatch band");
@@ -1769,6 +1798,7 @@
           legendValues.set(line.id, value);
           item.append(swatch, document.createTextNode(`${line.label} `), value);
           legend.append(item);
+          legendEntries.push({ line, item });
         }
         const controls = node("div", "analysis-plot-controls");
         const cameraKey = `${plot.id}:${chartGroup.key}`;
@@ -1803,6 +1833,7 @@
             cameraKey,
             scale: useLog ? "log" : "linear",
           };
+          attachLegendFocus(legend, chart, legendEntries, drawAnalysis3DChart);
           attachAnalysis3DInteraction(chart);
           attachAnalysisHover(chart, wrap);
           state.analysis3DCharts.push(chart);
@@ -1821,6 +1852,7 @@
             xLabel: plot.unit,
             scale: useLog ? "log" : "linear",
           };
+          attachLegendFocus(legend, chart, legendEntries, drawChart);
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
           canvas.addEventListener("pointerleave", () => {
             chart.hoverIndex = null;
@@ -2012,12 +2044,14 @@
       );
       wrap.append(canvas);
       const legend = node("div", "chart-legend analysis-legend");
+      const legendEntries = [];
       for (const line of lines) {
         const item = node("span", "legend-item");
         const swatch = node("span", "legend-swatch");
         swatch.style.background = line.color;
         item.append(swatch, document.createTextNode(line.label));
         legend.append(item);
+        legendEntries.push({ line, item });
       }
       card.append(head, controls, wrap, legend);
       grid.append(card);
@@ -2031,6 +2065,7 @@
         cameraKey,
         scale: plot.log ? "log" : "linear",
       };
+      attachLegendFocus(legend, chart, legendEntries, drawAnalysis3DChart);
       attachAnalysis3DInteraction(chart);
       attachAnalysisHover(chart, wrap);
       state.analysis3DCharts.push(chart);
@@ -3237,6 +3272,7 @@
         },
       );
       for (const line of chart.lines) {
+        const opacity = chartLineOpacity(chart, line);
         const pointCount = Math.min(line.leftValues.length, line.rightValues.length);
         const lineXValues = analysisLineXValues(line, pointCount);
         ctx.beginPath();
@@ -3264,7 +3300,11 @@
           });
           if (!drawing) { ctx.moveTo(point.x, point.y); drawing = true; } else ctx.lineTo(point.x, point.y);
         }
-        ctx.strokeStyle = line.color; ctx.lineWidth = 2.2; ctx.stroke();
+        ctx.strokeStyle = line.color;
+        ctx.globalAlpha = opacity;
+        ctx.lineWidth = opacity === 1 && chart.focusedLineId ? 3.2 : 2.2;
+        ctx.stroke();
+        ctx.globalAlpha = 1;
       }
       if (Number.isInteger(chart.hoverEpoch)) {
         for (const line of chart.lines) {
@@ -3273,11 +3313,13 @@
           const left = line.leftValues[chart.hoverEpoch];
           const right = line.rightValues[chart.hoverEpoch];
           if (!Number.isFinite(left) || !Number.isFinite(right)) continue;
+          ctx.globalAlpha = chartLineOpacity(chart, line);
           drawAnalysis3DHoverDot(ctx, project(
             normalizedValue(lineXValues[chart.hoverEpoch], xExtent),
             normalizedValue(leftScale.transform(left), yExtent),
             normalizedValue(rightScale.transform(right), zExtent),
           ), line.color, dotCenter);
+          ctx.globalAlpha = 1;
         }
       }
       return;
@@ -3312,6 +3354,7 @@
       },
     );
     for (const line of chart.lines) {
+      const opacity = chartLineOpacity(chart, line);
       const z = zValues.length <= 1
         ? 0.5
         : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
@@ -3339,7 +3382,7 @@
         bandPoints.forEach((point, index) => {
           if (!index) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
         });
-        ctx.closePath(); ctx.fillStyle = line.color; ctx.globalAlpha = 0.12; ctx.fill();
+        ctx.closePath(); ctx.fillStyle = line.color; ctx.globalAlpha = 0.12 * opacity; ctx.fill();
         ctx.globalAlpha = 1;
       }
       ctx.beginPath();
@@ -3367,7 +3410,11 @@
         });
         if (!drawing) { ctx.moveTo(point.x, point.y); drawing = true; } else ctx.lineTo(point.x, point.y);
       }
-      ctx.strokeStyle = line.color; ctx.lineWidth = 2.2; ctx.stroke();
+      ctx.strokeStyle = line.color;
+      ctx.globalAlpha = opacity;
+      ctx.lineWidth = opacity === 1 && chart.focusedLineId ? 3.2 : 2.2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     if (Number.isInteger(chart.hoverEpoch)) {
       for (const line of chart.lines) {
@@ -3377,10 +3424,12 @@
         const z = zValues.length <= 1
           ? 0.5
           : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
+        ctx.globalAlpha = chartLineOpacity(chart, line);
         drawAnalysis3DHoverDot(ctx, project(
           normalizedValue(lineXValues[chart.hoverEpoch], xExtent),
           normalizedValue(transformTrendValue(value), yExtent), z,
         ), line.color, dotCenter);
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -4746,6 +4795,7 @@
       wrap.append(canvas);
       const legend = node("div", "chart-legend");
       const legendValues = new Map();
+      const legendEntries = [];
       for (const line of group.lines) {
         const item = node("span", "legend-item");
         const swatch = node("span", "legend-swatch");
@@ -4755,6 +4805,7 @@
         legendValues.set(line.id, value);
         item.append(swatch, document.createTextNode(`${line.label} `), value);
         legend.append(item);
+        legendEntries.push({ line, item });
       }
       card.append(head, wrap, legend);
       grid.append(card);
@@ -4765,6 +4816,7 @@
         epochLabel,
         hoverIndex: null,
       };
+      attachLegendFocus(legend, chart, legendEntries, drawChart);
       canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
       canvas.addEventListener("pointerleave", () => {
         chart.hoverIndex = null;
@@ -6001,7 +6053,9 @@
     };
   }
 
-  function drawMetricBand(ctx, line, x, y, validValue = Number.isFinite) {
+  function drawMetricBand(
+    ctx, line, x, y, validValue = Number.isFinite, opacity = 1,
+  ) {
     if (!line.band) return;
     const { lower, upper } = line.band;
     let start = null;
@@ -6012,7 +6066,7 @@
       for (let index = to; index >= from; index -= 1) ctx.lineTo(x(index), y(upper[index]));
       ctx.closePath();
       ctx.save();
-      ctx.globalAlpha = 0.16;
+      ctx.globalAlpha = 0.16 * opacity;
       ctx.fillStyle = line.color || colors[line.split] || colors.other;
       ctx.fill();
       ctx.restore();
@@ -6029,7 +6083,10 @@
     }
   }
 
-  function drawMetricLine(ctx, line, values, xValues, x, y, validValue, raw = false) {
+  function drawMetricLine(
+    ctx, line, values, xValues, x, y, validValue,
+    raw = false, opacity = 1, emphasized = false,
+  ) {
     ctx.save();
     ctx.beginPath();
     let drawing = false;
@@ -6046,8 +6103,8 @@
       }
     });
     ctx.strokeStyle = line.color || colors[line.split] || colors.other;
-    ctx.globalAlpha = raw ? 0.22 : 1;
-    ctx.lineWidth = raw ? 1 : 2;
+    ctx.globalAlpha = (raw ? 0.22 : 1) * opacity;
+    ctx.lineWidth = raw ? 1 : (emphasized ? 3 : 2);
     ctx.setLineDash(line.dash || []);
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -6140,25 +6197,36 @@
     ctx.clip();
     for (const line of group.lines) {
       if (!Array.isArray(line.rawValues)) continue;
+      const opacity = chartLineOpacity(chart, line);
       const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.rawValues.length
         ? line.xValues
         : line.rawValues.map((_value, index) => index + 1);
-      drawMetricLine(ctx, line, line.rawValues, lineXValues, x, y, validValue, true);
+      drawMetricLine(
+        ctx, line, line.rawValues, lineXValues, x, y, validValue,
+        true, opacity, opacity === 1 && Boolean(chart.focusedLineId),
+      );
     }
     ctx.restore();
 
     for (const line of group.lines) {
+      const opacity = chartLineOpacity(chart, line);
       const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.values.length
         ? line.xValues
         : line.values.map((_value, index) => index + 1);
-      drawMetricBand(ctx, line, (index) => x(lineXValues[index]), y, validValue);
+      drawMetricBand(
+        ctx, line, (index) => x(lineXValues[index]), y, validValue, opacity,
+      );
     }
 
     for (const line of group.lines) {
+      const opacity = chartLineOpacity(chart, line);
       const lineXValues = Array.isArray(line.xValues) && line.xValues.length === line.values.length
         ? line.xValues
         : line.values.map((_value, index) => index + 1);
-      drawMetricLine(ctx, line, line.values, lineXValues, x, y, validValue);
+      drawMetricLine(
+        ctx, line, line.values, lineXValues, x, y, validValue,
+        false, opacity, opacity === 1 && Boolean(chart.focusedLineId),
+      );
     }
 
     if (chart.hoverIndex !== null) {
@@ -6175,6 +6243,7 @@
       for (const line of group.lines) {
         const value = line.values[chart.hoverIndex];
         if (!validValue(value)) continue;
+        ctx.globalAlpha = chartLineOpacity(chart, line);
         ctx.beginPath();
         ctx.arc(hoverX, y(value), 4.2, 0, Math.PI * 2);
         ctx.fillStyle = dotCenter;
@@ -6182,6 +6251,7 @@
         ctx.lineWidth = 2.4;
         ctx.strokeStyle = line.color || colors[line.split] || colors.other;
         ctx.stroke();
+        ctx.globalAlpha = 1;
       }
     }
   }

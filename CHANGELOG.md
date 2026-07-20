@@ -11,7 +11,7 @@
 - prioritized executable ATen operations over parameter placeholders when a
   large operator graph exceeds the dashboard's visible-node limit
 - applied configuration filters to Model Selection Analysis plots and exports,
-  and made long chart legends vertically scrollable
+  and made long chart legends vertically scrollable and hover-focusable
 
 ## Changed
 
