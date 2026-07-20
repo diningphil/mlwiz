@@ -331,6 +331,10 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .chart-type { padding: 4px 7px; border-radius: 99px; color: #46604f; background: #edf5ef; font-size: 0.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
 .chart-wrap { width: 100%; height: 205px; position: relative; }
 .chart-wrap canvas { display: block; width: 100%; height: 100%; cursor: crosshair; touch-action: pan-y; }
+.chart-wrap canvas.box-zooming { cursor: zoom-in; }
+.chart-zoom-out { padding: 4px 7px; border: 1px solid #c6ddd1; border-radius: 7px; color: #0b7552; background: #edf7f1; font-size: 0.5rem; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.chart-zoom-out:hover:not(:disabled) { border-color: #8fc7ac; background: #dff1e7; }
+.chart-zoom-out:disabled { color: var(--faint); border-color: var(--line); background: var(--panel); opacity: .55; cursor: default; }
 .chart-legend { min-height: 30px; max-height: 96px; display: flex; flex-wrap: wrap; align-content: flex-start; gap: 6px 13px; padding: 6px 4px 2px 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .legend-item { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 0.5625rem; }
 .chart-legend.has-focus .legend-item:not(.is-focused) { opacity: .24; }
@@ -570,6 +574,9 @@ html[data-theme="dark"] .parallel-selection-status { color: #8be1bd; border-colo
 html[data-theme="dark"] .parallel-selection-empty { color: #efa29a; border-color: #653f3c; background: #351f21; }
 html[data-theme="dark"] .plot-code-button { color: #8be1bd; border-color: #39765e; background: #17372b; }
 html[data-theme="dark"] .plot-code-button:hover { border-color: #5cae8c; background: #1d4637; }
+html[data-theme="dark"] .chart-zoom-out { color: #8be1bd; border-color: #39765e; background: #17372b; }
+html[data-theme="dark"] .chart-zoom-out:hover:not(:disabled) { border-color: #5cae8c; background: #1d4637; }
+html[data-theme="dark"] .chart-zoom-out:disabled { color: var(--faint); border-color: var(--line); background: var(--panel); }
 html[data-theme="dark"] .plot-code-close:hover,
 html[data-theme="dark"] .plot-code-actions button:hover { background: #182735; }
 html[data-theme="dark"] .plot-code-options { background: #0c1823; }

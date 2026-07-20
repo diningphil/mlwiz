@@ -883,6 +883,11 @@ default is ``None``, so existing configurations continue to record epoch
 histories only. Epoch-level scores still use their configured aggregation rule;
 step scores are computed on the sampled training batch.
 
+Every 2D trend supports box zoom: drag a rectangle over the plotting area to
+restrict both axes to that region, then repeat to zoom further. **Zoom out**
+returns through the selected regions one level at a time. Hover inspection
+continues to use only the points visible in the current region.
+
 When step histories are enabled, the exact global step at each completed epoch
 is also persisted. If training resumes from an epoch checkpoint, samples from a
 later incomplete epoch are removed before that epoch is replayed. The replayed
@@ -1053,6 +1058,8 @@ The available plot types have different aggregation semantics:
   epochs or sampled global steps and plots their mean with a standard-deviation
   band. Hovering a sampled-step point shows both the global step and the local
   recording-time range for the contributing runs when timestamps are available.
+  In 2D, drag a rectangle to zoom both axes; repeated selections form a zoom
+  history that can be unwound with **Zoom out**.
   The legend maps
   each line to its hyperparameter value and reports the latest mean ± standard
   deviation and number of contributing runs. Choose **3D** and a **Second

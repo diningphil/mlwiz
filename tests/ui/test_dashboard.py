@@ -1133,6 +1133,24 @@ def test_frontend_shows_recorded_times_for_hovered_trend_points():
     assert "Recorded ${first === last ? first" in app_script
 
 
+def test_frontend_supports_repeatable_box_zoom_for_2d_trends():
+    """Two-dimensional trends should box-zoom and unwind one level at a time."""
+    assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
+    app_script = (assets / "app.js").read_text(encoding="utf-8")
+    stylesheet = (assets / "styles.css").read_text(encoding="utf-8")
+
+    assert "function chartZoomOutButton" in app_script
+    assert "function attachChartBoxZoom" in app_script
+    assert app_script.count("attachChartBoxZoom(chart);") == 2
+    assert "chart.zoomStack.push" in app_script
+    assert "chart.zoomStack.pop()" in app_script
+    assert "state.chartZooms[chart.zoomKey]" in app_script
+    assert "const zoomDomain = chart.zoomStack?.at(-1)" in app_script
+    assert 'ctx.setLineDash([5, 3])' in app_script
+    assert ".chart-zoom-out" in stylesheet
+    assert ".chart-wrap canvas.box-zooming" in stylesheet
+
+
 def test_http_server_serves_frontend_and_api(tmp_path):
     """A startable server should expose both the page and tree API."""
     experiment, _, selection_run, _ = _write_fixture_results(tmp_path)

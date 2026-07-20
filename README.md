@@ -380,6 +380,10 @@ New sampled-step histories also record their wall-clock times, so the hover
 readout shows the local date and time beside the step number. Aggregate trend
 points show the recording-time range across their contributing runs. Older
 metric artifacts without timestamps retain the step-only readout.
+On any 2D trend chart, drag a rectangle over the plotting area to zoom into
+that X/Y region. Box zoom can be repeated; **Zoom out** returns through the
+selected regions one level at a time. The existing 3D controls continue to use
+drag rotation and mouse-wheel zoom.
 Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
 short-term noise and retain a faint raw trace for context. The mirrored control

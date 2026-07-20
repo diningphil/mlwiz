@@ -8,6 +8,8 @@
   trend plots, including faint raw traces and reproducible plot exports
 - added per-sample timestamps to new step histories and displayed them beside
   step IDs in Run Explorer and Model Selection Analysis trend hovers
+- added repeatable rectangle zoom with stepwise zoom-out controls to 2D Run
+  Explorer and Model Selection Analysis trends
 
 ## Fixed
 

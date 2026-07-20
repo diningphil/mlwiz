@@ -167,6 +167,7 @@
     filterData: {},
     filterLoading: {},
     charts: [],
+    chartZooms: {},
     metricBarCharts: [],
     analysis3DCharts: [],
     parallelCharts: [],
@@ -316,6 +317,15 @@
 
   function plotCodeButton(specOrFactory) {
     return window.MLWizPlotExport.createButton(specOrFactory);
+  }
+
+  function chartZoomOutButton() {
+    const button = node("button", "chart-zoom-out", "Zoom out");
+    button.type = "button";
+    button.disabled = true;
+    button.setAttribute("aria-label", "Zoom out one level");
+    button.title = "Drag a rectangle inside the plot to zoom in";
+    return button;
   }
 
   function exportedLines(lines) {
@@ -1770,9 +1780,13 @@
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
         const headMeta = node("div", "chart-head-meta");
+        const zoomOutButton = plot.secondaryHyperparameter
+          ? null
+          : chartZoomOutButton();
         headMeta.append(
           epochLabel,
           node("span", "chart-type", plot.secondaryHyperparameter ? "3D · mean ± std" : "mean ± std"),
+          ...(zoomOutButton ? [zoomOutButton] : []),
           plotCodeButton(() => linePlotExportSpec({
             title: chartTitle,
             subtitle: `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
@@ -1850,6 +1864,15 @@
           attachAnalysisHover(chart, wrap);
           state.analysis3DCharts.push(chart);
         } else {
+          const zoomKey = [
+            "analysis",
+            plot.id,
+            chartGroup.key,
+            plot.unit,
+            plot.hyperparameter || "all-runs",
+            plot.removeOutliers ? "filtered" : "all-values",
+            useLog ? "log" : "linear",
+          ].join(":");
           const chart = {
             canvas,
             group: {
@@ -1863,10 +1886,14 @@
             hoverIndex: null,
             xLabel: plot.unit,
             scale: useLog ? "log" : "linear",
+            zoomOutButton,
+            zoomKey,
           };
           attachLegendFocus(legend, chart, legendEntries, drawChart);
+          attachChartBoxZoom(chart);
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
           canvas.addEventListener("pointerleave", () => {
+            if (chart.zoomDrag) return;
             chart.hoverIndex = null;
             updateChartReadout(chart);
             drawChart(chart);
@@ -4929,9 +4956,11 @@
       title.append(node("h3", "", chartTitle), node("p", "", group.source));
       const headMeta = node("div", "chart-head-meta");
       const epochLabel = node("span", "chart-epoch", "Latest");
+      const zoomOutButton = chartZoomOutButton();
       headMeta.append(
         epochLabel,
         node("span", "chart-type", group.group),
+        zoomOutButton,
         plotCodeButton(() => linePlotExportSpec({
           title: chartTitle,
           subtitle: group.source,
@@ -4969,10 +4998,24 @@
         legendValues,
         epochLabel,
         hoverIndex: null,
+        zoomOutButton,
+        zoomKey: [
+          "runs",
+          state.selectedPath,
+          state.metricUnit,
+          state.plotMode,
+          state.scale,
+          state.removeOutliers ? "filtered" : "all-values",
+          group.source,
+          group.group,
+          group.metric,
+        ].join(":"),
       };
       attachLegendFocus(legend, chart, legendEntries, drawChart);
+      attachChartBoxZoom(chart);
       canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
       canvas.addEventListener("pointerleave", () => {
+        if (chart.zoomDrag) return;
         chart.hoverIndex = null;
         updateChartReadout(chart);
         drawChart(chart);
@@ -6084,9 +6127,110 @@
     }
   }
 
+  function updateChartZoomButton(chart) {
+    const levels = chart.zoomStack?.length || 0;
+    chart.zoomOutButton.disabled = levels === 0;
+    chart.zoomOutButton.title = levels
+      ? `Zoom out one level (${levels} active)`
+      : "Drag a rectangle inside the plot to zoom in";
+  }
+
+  function attachChartBoxZoom(chart) {
+    const canvas = chart.canvas;
+    const storedZoom = state.chartZooms[chart.zoomKey];
+    chart.zoomStack = Array.isArray(storedZoom)
+      ? storedZoom.map((domain) => ({ ...domain }))
+      : [];
+    canvas.title = "Drag a rectangle inside the plot to zoom in";
+    updateChartZoomButton(chart);
+    const localPoint = (event) => {
+      const bounds = canvas.getBoundingClientRect();
+      return { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+    };
+    const clampToPlot = (point, geometry) => ({
+      x: Math.max(geometry.left, Math.min(geometry.width - geometry.right, point.x)),
+      y: Math.max(geometry.top, Math.min(geometry.bottom, point.y)),
+    });
+
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || event.pointerType === "touch") return;
+      const geometry = chart.plotGeometry;
+      if (!geometry) return;
+      const point = localPoint(event);
+      if (
+        point.x < geometry.left
+        || point.x > geometry.width - geometry.right
+        || point.y < geometry.top
+        || point.y > geometry.bottom
+      ) return;
+      event.preventDefault();
+      canvas.setPointerCapture?.(event.pointerId);
+      chart.zoomDrag = {
+        pointerId: event.pointerId,
+        start: point,
+        current: point,
+      };
+      chart.hoverIndex = null;
+      canvas.classList.add("box-zooming");
+      updateChartReadout(chart);
+      drawChart(chart);
+    });
+    canvas.addEventListener("pointermove", (event) => {
+      if (!chart.zoomDrag || chart.zoomDrag.pointerId !== event.pointerId) return;
+      chart.zoomDrag.current = clampToPlot(localPoint(event), chart.plotGeometry);
+      drawChart(chart);
+    });
+    const finish = (event, cancelled = false) => {
+      if (!chart.zoomDrag || chart.zoomDrag.pointerId !== event.pointerId) return;
+      const geometry = chart.plotGeometry;
+      const start = chart.zoomDrag.start;
+      const current = clampToPlot(localPoint(event), geometry);
+      chart.zoomDrag = null;
+      canvas.classList.remove("box-zooming");
+      if (canvas.hasPointerCapture?.(event.pointerId)) {
+        canvas.releasePointerCapture(event.pointerId);
+      }
+      const left = Math.min(start.x, current.x);
+      const right = Math.max(start.x, current.x);
+      const top = Math.min(start.y, current.y);
+      const bottom = Math.max(start.y, current.y);
+      if (!cancelled && right - left >= 8 && bottom - top >= 8) {
+        const plotWidth = geometry.width - geometry.left - geometry.right;
+        const plotHeight = geometry.bottom - geometry.top;
+        const xAt = (pixel) => geometry.minX
+          + ((pixel - geometry.left) / plotWidth) * (geometry.maxX - geometry.minX);
+        const yAt = (pixel) => geometry.maxY
+          - ((pixel - geometry.top) / plotHeight) * (geometry.maxY - geometry.minY);
+        chart.zoomStack.push({
+          minX: xAt(left),
+          maxX: xAt(right),
+          minY: yAt(bottom),
+          maxY: yAt(top),
+        });
+        state.chartZooms[chart.zoomKey] = chart.zoomStack;
+      }
+      updateChartZoomButton(chart);
+      drawChart(chart);
+    };
+    canvas.addEventListener("pointerup", (event) => finish(event));
+    canvas.addEventListener("pointercancel", (event) => finish(event, true));
+    chart.zoomOutButton.addEventListener("click", () => {
+      if (!chart.zoomStack.length) return;
+      chart.zoomStack.pop();
+      if (chart.zoomStack.length) state.chartZooms[chart.zoomKey] = chart.zoomStack;
+      else delete state.chartZooms[chart.zoomKey];
+      chart.hoverIndex = null;
+      updateChartReadout(chart);
+      updateChartZoomButton(chart);
+      drawChart(chart);
+    });
+  }
+
   function updateChartHover(chart, event) {
+    if (chart.zoomDrag) return;
     const rect = chart.canvas.getBoundingClientRect();
-    const margin = chart.plotGeometry || { right: 12, left: 48 };
+    const geometry = chart.plotGeometry;
+    const margin = geometry || { right: 12, left: 48 };
     const plotWidth = rect.width - margin.left - margin.right;
     const pointerX = event.clientX - rect.left;
     if (pointerX < margin.left || pointerX > rect.width - margin.right) {
@@ -6098,16 +6242,27 @@
       return;
     }
     const xValues = chartXValues(chart);
-    const minX = Math.min(...xValues);
-    const maxX = Math.max(...xValues);
+    const minX = geometry?.minX ?? Math.min(...xValues);
+    const maxX = geometry?.maxX ?? Math.max(...xValues);
     const targetX = minX + ((pointerX - margin.left) / plotWidth) * (maxX - minX);
-    const index = xValues.reduce(
-      (nearest, value, candidate) => (
-        Math.abs(value - targetX) < Math.abs(xValues[nearest] - targetX)
-          ? candidate
+    const visibleIndices = xValues.flatMap((value, index) => (
+      value >= minX && value <= maxX ? [index] : []
+    ));
+    if (!visibleIndices.length) {
+      if (chart.hoverIndex !== null) {
+        chart.hoverIndex = null;
+        updateChartReadout(chart);
+        drawChart(chart);
+      }
+      return;
+    }
+    const index = visibleIndices.reduce(
+      (nearest, candidateIndex) => (
+        Math.abs(xValues[candidateIndex] - targetX) < Math.abs(xValues[nearest] - targetX)
+          ? candidateIndex
           : nearest
       ),
-      0,
+      visibleIndices[0],
     );
     if (index !== chart.hoverIndex) {
       chart.hoverIndex = Math.max(0, Math.min(xValues.length - 1, index));
@@ -6314,6 +6469,16 @@
     const padding = (max - min) * 0.08;
     min -= padding;
     max += padding;
+    const zoomDomain = chart.zoomStack?.at(-1);
+    if (
+      zoomDomain
+      && Number.isFinite(zoomDomain.minY)
+      && Number.isFinite(zoomDomain.maxY)
+      && zoomDomain.minY < zoomDomain.maxY
+    ) {
+      min = zoomDomain.minY;
+      max = zoomDomain.maxY;
+    }
     ctx.font = canvasFont();
     const tickValues = Array.from({ length: 5 }, (_item, tick) => {
       const transformed = min + ((max - min) * tick) / 4;
@@ -6332,9 +6497,28 @@
         ? line.xValues
         : line.values.map((_value, index) => index + 1)
     ));
-    const minX = Math.min(...allXValues);
-    const maxX = Math.max(...allXValues);
-    chart.plotGeometry = { left: margin.left, right: margin.right };
+    let minX = Math.min(...allXValues);
+    let maxX = Math.max(...allXValues);
+    if (
+      zoomDomain
+      && Number.isFinite(zoomDomain.minX)
+      && Number.isFinite(zoomDomain.maxX)
+      && zoomDomain.minX < zoomDomain.maxX
+    ) {
+      minX = zoomDomain.minX;
+      maxX = zoomDomain.maxX;
+    }
+    chart.plotGeometry = {
+      left: margin.left,
+      right: margin.right,
+      top: margin.top,
+      bottom: margin.top + plotHeight,
+      width,
+      minX,
+      maxX,
+      minY: min,
+      maxY: max,
+    };
     const x = (value) => margin.left + (
       minX === maxX ? plotWidth / 2 : ((value - minX) / (maxX - minX)) * plotWidth
     );
@@ -6370,7 +6554,6 @@
         true, opacity, opacity === 1 && Boolean(chart.focusedLineId),
       );
     }
-    ctx.restore();
 
     for (const line of group.lines) {
       const opacity = chartLineOpacity(chart, line);
@@ -6417,6 +6600,25 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
+    }
+    ctx.restore();
+
+    if (chart.zoomDrag) {
+      const left = Math.min(chart.zoomDrag.start.x, chart.zoomDrag.current.x);
+      const right = Math.max(chart.zoomDrag.start.x, chart.zoomDrag.current.x);
+      const top = Math.min(chart.zoomDrag.start.y, chart.zoomDrag.current.y);
+      const bottom = Math.max(chart.zoomDrag.start.y, chart.zoomDrag.current.y);
+      const selectionColor = themeStyles.getPropertyValue("--green").trim() || "#138a62";
+      ctx.save();
+      ctx.globalAlpha = 0.12;
+      ctx.fillStyle = selectionColor;
+      ctx.fillRect(left, top, right - left, bottom - top);
+      ctx.globalAlpha = 0.9;
+      ctx.strokeStyle = selectionColor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([5, 3]);
+      ctx.strokeRect(left, top, right - left, bottom - top);
+      ctx.restore();
     }
   }
 
