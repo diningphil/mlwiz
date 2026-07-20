@@ -873,12 +873,15 @@ integer to record and flush the current training-batch losses and scores every
       args:
         store_every_N_steps: 10
 
-The sampled histories and their global step numbers are stored under the
-``step`` key. When that key is present, the run explorer displays an
+The sampled histories, global step numbers, and Unix timestamps are stored
+under the ``step`` key. When that key is present, the run explorer displays an
 **Epoch / Step** selector and uses the recorded step numbers on the horizontal
-axis. The default is ``None``, so existing configurations continue to record
-epoch histories only. Epoch-level scores still use their configured aggregation
-rule; step scores are computed on the sampled training batch.
+axis. Hovering a sampled point shows its step and local recording time;
+aggregate trends show the timestamp range across contributing runs. Artifacts
+created before timestamp recording continue to show the step alone. The
+default is ``None``, so existing configurations continue to record epoch
+histories only. Epoch-level scores still use their configured aggregation rule;
+step scores are computed on the sampled training batch.
 
 When step histories are enabled, the exact global step at each completed epoch
 is also persisted. If training resumes from an epoch checkpoint, samples from a
@@ -1048,7 +1051,9 @@ The available plot types have different aggregation semantics:
 **Trend Plots**
   For every value of the selected hyperparameter, MLWiz aligns the recorded
   epochs or sampled global steps and plots their mean with a standard-deviation
-  band. The legend maps
+  band. Hovering a sampled-step point shows both the global step and the local
+  recording-time range for the contributing runs when timestamps are available.
+  The legend maps
   each line to its hyperparameter value and reports the latest mean ± standard
   deviation and number of contributing runs. Choose **3D** and a **Second
   parameter** to separate curves by a second hyperparameter while retaining

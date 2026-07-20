@@ -2066,8 +2066,14 @@ class ResultsRepository:
         step_metrics = stored.get("step")
         if isinstance(step_metrics, dict):
             steps = _numeric_series(step_metrics.get("steps", [])) or []
+            timestamps = _numeric_series(step_metrics.get("timestamps", [])) or []
             for group, metrics in step_metrics.items():
-                if group in {"steps", "last_step", "epoch_last_steps"}:
+                if group in {
+                    "steps",
+                    "timestamps",
+                    "last_step",
+                    "epoch_last_steps",
+                }:
                     continue
                 group_name = str(group)
                 for name, values in _history_series(metrics):
@@ -2079,6 +2085,8 @@ class ResultsRepository:
                     }
                     if len(steps) == len(values):
                         item["x_values"] = steps
+                    if len(timestamps) == len(values):
+                        item["timestamps"] = timestamps
                     series.append(item)
         return series
 

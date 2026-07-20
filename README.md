@@ -376,6 +376,10 @@ frequency. To additionally record training-batch histories, configure
 **Epoch / Step** history selector and plots the sampled global step numbers.
 
 Hover over a chart to inspect the values at one epoch or sampled training step.
+New sampled-step histories also record their wall-clock times, so the hover
+readout shows the local date and time beside the step number. Aggregate trend
+points show the recording-time range across their contributing runs. Older
+metric artifacts without timestamps retain the step-only readout.
 Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
 short-term noise and retain a faint raw trace for context. The mirrored control
@@ -561,10 +565,11 @@ plotter:
 
 Leave `store_every_N_steps` unset (or set it to `null`) to store epoch metrics
 only. `store_every_N_epochs` continues to control epoch-based disk flushes.
-With step histories enabled, `Plotter` also persists the exact global step at
-each completed epoch. Resuming an epoch checkpoint discards any later samples
-from an interrupted partial epoch, then records their replacement values at the
-same global step numbers.
+With step histories enabled, `Plotter` persists each sample's Unix timestamp
+and also the exact global step at each completed epoch. Resuming an epoch
+checkpoint discards any later samples and timestamps from an interrupted
+partial epoch, then records their replacement values at the same global step
+numbers.
 
 Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
 

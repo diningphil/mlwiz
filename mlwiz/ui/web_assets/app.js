@@ -389,10 +389,21 @@
     return number.toLocaleString(undefined, { maximumFractionDigits: 5 });
   }
 
+  function formatMetricTimestamp(timestamp, timeStyle = "medium") {
+    if (timestamp === null || timestamp === undefined || timestamp === "") return null;
+    const numericTimestamp = Number(timestamp);
+    if (!Number.isFinite(numericTimestamp)) return null;
+    const date = new Date(numericTimestamp * 1000);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString(undefined, {
+      dateStyle: "medium",
+      timeStyle,
+    });
+  }
+
   function formatTime(timestamp) {
-    if (!timestamp) return "No metric timestamp";
-    const date = new Date(timestamp * 1000);
-    return `Updated ${date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}`;
+    const formatted = formatMetricTimestamp(timestamp, "short");
+    return formatted ? `Updated ${formatted}` : "No metric timestamp";
   }
 
   async function getJson(url) {
@@ -1942,6 +1953,10 @@
           xValues,
           leftValues,
           rightValues,
+          timestampRanges: xValues.map((position) => mergeTimestampRanges([
+            timestampRangeAt(left, leftIndices.get(position)),
+            timestampRangeAt(right, rightIndices.get(position)),
+          ])),
           leftStd: xValues.map((position, point) => {
             const sourcePoint = leftIndices.get(position);
             const value = leftValues[point];
@@ -3341,9 +3356,10 @@
             title: line.label,
             lines: [
               `${chart.xLabel} ${formatNumber(lineXValues[index])}`,
+              formatTrendTimestamp([line], index),
               `${chart.yLabel}: mean ${formatNumber(left)} · std ${formatNumber(line.leftStd[index])}`,
               `${chart.zLabel}: mean ${formatNumber(right)} · std ${formatNumber(line.rightStd[index])}`,
-            ],
+            ].filter(Boolean),
           });
           if (!drawing) { ctx.moveTo(point.x, point.y); drawing = true; } else ctx.lineTo(point.x, point.y);
         }
@@ -3463,8 +3479,9 @@
           title: line.label,
           lines: [
             `${chart.xLabel} ${formatNumber(lineXValues[index])}`,
+            formatTrendTimestamp([line], index),
             `mean ${formatNumber(value)} · std ${formatNumber(std)}`,
-          ],
+          ].filter(Boolean),
         });
         if (!drawing) { ctx.moveTo(point.x, point.y); drawing = true; } else ctx.lineTo(point.x, point.y);
       }
@@ -4245,6 +4262,57 @@
     return series.values.map((_value, index) => index + 1);
   }
 
+  function seriesTimestamps(series) {
+    const storedTimestamps = series.timestamps;
+    if (
+      Array.isArray(storedTimestamps)
+      && storedTimestamps.length === series.values.length
+    ) {
+      return storedTimestamps.map((timestamp) => (
+        timestamp !== null
+        && timestamp !== undefined
+        && timestamp !== ""
+        && Number.isFinite(Number(timestamp))
+          ? Number(timestamp)
+          : null
+      ));
+    }
+    return series.values.map(() => null);
+  }
+
+  function mergeTimestampRanges(ranges) {
+    const timestamps = ranges.flatMap((range) => (
+      Array.isArray(range) ? range.filter(Number.isFinite) : []
+    ));
+    if (!timestamps.length) return null;
+    return [Math.min(...timestamps), Math.max(...timestamps)];
+  }
+
+  function timestampRangeAt(line, index) {
+    const range = line.timestampRanges?.[index];
+    if (Array.isArray(line.timestampRanges)) {
+      return Array.isArray(range) ? mergeTimestampRanges([range]) : null;
+    }
+    const timestamp = seriesTimestamps(line)[index];
+    return Number.isFinite(timestamp) ? [timestamp, timestamp] : null;
+  }
+
+  function formatTrendTimestamp(lines, index, position = null) {
+    const range = mergeTimestampRanges(
+      lines.map((line) => {
+        const pointIndex = position === null
+          ? index
+          : seriesXValues(line).findIndex((value) => value === position);
+        return pointIndex >= 0 ? timestampRangeAt(line, pointIndex) : null;
+      }),
+    );
+    if (!range) return null;
+    const first = formatMetricTimestamp(range[0]);
+    const last = formatMetricTimestamp(range[1]);
+    if (!first || !last) return null;
+    return `Recorded ${first === last ? first : `${first} – ${last}`}`;
+  }
+
   function metricUnitLabel(capitalize = false) {
     const label = state.metricUnit === "step" ? "step" : "epoch";
     return capitalize ? `${label[0].toUpperCase()}${label.slice(1)}` : label;
@@ -4683,22 +4751,33 @@
   function aggregateMetricLines(lines, removeOutliers = false) {
     const positions = [...new Set(lines.flatMap(seriesXValues))]
       .sort((left, right) => left - right);
-    const indexedLines = lines.map((line) => new Map(
-      seriesXValues(line).map((position, index) => [position, line.values[index]]),
-    ));
+    const indexedLines = lines.map((line) => {
+      const timestamps = seriesTimestamps(line);
+      return new Map(seriesXValues(line).map((position, index) => [position, {
+        value: line.values[index],
+        timestamp: timestamps[index],
+      }]));
+    });
     const values = [];
     const lower = [];
     const upper = [];
+    const timestampRanges = [];
     let outlierCount = 0;
     for (const position of positions) {
       const availableSamples = indexedLines
         .map((line) => line.get(position))
-        .filter((value) => value !== null && Number.isFinite(value));
-      const filtered = filterIqrOutliers(availableSamples, removeOutliers);
-      const samples = filtered.values;
+        .filter((sample) => sample && Number.isFinite(sample.value));
+      const filtered = filterIqrOutliers(
+        availableSamples.map((sample) => sample.value),
+        removeOutliers,
+      );
+      const retainedSamples = filtered.indices.map(
+        (sampleIndex) => availableSamples[sampleIndex],
+      );
+      const samples = retainedSamples.map((sample) => sample.value);
       outlierCount += filtered.removed;
       if (!samples.length) {
-        values.push(null); lower.push(null); upper.push(null);
+        values.push(null); lower.push(null); upper.push(null); timestampRanges.push(null);
         continue;
       }
       const mean = samples.reduce((sum, value) => sum + value, 0) / samples.length;
@@ -4707,11 +4786,17 @@
       values.push(mean);
       lower.push(mean - std);
       upper.push(mean + std);
+      timestampRanges.push(mergeTimestampRanges(retainedSamples.map((sample) => (
+        Number.isFinite(sample.timestamp)
+          ? [sample.timestamp, sample.timestamp]
+          : null
+      ))));
     }
     return {
       values,
       xValues: positions,
       band: { lower, upper },
+      timestampRanges,
       sampleCount: lines.length,
       outlierCount,
     };
@@ -4812,6 +4897,7 @@
           name: series.name,
           values: series.values,
           xValues: seriesXValues(series),
+          timestamps: seriesTimestamps(series),
           dash: mode === "inner-fold" ? runDashPattern(series.source) : [],
         });
       }
@@ -6049,9 +6135,19 @@
 
   function updateChartReadout(chart) {
     const xValues = chartXValues(chart);
-    chart.epochLabel.textContent = chart.hoverIndex === null
-      ? "Latest"
-      : `${chartXLabel(chart, true)} ${formatNumber(xValues[chart.hoverIndex])}`;
+    if (chart.hoverIndex === null) {
+      chart.epochLabel.textContent = "Latest";
+    } else {
+      const timestamp = formatTrendTimestamp(
+        chart.group.lines,
+        chart.hoverIndex,
+        xValues[chart.hoverIndex],
+      );
+      chart.epochLabel.textContent = [
+        `${chartXLabel(chart, true)} ${formatNumber(xValues[chart.hoverIndex])}`,
+        timestamp,
+      ].filter(Boolean).join(" · ");
+    }
     for (const line of chart.group.lines) {
       chart.legendValues.get(line.id).textContent = formatLineReadout(
         line,

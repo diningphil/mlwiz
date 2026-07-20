@@ -5,6 +5,7 @@ and scores, plus optional training-step histories, to ``metrics_data.torch``
 for live and post-run inspection.
 """
 
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -218,7 +219,16 @@ class Plotter(EventHandler):
         if self._training_step % self.store_every_N_steps != 0:
             return
 
-        step_metrics.setdefault("steps", []).append(self._training_step)
+        steps = step_metrics.setdefault("steps", [])
+        timestamps = step_metrics.setdefault("timestamps", [])
+        if len(timestamps) < len(steps):
+            # Older artifacts have sampled steps but no timestamps. Preserve
+            # their alignment so new samples can still expose recording times.
+            timestamps.extend([None] * (len(steps) - len(timestamps)))
+        elif len(timestamps) > len(steps):
+            del timestamps[len(steps) :]
+        steps.append(self._training_step)
+        timestamps.append(time.time())
         for metric_type, values in (
             ("losses", state.batch_loss),
             ("scores", state.batch_score),

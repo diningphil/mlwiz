@@ -242,6 +242,7 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     metrics = torch.load(metrics_path, weights_only=True)
     metrics["step"] = {
         "steps": [2, 4],
+        "timestamps": [1_720_000_000.25, 1_720_000_010.5],
         "last_step": 5,
         "epoch_last_steps": {0: 5},
         "losses": {"training_main_loss": [0.9, 0.7]},
@@ -259,6 +260,9 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     assert len(epoch_series) == 4
     assert len(step_series) == 2
     assert step_series[0]["x_values"] == pytest.approx([2, 4])
+    assert step_series[0]["timestamps"] == pytest.approx(
+        [1_720_000_000.25, 1_720_000_010.5]
+    )
     assert {item["name"] for item in step_series} == {
         "training_main_loss",
         "training_main_score",
@@ -270,6 +274,9 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     analysis_steps = [item for item in analysis["series"] if item["unit"] == "step"]
     assert len(analysis_steps) == 2
     assert analysis_steps[0]["x_values"] == pytest.approx([2, 4])
+    assert analysis_steps[0]["timestamps"] == pytest.approx(
+        [1_720_000_000.25, 1_720_000_010.5]
+    )
     assert all(item["selected_value"] is None for item in analysis_steps)
     training_loss = next(
         item
@@ -1111,6 +1118,19 @@ def test_frontend_smooths_model_analysis_trends():
     assert app_script.count("smoothing: state.smoothing") >= 3
     assert 'series.get("rawLeftValues")' in plot_export_script
     assert 'series.get("rawRightValues")' in plot_export_script
+
+
+def test_frontend_shows_recorded_times_for_hovered_trend_points():
+    """Step trend hovers should pair positions with their recording times."""
+    assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
+    app_script = (assets / "app.js").read_text(encoding="utf-8")
+
+    assert "function seriesTimestamps" in app_script
+    assert "function formatTrendTimestamp" in app_script
+    assert "timestampRanges.push(mergeTimestampRanges" in app_script
+    assert app_script.count("formatTrendTimestamp(") >= 4
+    assert "formatTrendTimestamp([line], index)" in app_script
+    assert "Recorded ${first === last ? first" in app_script
 
 
 def test_http_server_serves_frontend_and_api(tmp_path):

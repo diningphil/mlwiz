@@ -43,8 +43,12 @@ def test_plotter_stores_dashboard_metrics_by_default(tmp_path):
     assert "step" not in metrics
 
 
-def test_plotter_stores_and_resumes_sampled_training_steps(tmp_path):
-    """Step histories should use global step numbers and survive resumes."""
+def test_plotter_stores_and_resumes_sampled_training_steps(tmp_path, monkeypatch):
+    """Step histories should retain global steps, timestamps, and resumes."""
+    recorded_times = iter((100.25, 200.5))
+    monkeypatch.setattr(
+        "mlwiz.training.callback.plotter.time.time", lambda: next(recorded_times)
+    )
     plotter = Plotter(str(tmp_path), store_every_N_steps=2)
     state = SimpleNamespace(
         batch_loss={"main_loss": torch.tensor(0.8)},
@@ -63,6 +67,7 @@ def test_plotter_stores_and_resumes_sampled_training_steps(tmp_path):
 
     metrics = torch.load(tmp_path / "metrics_data.torch", weights_only=True)
     assert metrics["step"]["steps"] == [2, 4]
+    assert metrics["step"]["timestamps"] == pytest.approx([100.25, 200.5])
     assert metrics["step"]["last_step"] == 4
     assert metrics["step"]["losses"]["training_main_loss"] == pytest.approx(
         [0.7, 0.5]
@@ -97,6 +102,7 @@ def test_plotter_replaces_steps_after_resumed_epoch_checkpoint(tmp_path):
     metrics_path = tmp_path / "metrics_data.torch"
     resumed_metrics = torch.load(metrics_path, weights_only=True)
     assert resumed_metrics["step"]["steps"] == [2, 4]
+    assert len(resumed_metrics["step"]["timestamps"]) == 2
     assert resumed_metrics["step"]["last_step"] == 5
     assert resumed_metrics["step"]["epoch_last_steps"] == {0: 5}
     assert resumed_metrics["step"]["losses"][
@@ -111,6 +117,7 @@ def test_plotter_replaces_steps_after_resumed_epoch_checkpoint(tmp_path):
 
     metrics = torch.load(metrics_path, weights_only=True)
     assert metrics["step"]["steps"] == [2, 4, 6, 8]
+    assert len(metrics["step"]["timestamps"]) == 4
     assert metrics["step"]["last_step"] == 8
     assert metrics["step"]["losses"]["training_main_loss"] == pytest.approx(
         [0.8, 0.6, 0.35, 0.15]

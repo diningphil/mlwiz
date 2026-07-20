@@ -6,6 +6,8 @@
 
 - added shared curve smoothing to Model Selection Analysis trend and combined
   trend plots, including faint raw traces and reproducible plot exports
+- added per-sample timestamps to new step histories and displayed them beside
+  step IDs in Run Explorer and Model Selection Analysis trend hovers
 
 ## Fixed
 
