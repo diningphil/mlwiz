@@ -312,22 +312,6 @@
             </div>
             <div class="analysis-head-actions">
               <span class="freshness" id="analysis-freshness">Waiting for data</span>
-              <label
-                class="smoothing-control"
-                title="Apply TensorBoard-style exponential smoothing to analysis trend curves; faint curves show the raw values"
-              >
-                <span>Smoothing</span>
-                <input
-                  id="analysis-smoothing-slider"
-                  type="range"
-                  min="0"
-                  max="0.99"
-                  step="0.01"
-                  value="0"
-                  aria-label="Model analysis curve smoothing"
-                />
-                <output id="analysis-smoothing-value" for="analysis-smoothing-slider">0</output>
-              </label>
             </div>
           </div>
           <div class="analysis-controls">
@@ -347,6 +331,33 @@
             <button class="analysis-add-quantity" id="analysis-add-quantity" type="button">+ Add plot</button>
           </div>
           <div class="analysis-selected-quantities" id="analysis-selected-quantities" aria-label="Selected analysis plots"></div>
+          <div class="plot-navigator-sentinel" id="analysis-plot-navigator-sentinel" aria-hidden="true"></div>
+          <div class="plot-navigator analysis-plot-navigator" id="analysis-plot-navigator">
+            <div class="plot-navigator-title">
+              <span>Plot settings</span>
+              <strong>Analysis curves</strong>
+            </div>
+            <div class="plot-navigator-controls">
+              <div class="navigator-plot-settings" aria-label="Analysis plot settings">
+                <label
+                  class="smoothing-control"
+                  title="Apply TensorBoard-style exponential smoothing to analysis trend curves; faint curves show the raw values"
+                >
+                  <span>Smoothing</span>
+                  <input
+                    id="analysis-smoothing-slider"
+                    type="range"
+                    min="0"
+                    max="0.99"
+                    step="0.01"
+                    value="0"
+                    aria-label="Model analysis curve smoothing"
+                  />
+                  <output id="analysis-smoothing-value" for="analysis-smoothing-slider">0</output>
+                </label>
+              </div>
+            </div>
+          </div>
           <div class="notice" id="analysis-notice" hidden></div>
           <div class="chart-grid analysis-chart-grid" id="analysis-chart-grid" hidden></div>
         </section>

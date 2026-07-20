@@ -26,6 +26,8 @@
 
 ## Changed
 
+- moved Model Selection Analysis smoothing into a sticky plot-settings bar so
+  it remains accessible while scrolling through analysis plots
 - bumped the package version to 1.7.4
 
 ## [1.7.3]

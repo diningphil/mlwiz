@@ -1109,7 +1109,15 @@ def test_frontend_smooths_model_analysis_trends():
     assert 'id="analysis-smoothing-slider"' in page
     assert 'id="analysis-smoothing-value"' in page
     assert 'aria-label="Model analysis curve smoothing"' in page
+    assert 'id="analysis-plot-navigator-sentinel"' in page
+    assert 'class="plot-navigator analysis-plot-navigator"' in page
+    assert page.index('id="analysis-selected-quantities"') < page.index(
+        'id="analysis-plot-navigator-sentinel"'
+    ) < page.index('id="analysis-smoothing-slider"') < page.index(
+        'id="analysis-chart-grid"'
+    )
     assert "function updateSmoothing" in app_script
+    assert '["analysis-plot-navigator", "analysis-plot-navigator-sentinel"]' in app_script
     assert "if (state.analysisData) renderAnalysisPlotsPreservingScroll();" in app_script
     assert "chartGroup.lines.map((line, index) => smoothMetricLine" in app_script
     assert "function smoothCombinedTrendLine" in app_script

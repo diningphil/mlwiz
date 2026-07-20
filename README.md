@@ -388,8 +388,9 @@ Use **Smoothing** to apply the same bias-corrected exponential moving average
 used by TensorBoard; `0` leaves the curve unchanged, while higher values reduce
 short-term noise and retain a faint raw trace for context. The mirrored control
 in Model Selection Analysis applies the same value to 2D, 3D, and combined
-trend curves. The chosen value is preserved for the dashboard session and
-included with reproducible plot exports.
+trend curves and stays pinned above the analysis plots while you scroll. The
+chosen value is preserved for the dashboard session and included with
+reproducible plot exports.
 Use **Remove outliers** in a mean ± standard-deviation Run Explorer view, or on
 an individual Model Selection Analysis plot, to exclude values outside Tukey's
 1.5×IQR fences. Trend filtering is performed independently at each epoch or

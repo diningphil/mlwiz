@@ -4694,16 +4694,21 @@
   }
 
   function observeStickyPlotNavigator() {
-    const navigator = el("plot-navigator");
-    const sentinel = el("plot-navigator-sentinel");
-    const observer = new IntersectionObserver(([entry]) => {
-      const passedStickyEdge = entry.boundingClientRect.top <= 10;
-      navigator.classList.toggle("is-stuck", !entry.isIntersecting && passedStickyEdge);
-    }, {
-      threshold: 0,
-      rootMargin: "-10px 0px 0px",
-    });
-    observer.observe(sentinel);
+    for (const [navigatorId, sentinelId] of [
+      ["plot-navigator", "plot-navigator-sentinel"],
+      ["analysis-plot-navigator", "analysis-plot-navigator-sentinel"],
+    ]) {
+      const navigator = el(navigatorId);
+      const sentinel = el(sentinelId);
+      const observer = new IntersectionObserver(([entry]) => {
+        const passedStickyEdge = entry.boundingClientRect.top <= 10;
+        navigator.classList.toggle("is-stuck", !entry.isIntersecting && passedStickyEdge);
+      }, {
+        threshold: 0,
+        rootMargin: "-10px 0px 0px",
+      });
+      observer.observe(sentinel);
+    }
   }
 
   function splitMetric(name) {

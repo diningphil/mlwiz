@@ -302,6 +302,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .plot-navigator-title span { color: var(--green); font-size: 0.5rem; font-weight: 850; letter-spacing: .09em; text-transform: uppercase; }
 .plot-navigator-title strong { font-size: 0.625rem; font-weight: 700; white-space: nowrap; }
 .plot-navigator-controls { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; }
+.analysis-plot-navigator .navigator-plot-settings { padding-right: 0; border-right: 0; }
 .navigator-plot-settings, .navigator-navigation { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .navigator-plot-settings { padding-right: 12px; border-right: 1px solid var(--line); }
 .navigator-plot-settings:has(+ .navigator-navigation[hidden]) { padding-right: 0; border-right: 0; }
