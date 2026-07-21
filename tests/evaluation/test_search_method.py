@@ -3,11 +3,14 @@
 Ensures the YAML-defined search space expands to the expected number of configurations.
 """
 
+from copy import deepcopy
+
 import pytest
 
 from mlwiz.config_loader import ConfigCompositionError, load_experiment_config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
+from mlwiz.static import RESOURCES, SYNC_BATCHNORM
 
 
 @pytest.fixture
@@ -38,12 +41,34 @@ def test_search_method(search_method_config_length):
         # Check the amount of configurations expected and those produced
         # are the same
         assert len(search) == num_of_configs
+        assert all(
+            config[SYNC_BATCHNORM] is False for config in search.hparams
+        )
 
         # No two configurations should be equal
         # (unless it's intended from the config file)
         for i in range(len(search)):
             for j in range(i + 1, len(search)):
                 assert search[i] != search[j]
+
+
+def test_sync_batchnorm_resource_option_is_propagated_to_grid_runs():
+    """Every resolved run should record the resource-level option."""
+    config = deepcopy(load_experiment_config("tests/evaluation/grid_search.yml"))
+    config[RESOURCES][SYNC_BATCHNORM] = True
+
+    search = Grid(config)
+
+    assert all(config[SYNC_BATCHNORM] is True for config in search.hparams)
+
+
+def test_sync_batchnorm_resource_option_requires_a_boolean():
+    """Search construction should reject ambiguous resource values."""
+    config = deepcopy(load_experiment_config("tests/evaluation/grid_search.yml"))
+    config[RESOURCES][SYNC_BATCHNORM] = "false"
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        Grid(config)
 
 
 def test_grid_rejects_conflicting_model_selection_keys():

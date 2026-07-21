@@ -25,6 +25,7 @@ from mlwiz.static import (
     RESOURCES,
     SEED,
     STORAGE_FOLDER,
+    SYNC_BATCHNORM,
     evaluate_every,
 )
 
@@ -97,6 +98,12 @@ class Grid:
             )
         self.evaluate_every = experiment_config[evaluate_every]
         self.device = resources_config[DEVICE]
+        self.sync_batchnorm = resources_config.get(SYNC_BATCHNORM, False)
+        if not isinstance(self.sync_batchnorm, bool):
+            raise ValueError(
+                f"'{SYNC_BATCHNORM}' must be a boolean, "
+                f"got {self.sync_batchnorm!r}."
+            )
         self.dataset_getter = data_loading_config[DATASET_GETTER]
 
         # This MUST be called at the END of the init method!
@@ -119,6 +126,7 @@ class Grid:
                 DATASET_CLASS: self.dataset_class,
                 STORAGE_FOLDER: self.storage_folder,
                 DEVICE: self.device,
+                SYNC_BATCHNORM: self.sync_batchnorm,
                 EXPERIMENT: self.experiment,
                 evaluate_every: self.evaluate_every,
             }

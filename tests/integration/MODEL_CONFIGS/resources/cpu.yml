@@ -2,3 +2,4 @@ device: cpu
 max_cpus: 2
 max_gpus: 0
 gpus_per_task: 1
+sync_batchnorm: false

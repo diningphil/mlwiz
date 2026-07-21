@@ -37,6 +37,7 @@ from mlwiz.static import (
     RANDOM_STARTS,
     SAMPLE_METHOD,
     STORAGE_FOLDER,
+    SYNC_BATCHNORM,
     evaluate_every,
 )
 
@@ -232,6 +233,7 @@ class BayesianSearch(Grid):
             DATASET_CLASS: self.dataset_class,
             STORAGE_FOLDER: self.storage_folder,
             DEVICE: self.device,
+            SYNC_BATCHNORM: self.sync_batchnorm,
             EXPERIMENT: self.experiment,
             evaluate_every: self.evaluate_every,
         }

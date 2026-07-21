@@ -114,6 +114,7 @@ explanation of each field as a comment:
       max_gpus: # > 0 for gpu usage (device must be cuda though)
       gpus_per_task:  # Ray GPUs per task: fraction (<=1) or integer (>1 enables DDP)
       gpus_subset: # optional comma-separated GPU indices, e.g. 0,2
+      sync_batchnorm: false  # optionally synchronize BatchNorm statistics in DDP
 
 
     data_loading:
@@ -372,6 +373,28 @@ It keeps a single set of experiment artifacts (rank 0 writes logs/checkpoints/pl
 ``experiment.err`` and ``ddp_rank_0.log``, ``ddp_rank_1.log``, ... inside the run folder.
 Also, ``batch_size`` is interpreted as the global batch size and is divided by
 ``gpus_per_task`` (world size) before building per-rank loaders, so it must be divisible by world size.
+
+
+Synchronized Batch Normalization
+---------------------------------
+
+By default, DDP uses ordinary BatchNorm: its learnable parameters are synchronized through gradient reduction, but
+each rank computes batch statistics from its local portion of the batch. To aggregate BatchNorm statistics across all
+DDP ranks, enable ``sync_batchnorm`` in the resource configuration:
+
+.. code-block:: yaml
+
+    resources:
+      device: cuda
+      max_cpus: 24
+      max_gpus: 4
+      gpus_per_task: 2
+      sync_batchnorm: true
+
+MLWiz then converts all PyTorch BatchNorm layers with ``torch.nn.SyncBatchNorm.convert_sync_batchnorm`` before wrapping
+the model in DDP. The option defaults to ``false`` because synchronized statistics add communication to each affected
+forward pass. It requires active DDP with one CUDA device per process; MLWiz reports a configuration error if it is
+enabled for a single-process run or for the model-parallel DDP path.
 
 
 Automatic Mixed Precision (AMP)

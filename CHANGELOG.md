@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.7.5]
+
+## Added
+
+- added the opt-in `resources.sync_batchnorm` setting for converting BatchNorm
+  layers to synchronized BatchNorm before DDP wrapping; it defaults to `false`
+  and is supported by grid, random, and Bayesian searches
+
+## Changed
+
+- bumped the package version to 1.7.5
+
 ## [1.7.4]
 
 ## Added

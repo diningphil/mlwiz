@@ -40,6 +40,7 @@ from mlwiz.static import (
     SCORE,
     SEED,
     STORAGE_FOLDER,
+    SYNC_BATCHNORM,
     TEST,
     evaluate_every,
     LOSS,
@@ -128,6 +129,20 @@ def _make_base_config(tmp_path):
             EI_XI: 1e-3,
         },
     }
+
+
+def test_sync_batchnorm_resource_option_is_propagated_to_bayesian_runs(
+    tmp_path,
+):
+    """Lazily materialized Bayesian configs should retain the DDP option."""
+    cfg = _make_base_config(tmp_path)
+    cfg[RESOURCES][SYNC_BATCHNORM] = True
+    cfg[BAYES_SEARCH][BUDGET] = 1
+
+    search = BayesianSearch(cfg)
+    _, proposed = search.ask(0)
+
+    assert proposed[SYNC_BATCHNORM] is True
 
 
 def test_categorical_config_alternatives_materialize_nested_dimensions(tmp_path):

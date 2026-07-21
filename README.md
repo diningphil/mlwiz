@@ -205,6 +205,7 @@ resources:
   max_cpus: 8
   max_gpus: 0
   gpus_per_task: 0
+  sync_batchnorm: false
 
 reproducibility:
   seed: 42

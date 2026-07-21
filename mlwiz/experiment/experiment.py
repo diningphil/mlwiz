@@ -33,6 +33,7 @@ from mlwiz.static import EXPERIMENT_ERRFILE
 from mlwiz.static import LOSS, SCORE
 from mlwiz.static import MLWIZ_RAY_NUM_GPUS_PER_TASK
 from mlwiz.static import MODEL_MANIFEST_FILENAME
+from mlwiz.static import SYNC_BATCHNORM
 from mlwiz.log.logger import Logger
 from mlwiz.training.distributed import dist_is_initialized
 from mlwiz.training.engine import TrainingEngine
@@ -324,13 +325,33 @@ class Experiment:
 
     def _wrap_ddp_model(self, model, ddp_rank: Optional[int]):
         """
-        Wrap model in DDP (single-device and model-parallel cases).
+        Optionally convert BatchNorm layers and wrap the model in DDP.
         """
+        sync_batchnorm = self.model_config.get(SYNC_BATCHNORM, False)
+        if not isinstance(sync_batchnorm, bool):
+            raise ValueError(
+                f"'{SYNC_BATCHNORM}' must be a boolean, "
+                f"got {sync_batchnorm!r}."
+            )
+
         if ddp_rank is None:
+            if sync_batchnorm:
+                raise ValueError(
+                    f"'{SYNC_BATCHNORM}: true' requires active DDP with "
+                    "one CUDA device per process."
+                )
             return model
 
         # Check whether model params live on a single CUDA device or not.
         param_devices = {p.device for p in model.parameters() if p.is_cuda}
+        if sync_batchnorm:
+            if len(param_devices) > 1:
+                raise ValueError(
+                    f"'{SYNC_BATCHNORM}: true' is not supported when one "
+                    "DDP process owns parameters on multiple CUDA devices."
+                )
+            model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+
         if len(param_devices) <= 1:
             # Standard case: one GPU per rank, pin this process to local GPU.
             return DDP(
