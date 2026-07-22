@@ -8,6 +8,12 @@
   layers to synchronized BatchNorm before DDP wrapping; it defaults to `false`
   and is supported by grid, random, and Bayesian searches
 
+## Fixed
+
+- made Hydra-style composition move overridden keys to their latest definition
+  position, restoring bottom-to-top grid-variant priority for inline search
+  parameters that override values imported through `defaults`
+
 ## Changed
 
 - bumped the package version to 1.7.5

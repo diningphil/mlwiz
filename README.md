@@ -302,7 +302,10 @@ The terminology is precise:
   `dataset/mnist.yml` and normally places its contents under `dataset`.
 - **`_self_`**: the current file at that exact point in composition order.
   Values composed later override scalar/list values; dictionaries merge. If
-  omitted, `_self_` is implicitly last.
+  omitted, `_self_` is implicitly last. An overridden key takes the position
+  of its latest definition in the composed mapping. This matters for grid
+  search: earlier keys are outer dimensions, while the last varying key changes
+  fastest between consecutively numbered configurations.
 - **Nested defaults**: a `defaults` list inside `grid`, `random`, or `bayes`.
   Its selected files are composed only into that search section, cleanly
   separating runtime settings from model selection.

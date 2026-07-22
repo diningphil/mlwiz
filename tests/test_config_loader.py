@@ -124,6 +124,82 @@ def test_self_order_applies_to_short_search_component_groups(tmp_path):
     ] == ["first", "second"]
 
 
+def test_later_search_override_moves_to_its_composition_position(tmp_path):
+    """An inline override at the bottom remains the fastest grid dimension."""
+    _write_yaml(
+        tmp_path / "search" / "shared.yml",
+        {
+            "imported_dimension": [1, 2],
+            "overridden_dimension": ["imported"],
+        },
+    )
+    _write_yaml(
+        tmp_path / "config.yml",
+        {
+            "grid": {
+                "defaults": ["search/shared@_here_", "_self_"],
+                "inline_dimension": [10, 20],
+                "overridden_dimension": ["first", "second"],
+            }
+        },
+    )
+
+    search_space = load_config(tmp_path / "config.yml")["grid"]
+
+    assert list(search_space) == [
+        "imported_dimension",
+        "inline_dimension",
+        "overridden_dimension",
+    ]
+    expanded = list(object.__new__(Grid)._gen_helper(search_space))
+    assert [config["overridden_dimension"] for config in expanded[:4]] == [
+        "first",
+        "second",
+        "first",
+        "second",
+    ]
+
+
+def test_nested_mapping_override_moves_parent_and_child_keys(tmp_path):
+    """The latest definition controls order at every merged mapping level."""
+    _write_yaml(
+        tmp_path / "search" / "shared.yml",
+        {
+            "component": {
+                "imported_argument": [1, 2],
+                "overridden_argument": ["imported"],
+            },
+            "other_component": "Other",
+        },
+    )
+    _write_yaml(
+        tmp_path / "config.yml",
+        {
+            "grid": {
+                "defaults": ["search/shared@_here_", "_self_"],
+                "inline_component": "Inline",
+                "component": {
+                    "inline_argument": [10, 20],
+                    "overridden_argument": ["first", "second"],
+                },
+            }
+        },
+    )
+
+    search_space = load_config(tmp_path / "config.yml")["grid"]
+
+    assert list(search_space) == [
+        "other_component",
+        "inline_component",
+        "component",
+    ]
+    assert list(search_space["component"]) == [
+        "imported_argument",
+        "inline_argument",
+        "overridden_argument",
+    ]
+
+
 @pytest.mark.parametrize("search_section", ["random", "bayes"])
 def test_multiple_group_files_become_categorical_sample_set(
     tmp_path, search_section, monkeypatch

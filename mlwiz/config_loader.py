@@ -399,13 +399,25 @@ def _flatten_config_set(values: list[Any]) -> list[Any]:
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
-    """Recursively merge mappings, with later values taking precedence."""
+    """Recursively merge mappings, preserving the latest definition's order.
+
+    Python does not move an existing dictionary key when assigning a new value.
+    Moving an overridden key explicitly is important for search sections: grid
+    expansion uses mapping order, so a key introduced by a default and then
+    redefined later by ``_self_`` must occupy its later composition position.
+    """
     result = deepcopy(base)
     for key, value in override.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
+            merged_value = _deep_merge(result[key], value)
         else:
-            result[key] = deepcopy(value)
+            merged_value = deepcopy(value)
+
+        # Reassignment alone retains the key's original insertion position.
+        # Delete it first so mapping order follows composition/override order.
+        if key in result:
+            del result[key]
+        result[key] = merged_value
     return result
 
 

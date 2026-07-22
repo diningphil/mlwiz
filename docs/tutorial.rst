@@ -277,7 +277,11 @@ Config group
 ``_self_``
   The current file at that exact location in the ordered defaults list. Later
   scalar/list values replace earlier ones and dictionaries merge recursively.
-  If omitted, MLWiz implicitly composes ``_self_`` last.
+  If omitted, MLWiz implicitly composes ``_self_`` last. An overridden key
+  occupies the position of its latest definition in the composed mapping. This
+  is observable in grid search: earlier keys form the outer dimensions, while
+  the last varying key changes fastest between consecutively numbered
+  configurations.
 
 Nested defaults
   A selected config file may have its own root defaults, so reusable fragments
