@@ -383,7 +383,11 @@ Hover over a chart to inspect the values at one epoch or sampled training step.
 New sampled-step histories also record their wall-clock times, so the hover
 readout shows the local date and time beside the step number. Aggregate trend
 points show the recording-time range across their contributing runs. Older
-metric artifacts without timestamps retain the step-only readout.
+metric artifacts without timestamps retain the step-only readout. Step-mode 2D
+plots mark every completed epoch with a dashed vertical line; hovering a marker
+shows its epoch ID and the step where it was reached. For older artifacts that
+predate exact epoch-boundary metadata, the dashboard distributes the completed
+epochs uniformly over the recorded steps and labels those markers as estimated.
 On any 2D trend chart, drag a rectangle over the plotting area to zoom into
 that X/Y region. Box zoom can be repeated; **Zoom out** returns through the
 selected regions one level at a time. The existing 3D controls continue to use

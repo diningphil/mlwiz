@@ -204,6 +204,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .analysis-chart-tooltip[hidden] { display: none; }
 .analysis-chart-tooltip strong, .analysis-chart-tooltip span { display: block; }
 .analysis-chart-tooltip strong { margin-bottom: 2px; font-weight: 800; }
+.epoch-marker-tooltip { white-space: nowrap; }
 .analysis-legend .legend-swatch { flex: 0 0 auto; }
 .analysis-heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 7px; margin-top: 9px; color: var(--faint); font-size: 0.5rem; font-weight: 700; }
 .analysis-heatmap-legend-title { color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }

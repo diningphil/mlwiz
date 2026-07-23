@@ -910,6 +910,13 @@ default is ``None``, so existing configurations continue to record epoch
 histories only. Epoch-level scores still use their configured aggregation rule;
 step scores are computed on the sampled training batch.
 
+Step-mode 2D plots draw a dashed vertical marker at every completed epoch.
+Hovering a marker shows the epoch ID and the exact step where it was reached;
+aggregated plots use the median boundary step across their contributing runs.
+For legacy artifacts without ``epoch_last_steps``, the dashboard estimates
+uniform boundaries from the number of completed epoch histories and the last
+recorded global step, and explicitly labels those marker hovers as estimated.
+
 Every 2D trend supports box zoom: drag a rectangle over the plotting area to
 restrict both axes to that region, then repeat to zoom further. **Zoom out**
 returns through the selected regions one level at a time. Hover inspection

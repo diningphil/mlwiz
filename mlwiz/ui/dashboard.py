@@ -155,6 +155,55 @@ def _numeric_series(value: Any) -> Optional[list[Optional[float]]]:
     return output
 
 
+def _step_epoch_boundaries(value: Any) -> list[dict[str, int | float]]:
+    """Normalize zero-based epoch-to-step metadata for dashboard display."""
+    if not isinstance(value, dict):
+        return []
+    boundaries = []
+    for epoch, last_step in value.items():
+        if isinstance(epoch, bool) or isinstance(last_step, bool):
+            continue
+        try:
+            epoch_id = int(epoch) + 1
+            step = float(last_step)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if epoch_id <= 0 or not math.isfinite(step):
+            continue
+        boundaries.append(
+            {
+                "epoch": epoch_id,
+                "step": int(step) if step.is_integer() else step,
+            }
+        )
+    return sorted(boundaries, key=lambda item: (item["step"], item["epoch"]))
+
+
+def _inferred_step_epoch_boundaries(
+    completed_epochs: int, last_step: Any
+) -> list[dict[str, int | bool]]:
+    """Estimate uniform legacy epoch boundaries when exact metadata is absent."""
+    if completed_epochs <= 0 or isinstance(last_step, bool):
+        return []
+    try:
+        normalized_step = float(last_step)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    if not math.isfinite(normalized_step) or not normalized_step.is_integer():
+        return []
+    final_step = int(normalized_step)
+    if final_step < completed_epochs:
+        return []
+    return [
+        {
+            "epoch": epoch,
+            "step": round(final_step * epoch / completed_epochs),
+            "inferred": True,
+        }
+        for epoch in range(1, completed_epochs + 1)
+    ]
+
+
 def _configuration_leaves(
     value: Any, prefix: str = ""
 ) -> dict[str, Any]:
@@ -2067,6 +2116,26 @@ class ResultsRepository:
         if isinstance(step_metrics, dict):
             steps = _numeric_series(step_metrics.get("steps", [])) or []
             timestamps = _numeric_series(step_metrics.get("timestamps", [])) or []
+            epoch_boundaries = _step_epoch_boundaries(
+                step_metrics.get("epoch_last_steps")
+            )
+            if not epoch_boundaries:
+                completed_epochs = max(
+                    (
+                        len(item["values"])
+                        for item in series
+                        if item.get("unit") == "epoch"
+                    ),
+                    default=0,
+                )
+                sampled_last_step = max(
+                    (step for step in steps if step is not None),
+                    default=None,
+                )
+                epoch_boundaries = _inferred_step_epoch_boundaries(
+                    completed_epochs,
+                    step_metrics.get("last_step", sampled_last_step),
+                )
             for group, metrics in step_metrics.items():
                 if group in {
                     "steps",
@@ -2083,10 +2152,13 @@ class ResultsRepository:
                         "values": values,
                         "unit": "step",
                     }
-                    if len(steps) == len(values):
+                    has_step_positions = len(steps) == len(values)
+                    if has_step_positions:
                         item["x_values"] = steps
                     if len(timestamps) == len(values):
                         item["timestamps"] = timestamps
+                    if epoch_boundaries and has_step_positions:
+                        item["epoch_boundaries"] = epoch_boundaries
                     series.append(item)
         return series
 

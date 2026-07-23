@@ -9,6 +9,9 @@
   and is supported by grid, random, and Bayesian searches
 - added `Min` and `Max` configuration-filter operators for selecting the
   current metric extrema independently within each outer fold, including ties
+- added dashed, hoverable epoch-boundary markers to 2D step-mode plots and
+  reproducible plot exports, with clearly labeled uniform estimates for legacy
+  metric artifacts that predate exact epoch-boundary metadata
 
 ## Fixed
 

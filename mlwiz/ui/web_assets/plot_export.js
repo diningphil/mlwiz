@@ -153,6 +153,7 @@ plt.show()
 
 fig, ax = plt.subplots()
 scale_values = []
+epoch_boundaries = set()
 for series in DATA["series"]:
     values = numeric(series["values"])
     positions = numeric(series.get("xValues") or list(range(1, len(values) + 1)))
@@ -181,6 +182,14 @@ for series in DATA["series"]:
         scale_values.extend(lower[band_valid])
         scale_values.extend(upper[band_valid])
         ax.fill_between(positions, lower, upper, where=band_valid, color=line.get_color(), alpha=0.16)
+    for boundary in series.get("epochBoundaries") or []:
+        epoch_boundaries.add((int(boundary["epoch"]), float(boundary["step"])))
+
+for _epoch, step in sorted(epoch_boundaries, key=lambda item: (item[1], item[0])):
+    ax.axvline(
+        step, color="0.5", linewidth=0.8, linestyle=(0, (5, 4)),
+        alpha=0.55, zorder=0,
+    )
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))

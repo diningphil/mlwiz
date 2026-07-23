@@ -263,6 +263,7 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     assert step_series[0]["timestamps"] == pytest.approx(
         [1_720_000_000.25, 1_720_000_010.5]
     )
+    assert step_series[0]["epoch_boundaries"] == [{"epoch": 1, "step": 5}]
     assert {item["name"] for item in step_series} == {
         "training_main_loss",
         "training_main_score",
@@ -277,6 +278,7 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
     assert analysis_steps[0]["timestamps"] == pytest.approx(
         [1_720_000_000.25, 1_720_000_010.5]
     )
+    assert analysis_steps[0]["epoch_boundaries"] == [{"epoch": 1, "step": 5}]
     assert all(item["selected_value"] is None for item in analysis_steps)
     training_loss = next(
         item
@@ -284,6 +286,31 @@ def test_details_exposes_step_histories_with_sampled_x_values(tmp_path):
         if item["id"] == "losses:training_main_loss"
     )
     assert training_loss["units"] == ["epoch", "step"]
+
+
+def test_legacy_step_histories_infer_uniform_epoch_boundaries(tmp_path):
+    """Older step artifacts should show clearly identified estimated markers."""
+    experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
+    metrics_path = selection_run / "metrics_data.torch"
+    metrics = torch.load(metrics_path, weights_only=True)
+    metrics["step"] = {
+        "steps": [1, 2, 3, 4, 5, 6],
+        "last_step": 6,
+        "losses": {"training_main_loss": [0.9, 0.8, 0.7, 0.6, 0.5, 0.4]},
+    }
+    torch.save(metrics, metrics_path)
+    repository = ResultsRepository(experiment.parent)
+
+    details = repository.details(
+        selection_run.relative_to(experiment.parent).as_posix()
+    )
+
+    step_series = [item for item in details["series"] if item["unit"] == "step"]
+    assert step_series[0]["epoch_boundaries"] == [
+        {"epoch": 1, "step": 2, "inferred": True},
+        {"epoch": 2, "step": 4, "inferred": True},
+        {"epoch": 3, "step": 6, "inferred": True},
+    ]
 
 
 def test_model_selection_analysis_discovers_varying_hyperparameters_and_curves(
@@ -1135,10 +1162,12 @@ def test_frontend_smooths_model_analysis_trends():
     assert 'series.get("rawRightValues")' in plot_export_script
 
 
-def test_frontend_shows_recorded_times_for_hovered_trend_points():
-    """Step trend hovers should pair positions with their recording times."""
+def test_frontend_shows_step_timestamps_and_epoch_markers():
+    """Step plots should expose recording times and hoverable epoch boundaries."""
     assets = Path(__file__).parents[2] / "mlwiz" / "ui" / "web_assets"
     app_script = (assets / "app.js").read_text(encoding="utf-8")
+    stylesheet = (assets / "styles.css").read_text(encoding="utf-8")
+    plot_export_script = (assets / "plot_export.js").read_text(encoding="utf-8")
 
     assert "function seriesTimestamps" in app_script
     assert "function formatTrendTimestamp" in app_script
@@ -1146,6 +1175,16 @@ def test_frontend_shows_recorded_times_for_hovered_trend_points():
     assert app_script.count("formatTrendTimestamp(") >= 4
     assert "formatTrendTimestamp([line], index)" in app_script
     assert "Recorded ${first === last ? first" in app_script
+    assert "function seriesEpochBoundaries" in app_script
+    assert "function aggregateEpochBoundaries" in app_script
+    assert "chart.epochMarkerGeometry" in app_script
+    assert "Math.abs(nearestEpochMarker.x - pointerX) <= 6" in app_script
+    assert 'marker.inferred ? " · estimated" : ""' in app_script
+    assert 'marker.inferred ? "Estimated" : "Reached"' in app_script
+    assert app_script.count("attachEpochMarkerTooltip(chart, wrap);") == 2
+    assert ".epoch-marker-tooltip" in stylesheet
+    assert 'series.get("epochBoundaries")' in plot_export_script
+    assert "ax.axvline(" in plot_export_script
 
 
 def test_frontend_supports_repeatable_box_zoom_for_2d_trends():

@@ -337,6 +337,7 @@
       lower: line.band?.lower || null,
       upper: line.band?.upper || null,
       dash: line.dash || [],
+      epochBoundaries: line.epochBoundaries || null,
       primary: line.primaryValue,
       secondary: line.secondaryValue,
     }));
@@ -1884,19 +1885,19 @@
             legendValues,
             epochLabel,
             hoverIndex: null,
+            hoverEpochMarker: null,
             xLabel: plot.unit,
             scale: useLog ? "log" : "linear",
             zoomOutButton,
             zoomKey,
           };
           attachLegendFocus(legend, chart, legendEntries, drawChart);
+          attachEpochMarkerTooltip(chart, wrap);
           attachChartBoxZoom(chart);
           canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
           canvas.addEventListener("pointerleave", () => {
             if (chart.zoomDrag) return;
-            chart.hoverIndex = null;
-            updateChartReadout(chart);
-            drawChart(chart);
+            clearChartHover(chart);
           });
           charts.push(chart);
         }
@@ -1984,6 +1985,7 @@
             timestampRangeAt(left, leftIndices.get(position)),
             timestampRangeAt(right, rightIndices.get(position)),
           ])),
+          epochBoundaries: aggregateEpochBoundaries([left, right]),
           leftStd: xValues.map((position, point) => {
             const sourcePoint = leftIndices.get(position);
             const value = leftValues[point];
@@ -4337,6 +4339,20 @@
     return series.values.map(() => null);
   }
 
+  function seriesEpochBoundaries(series) {
+    const storedBoundaries = Array.isArray(series.epochBoundaries)
+      ? series.epochBoundaries
+      : series.epoch_boundaries;
+    if (!Array.isArray(storedBoundaries)) return [];
+    return storedBoundaries.flatMap((boundary) => {
+      const epoch = Number(boundary?.epoch);
+      const step = Number(boundary?.step);
+      return Number.isInteger(epoch) && epoch > 0 && Number.isFinite(step)
+        ? [{ epoch, step, inferred: Boolean(boundary?.inferred) }]
+        : [];
+    }).sort((left, right) => left.step - right.step || left.epoch - right.epoch);
+  }
+
   function mergeTimestampRanges(ranges) {
     const timestamps = ranges.flatMap((range) => (
       Array.isArray(range) ? range.filter(Number.isFinite) : []
@@ -4810,6 +4826,30 @@
       : sampleLabel;
   }
 
+  function aggregateEpochBoundaries(lines) {
+    const recordsByEpoch = new Map();
+    for (const line of lines) {
+      for (const boundary of seriesEpochBoundaries(line)) {
+        if (!recordsByEpoch.has(boundary.epoch)) {
+          recordsByEpoch.set(boundary.epoch, {
+            steps: [],
+            inferred: false,
+          });
+        }
+        const record = recordsByEpoch.get(boundary.epoch);
+        record.steps.push(boundary.step);
+        record.inferred ||= boundary.inferred;
+      }
+    }
+    return [...recordsByEpoch.entries()].map(([epoch, record]) => ({
+      epoch,
+      inferred: record.inferred,
+      step: sortedQuantile(
+        record.steps.sort((left, right) => left - right), 0.5,
+      ),
+    })).sort((left, right) => left.step - right.step || left.epoch - right.epoch);
+  }
+
   function aggregateMetricLines(lines, removeOutliers = false) {
     const positions = [...new Set(lines.flatMap(seriesXValues))]
       .sort((left, right) => left - right);
@@ -4859,6 +4899,7 @@
       xValues: positions,
       band: { lower, upper },
       timestampRanges,
+      epochBoundaries: aggregateEpochBoundaries(lines),
       sampleCount: lines.length,
       outlierCount,
     };
@@ -4960,6 +5001,7 @@
           values: series.values,
           xValues: seriesXValues(series),
           timestamps: seriesTimestamps(series),
+          epochBoundaries: seriesEpochBoundaries(series),
           dash: mode === "inner-fold" ? runDashPattern(series.source) : [],
         });
       }
@@ -5033,6 +5075,8 @@
         legendValues,
         epochLabel,
         hoverIndex: null,
+        hoverEpochMarker: null,
+        xLabel: state.metricUnit,
         zoomOutButton,
         zoomKey: [
           "runs",
@@ -5047,13 +5091,12 @@
         ].join(":"),
       };
       attachLegendFocus(legend, chart, legendEntries, drawChart);
+      attachEpochMarkerTooltip(chart, wrap);
       attachChartBoxZoom(chart);
       canvas.addEventListener("pointermove", (event) => updateChartHover(chart, event));
       canvas.addEventListener("pointerleave", () => {
         if (chart.zoomDrag) return;
-        chart.hoverIndex = null;
-        updateChartReadout(chart);
-        drawChart(chart);
+        clearChartHover(chart);
       });
       state.charts.push(chart);
       updateChartReadout(chart);
@@ -6162,6 +6205,55 @@
     }
   }
 
+  function attachEpochMarkerTooltip(chart, wrap) {
+    if (chartXLabel(chart) !== "step") return;
+    const tooltip = node(
+      "div", "analysis-chart-tooltip epoch-marker-tooltip",
+    );
+    tooltip.hidden = true;
+    tooltip.setAttribute("role", "status");
+    wrap.append(tooltip);
+    chart.epochMarkerTooltip = tooltip;
+  }
+
+  function hideEpochMarkerTooltip(chart) {
+    if (chart.epochMarkerTooltip) chart.epochMarkerTooltip.hidden = true;
+  }
+
+  function showEpochMarkerTooltip(chart, marker, pointerY) {
+    const tooltip = chart.epochMarkerTooltip;
+    if (!tooltip) return;
+    tooltip.replaceChildren(
+      node(
+        "strong", "",
+        `Epoch ${formatNumber(marker.epoch)}${marker.inferred ? " · estimated" : ""}`,
+      ),
+      node(
+        "span", "",
+        `${marker.inferred ? "Estimated" : "Reached"} at step ${formatNumber(marker.step)}`,
+      ),
+    );
+    tooltip.hidden = false;
+    const bounds = chart.canvas.getBoundingClientRect();
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    tooltip.style.left = `${Math.max(
+      4, Math.min(bounds.width - width - 4, marker.x - width / 2),
+    )}px`;
+    const above = pointerY - height - 9;
+    tooltip.style.top = `${above >= 4
+      ? above
+      : Math.min(bounds.height - height - 4, pointerY + 9)}px`;
+  }
+
+  function clearChartHover(chart) {
+    chart.hoverIndex = null;
+    chart.hoverEpochMarker = null;
+    hideEpochMarkerTooltip(chart);
+    updateChartReadout(chart);
+    drawChart(chart);
+  }
+
   function updateChartZoomButton(chart) {
     const levels = chart.zoomStack?.length || 0;
     chart.zoomOutButton.disabled = levels === 0;
@@ -6206,6 +6298,8 @@
         current: point,
       };
       chart.hoverIndex = null;
+      chart.hoverEpochMarker = null;
+      hideEpochMarkerTooltip(chart);
       canvas.classList.add("box-zooming");
       updateChartReadout(chart);
       drawChart(chart);
@@ -6255,6 +6349,8 @@
       if (chart.zoomStack.length) state.chartZooms[chart.zoomKey] = chart.zoomStack;
       else delete state.chartZooms[chart.zoomKey];
       chart.hoverIndex = null;
+      chart.hoverEpochMarker = null;
+      hideEpochMarkerTooltip(chart);
       updateChartReadout(chart);
       updateChartZoomButton(chart);
       drawChart(chart);
@@ -6268,14 +6364,47 @@
     const margin = geometry || { right: 12, left: 48 };
     const plotWidth = rect.width - margin.left - margin.right;
     const pointerX = event.clientX - rect.left;
-    if (pointerX < margin.left || pointerX > rect.width - margin.right) {
-      if (chart.hoverIndex !== null) {
-        chart.hoverIndex = null;
+    const pointerY = event.clientY - rect.top;
+    if (
+      pointerX < margin.left
+      || pointerX > rect.width - margin.right
+      || (geometry && (pointerY < geometry.top || pointerY > geometry.bottom))
+    ) {
+      if (chart.hoverIndex !== null || chart.hoverEpochMarker !== null) {
+        clearChartHover(chart);
+      }
+      return;
+    }
+    const epochMarkers = chart.epochMarkerGeometry || [];
+    const nearestEpochMarker = epochMarkers.reduce((nearest, marker) => (
+      !nearest || Math.abs(marker.x - pointerX) < Math.abs(nearest.x - pointerX)
+        ? marker
+        : nearest
+    ), null);
+    if (
+      nearestEpochMarker
+      && Math.abs(nearestEpochMarker.x - pointerX) <= 6
+    ) {
+      const changed = chart.hoverIndex !== null
+        || chart.hoverEpochMarker?.epoch !== nearestEpochMarker.epoch
+        || chart.hoverEpochMarker?.step !== nearestEpochMarker.step
+        || chart.hoverEpochMarker?.inferred !== nearestEpochMarker.inferred;
+      chart.hoverIndex = null;
+      chart.hoverEpochMarker = {
+        epoch: nearestEpochMarker.epoch,
+        step: nearestEpochMarker.step,
+        inferred: nearestEpochMarker.inferred,
+      };
+      showEpochMarkerTooltip(chart, nearestEpochMarker, pointerY);
+      if (changed) {
         updateChartReadout(chart);
         drawChart(chart);
       }
       return;
     }
+    const clearedEpochMarker = chart.hoverEpochMarker !== null;
+    chart.hoverEpochMarker = null;
+    hideEpochMarkerTooltip(chart);
     const xValues = chartXValues(chart);
     const minX = geometry?.minX ?? Math.min(...xValues);
     const maxX = geometry?.maxX ?? Math.max(...xValues);
@@ -6284,7 +6413,7 @@
       value >= minX && value <= maxX ? [index] : []
     ));
     if (!visibleIndices.length) {
-      if (chart.hoverIndex !== null) {
+      if (chart.hoverIndex !== null || clearedEpochMarker) {
         chart.hoverIndex = null;
         updateChartReadout(chart);
         drawChart(chart);
@@ -6299,7 +6428,7 @@
       ),
       visibleIndices[0],
     );
-    if (index !== chart.hoverIndex) {
+    if (index !== chart.hoverIndex || clearedEpochMarker) {
       chart.hoverIndex = Math.max(0, Math.min(xValues.length - 1, index));
       updateChartReadout(chart);
       drawChart(chart);
@@ -6325,7 +6454,12 @@
 
   function updateChartReadout(chart) {
     const xValues = chartXValues(chart);
-    if (chart.hoverIndex === null) {
+    if (chart.hoverEpochMarker) {
+      chart.epochLabel.textContent = [
+        `Epoch ${formatNumber(chart.hoverEpochMarker.epoch)}${chart.hoverEpochMarker.inferred ? " (estimated)" : ""}`,
+        `Step ${formatNumber(chart.hoverEpochMarker.step)}`,
+      ].join(" · ");
+    } else if (chart.hoverIndex === null) {
       chart.epochLabel.textContent = "Latest";
     } else {
       const timestamp = formatTrendTimestamp(
@@ -6527,11 +6661,17 @@
     );
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
-    const allXValues = group.lines.flatMap((line) => (
-      Array.isArray(line.xValues) && line.xValues.length === line.values.length
-        ? line.xValues
-        : line.values.map((_value, index) => index + 1)
-    ));
+    const epochMarkers = chartXLabel(chart) === "step"
+      ? aggregateEpochBoundaries(group.lines)
+      : [];
+    const allXValues = [
+      ...group.lines.flatMap((line) => (
+        Array.isArray(line.xValues) && line.xValues.length === line.values.length
+          ? line.xValues
+          : line.values.map((_value, index) => index + 1)
+      )),
+      ...epochMarkers.map((marker) => marker.step),
+    ];
     let minX = Math.min(...allXValues);
     let maxX = Math.max(...allXValues);
     if (
@@ -6558,6 +6698,9 @@
       minX === maxX ? plotWidth / 2 : ((value - minX) / (maxX - minX)) * plotWidth
     );
     const y = (value) => margin.top + ((max - valueScale.transform(value)) / (max - min)) * plotHeight;
+    chart.epochMarkerGeometry = epochMarkers
+      .filter((marker) => marker.step >= minX && marker.step <= maxX)
+      .map((marker) => ({ ...marker, x: x(marker.step) }));
 
     ctx.textBaseline = "middle";
     for (let tick = 0; tick <= 4; tick += 1) {
@@ -6578,6 +6721,20 @@
     ctx.beginPath();
     ctx.rect(margin.left, margin.top, plotWidth, plotHeight);
     ctx.clip();
+    for (const marker of chart.epochMarkerGeometry) {
+      const hovered = chart.hoverEpochMarker?.epoch === marker.epoch
+        && chart.hoverEpochMarker?.step === marker.step;
+      ctx.save();
+      ctx.globalAlpha = hovered ? 0.95 : 0.52;
+      ctx.strokeStyle = guideColor;
+      ctx.lineWidth = hovered ? 1.8 : 1;
+      ctx.setLineDash([5, 4]);
+      ctx.beginPath();
+      ctx.moveTo(marker.x, margin.top);
+      ctx.lineTo(marker.x, margin.top + plotHeight);
+      ctx.stroke();
+      ctx.restore();
+    }
     for (const line of group.lines) {
       if (!Array.isArray(line.rawValues)) continue;
       const opacity = chartLineOpacity(chart, line);
