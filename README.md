@@ -410,8 +410,10 @@ is derived from the displayed data and limited to six decades below its largest
 magnitude, so the behavior is independent of whether a metric is naturally
 measured near `1`, `0.01`, or another scale. Each experiment has its own lazy-loaded
 configuration filter: choose any discovered score or loss and compare its
-training or validation value with a threshold using `≥` or `≤`, or choose a
-hyper-parameter and match one of its tried values using `=` or `≠`. Nested
+training or validation value with a threshold using `≥` or `≤`, select the
+`Min` or `Max` configuration within each outer fold without entering a
+threshold, or choose a hyper-parameter and match one of its tried values using
+`=` or `≠`. Tied extrema are all retained. Nested
 hyper-parameters are displayed as dotted paths such as `optimizer.lr`; parameters
 with only one discovered value are omitted. Multiple metric and hyper-parameter
 conditions can be combined with AND or OR. Completed

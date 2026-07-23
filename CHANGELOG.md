@@ -7,6 +7,8 @@
 - added the opt-in `resources.sync_batchnorm` setting for converting BatchNorm
   layers to synchronized BatchNorm before DDP wrapping; it defaults to `false`
   and is supported by grid, random, and Bayesian searches
+- added `Min` and `Max` configuration-filter operators for selecting the
+  current metric extrema independently within each outer fold, including ties
 
 ## Fixed
 

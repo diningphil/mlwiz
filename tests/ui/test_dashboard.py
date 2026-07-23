@@ -480,6 +480,7 @@ def test_completed_experiment_filter_uses_aggregated_results(tmp_path):
     assert data["configurations"][config_path]["values"][
         "training:scores:main_score"
     ] == pytest.approx(0.81)
+    assert data["configurations"][config_path]["outer_fold"] == 1
     assert data["splits"] == ["validation", "training"]
     assert "scores:aux" in {metric["id"] for metric in data["metrics"]}
     aux_metric = next(
@@ -1084,6 +1085,12 @@ def test_frontend_filters_analysis_and_interacts_with_legends():
     assert "clauses: null" in app_script
     assert "definition.clauses = [];" in app_script
     assert "definition.clauses.push(newFilterClause(state.filterData" not in app_script
+    assert '[["gte", "≥"], ["lte", "≤"], ["min", "Min"], ["max", "Max"]]' in app_script
+    assert '["gte", "lte", "min", "max"].includes(clause.operator)' in app_script
+    assert "function configurationHasMetricExtremum" in app_script
+    assert "candidate.outer_fold !== configuration.outer_fold" in app_script
+    assert "filterValue.disabled = selectsExtremum" in app_script
+    assert ".filter-value:disabled" in stylesheet
     assert "function attachLegendFocus" in app_script
     assert app_script.count("attachLegendFocus(") == 5
     assert app_script.count(

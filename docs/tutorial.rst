@@ -1009,6 +1009,12 @@ clicking a run focuses on that run only. The dashboard reads
 ``metrics_data.torch`` written by the
 :class:`~mlwiz.training.callback.plotter.Plotter` described above.
 
+The experiment-level configuration filter can compare training or validation
+metrics with numeric thresholds, or use **Min** and **Max** to retain the
+lowest- or highest-valued configuration in each outer fold. These extrema need
+no threshold, retain ties, and update with the latest available values while an
+experiment is running.
+
 The run explorer's **Smoothing** slider applies TensorBoard-style,
 bias-corrected exponential smoothing to individual and aggregated curves.
 Leave it at ``0`` to display only the original values. At higher settings, the

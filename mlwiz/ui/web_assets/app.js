@@ -4026,7 +4026,7 @@
       : "Metric comparison");
     const operators = clause.type === "hyperparameter"
       ? [["eq", "="], ["neq", "≠"]]
-      : [["gte", "≥"], ["lte", "≤"]];
+      : [["gte", "≥"], ["lte", "≤"], ["min", "Min"], ["max", "Max"]];
     for (const [value, label] of operators) {
       const option = node("option", "", label);
       option.value = value;
@@ -4054,10 +4054,18 @@
       filterValue = node("input", "filter-value");
       filterValue.type = "number";
       filterValue.step = "any";
-      filterValue.placeholder = "value";
       filterValue.setAttribute("aria-label", "Filter threshold");
+      const selectsExtremum = ["min", "max"].includes(clause.operator);
+      filterValue.disabled = selectsExtremum;
+      filterValue.placeholder = selectsExtremum ? "per fold" : "value";
+      filterValue.title = selectsExtremum
+        ? "No threshold needed; the extremum is calculated within each outer fold."
+        : "";
     }
-    filterValue.value = clause.value;
+    filterValue.value = clause.type === "metric"
+      && ["min", "max"].includes(clause.operator)
+      ? ""
+      : clause.value;
     filterValue.addEventListener("change", (event) => updateFilterClause(
       experimentPath, index, "value", event.target.value,
     ));
@@ -4148,7 +4156,7 @@
       || data.metrics[0];
     clause.metric = descriptor?.id || null;
     if (!data.splits.includes(clause.split)) clause.split = data.default_split;
-    if (!["gte", "lte"].includes(clause.operator)) {
+    if (!["gte", "lte", "min", "max"].includes(clause.operator)) {
       clause.operator = descriptor?.kind === "loss" ? "lte" : "gte";
     }
   }
@@ -4170,8 +4178,24 @@
       if (clause.type === "hyperparameter") {
         return clause.hyperparameter && clause.value !== "";
       }
+      if (["min", "max"].includes(clause.operator)) return Boolean(clause.metric);
       return clause.metric && clause.value !== "" && Number.isFinite(Number(clause.value));
     });
+  }
+
+  function configurationHasMetricExtremum(data, configuration, valueKey, operator) {
+    const metricValue = configuration.values?.[valueKey];
+    if (!Number.isFinite(metricValue)) return false;
+    let extremum = metricValue;
+    for (const candidate of Object.values(data.configurations)) {
+      if (candidate.outer_fold !== configuration.outer_fold) continue;
+      const candidateValue = candidate.values?.[valueKey];
+      if (!Number.isFinite(candidateValue)) continue;
+      extremum = operator === "min"
+        ? Math.min(extremum, candidateValue)
+        : Math.max(extremum, candidateValue);
+    }
+    return metricValue === extremum;
   }
 
   function configurationPassesFilter(experimentPath, configPath) {
@@ -4189,7 +4213,13 @@
         ) === clause.value;
         return clause.operator === "neq" ? !equal : equal;
       }
-      const metricValue = values[`${clause.split}:${clause.metric}`];
+      const valueKey = `${clause.split}:${clause.metric}`;
+      if (["min", "max"].includes(clause.operator)) {
+        return configurationHasMetricExtremum(
+          data, configuration, valueKey, clause.operator,
+        );
+      }
+      const metricValue = values[valueKey];
       if (!Number.isFinite(metricValue)) return false;
       return clause.operator === "lte"
         ? metricValue <= Number(clause.value)
