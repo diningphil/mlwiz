@@ -17,7 +17,7 @@ from torch_geometric.loader.dataloader import Collater
 
 import mlwiz.data.dataset
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.data.splitter import Splitter, SingleGraphSplitter
+from mlwiz.data.splitter import SPLIT_KIND_NODE, Splitter
 from mlwiz.data.util import load_dataset, single_graph_collate
 
 import functools
@@ -644,13 +644,13 @@ class SingleGraphDataProvider(DataProvider):
         """
         Instantiates the splitter with the parameters stored in the file
         ``self.splits_filepath``. Only works
-        with `~mlwiz.data.splitter.SingleGraphSplitter`.
+        with node-level data splits.
 
         Returns:
             a :class:`~mlwiz.data.splitter.Splitter` object
         """
         super()._get_splitter()  # loads splitter into self.splitter
-        if not isinstance(self.splitter, SingleGraphSplitter):
+        if self.splitter.split_kind != SPLIT_KIND_NODE:
             raise TypeError(
                 "This class only works with a SingleGraphNodeSplitter splitter."
             )

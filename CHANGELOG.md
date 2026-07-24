@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.6]
+
+## Changed
+
+- hid dashboard HTTP request logs by default and added the opt-in
+  `--show-logs` CLI option
+- bumped the package version to 1.7.6
+
 ## [1.7.5]
 
 ## Added

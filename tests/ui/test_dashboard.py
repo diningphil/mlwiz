@@ -19,6 +19,7 @@ from mlwiz.static import (
     MODEL_GRAPH_INPUT_SPEC_FILENAME,
 )
 from mlwiz.ui.dashboard import (
+    DashboardRequestHandler,
     DashboardServer,
     MetricsCache,
     ResultsRepository,
@@ -1068,12 +1069,28 @@ def test_cli_parses_dashboard_options(tmp_path):
             "--project-root",
             str(tmp_path),
             "--open",
+            "--show-logs",
         ]
     )
     assert args.host == "0.0.0.0"
     assert args.port == 6010
     assert args.project_root == str(tmp_path)
     assert args.open_browser is True
+    assert args.show_logs is True
+
+
+def test_dashboard_access_logs_are_opt_in(capsys):
+    """Request logs should be silent unless the server enables them."""
+    handler = object.__new__(DashboardRequestHandler)
+    handler.client_address = ("127.0.0.1", 12345)
+    handler.server = type("Server", (), {"show_logs": False})()
+
+    handler.log_message('"%s %s" %s', "GET", "/", "200")
+    assert capsys.readouterr().out == ""
+
+    handler.server.show_logs = True
+    handler.log_message('"%s %s" %s', "GET", "/", "200")
+    assert capsys.readouterr().out.startswith("[mlwiz-dashboard] ")
 
 
 def test_dashboard_project_root_imports_custom_model(monkeypatch, tmp_path):
@@ -1684,9 +1701,12 @@ def test_snapshot_cli_argument_parsers(tmp_path):
     export_all_args = export_get_args(
         ["--logdir", str(results), "-o", "everything.mlwiz"]
     )
-    import_args = import_get_args([str(snapshot), "--port", "0"])
+    import_args = import_get_args(
+        [str(snapshot), "--port", "0", "--show-logs"]
+    )
 
     assert export_args.path == "exp/run_1"
     assert export_args.output == "out.mlwiz"
     assert export_all_args.path is None
     assert import_args.port == 0
+    assert import_args.show_logs is True

@@ -19,11 +19,13 @@ from sklearn.model_selection import (
 from mlwiz.data.splitter import (
     InnerFold,
     OuterFold,
+    SPLIT_KIND_NODE,
+    SPLIT_KIND_SAMPLE,
     Splitter,
     SingleGraphSplitter,
     _NoShuffleTrainTestSplit,
 )
-from mlwiz.util import atomic_dill_save
+from mlwiz.util import atomic_dill_save, dill_load
 
 
 class _TargetDataset:
@@ -218,7 +220,10 @@ def test_save_and_load_roundtrip(tmp_path):
     splitter.save(str(splits_path))
 
     loaded = Splitter.load(str(splits_path))
+    saved = dill_load(str(splits_path))
 
+    assert saved["split_kind"] == SPLIT_KIND_SAMPLE
+    assert loaded.split_kind == SPLIT_KIND_SAMPLE
     assert loaded.n_outer_folds == splitter.n_outer_folds
     assert loaded.n_inner_folds == splitter.n_inner_folds
     assert len(loaded.outer_folds) == len(splitter.outer_folds)
@@ -247,6 +252,41 @@ def test_save_and_load_roundtrip(tmp_path):
                 loaded.inner_folds[outer_k][inner_k].val_idxs
                 == splitter.inner_folds[outer_k][inner_k].val_idxs
             )
+
+
+@pytest.mark.parametrize(
+    ("splitter_class", "expected_kind"),
+    [
+        ("mlwiz.data.splitter.SingleGraphSplitter", SPLIT_KIND_NODE),
+        ("unavailable_package.CustomSplitter", SPLIT_KIND_SAMPLE),
+    ],
+)
+def test_load_legacy_splits_without_importing_splitter_class(
+    tmp_path, splitter_class, expected_kind
+):
+    """Legacy files derive their kind without requiring the generator class."""
+    legacy_splits = {
+        "splitter_class": splitter_class,
+        "splitter_args": {
+            "n_outer_folds": 1,
+            "n_inner_folds": 1,
+            "seed": 0,
+            "stratify": False,
+            "shuffle": True,
+            "inner_val_ratio": 0.1,
+            "outer_val_ratio": 0.1,
+            "test_ratio": 0.1,
+        },
+        "outer_folds": [{"train": [0], "val": [1], "test": [2]}],
+        "inner_folds": [[{"train": [0], "val": [1]}]],
+    }
+    path = tmp_path / "legacy.splits"
+    atomic_dill_save(legacy_splits, str(path))
+
+    loaded = Splitter.load(str(path))
+
+    assert type(loaded) is Splitter
+    assert loaded.split_kind == expected_kind
 
 
 def test_load_validates_fold_counts(tmp_path):

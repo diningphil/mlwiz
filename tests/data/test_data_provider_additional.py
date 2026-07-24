@@ -21,7 +21,7 @@ from mlwiz.data.provider import (
     SubsetTrainEval,
     _iterable_worker_init_fn,
 )
-from mlwiz.data.splitter import Splitter
+from mlwiz.data.splitter import SPLIT_KIND_NODE, SPLIT_KIND_SAMPLE, Splitter
 
 
 class _DummyDataset(torch.utils.data.Dataset):
@@ -293,8 +293,8 @@ def test_iterable_worker_init_fn_partitions_and_splices_dataset(monkeypatch):
     assert calls["splice"] == [(4, 8)]
 
 
-def test_single_graph_data_provider_rejects_non_single_graph_splitter():
-    """SingleGraphDataProvider should raise if its loaded splitter type mismatches."""
+def test_single_graph_data_provider_checks_split_kind():
+    """SingleGraphDataProvider should require node-level splits."""
     provider = SingleGraphDataProvider(
         storage_folder="unused",
         splits_filepath="unused",
@@ -311,6 +311,11 @@ def test_single_graph_data_provider_rejects_non_single_graph_splitter():
         stratify=False,
         shuffle=True,
     )
+    provider.splitter.split_kind = SPLIT_KIND_NODE
+
+    assert provider._get_splitter() is provider.splitter
+
+    provider.splitter.split_kind = SPLIT_KIND_SAMPLE
 
     with pytest.raises(TypeError, match="SingleGraphNodeSplitter"):
         provider._get_splitter()

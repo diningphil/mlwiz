@@ -305,6 +305,11 @@ def import_get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=6006, type=int)
     parser.add_argument("--open", action="store_true", dest="open_browser")
+    parser.add_argument(
+        "--show-logs",
+        action="store_true",
+        help="Show dashboard HTTP request logs in the terminal.",
+    )
     args = parser.parse_args(argv)
     if not Path(args.snapshot).expanduser().is_file():
         parser.error(f"snapshot is not a file: {args.snapshot}")
@@ -320,7 +325,11 @@ def import_main() -> None:
         snapshot = read_snapshot(args.snapshot)
     except ValueError as error:
         raise SystemExit(str(error)) from error
-    server = DashboardServer((args.host, args.port), SnapshotRepository(snapshot))
+    server = DashboardServer(
+        (args.host, args.port),
+        SnapshotRepository(snapshot),
+        show_logs=args.show_logs,
+    )
     actual_port = server.server_address[1]
     display_host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     url = f"http://{display_host}:{actual_port}/"

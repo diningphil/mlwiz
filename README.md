@@ -586,7 +586,9 @@ checkpoint discards any later samples and timestamps from an interrupted
 partial epoch, then records their replacement values at the same global step
 numbers.
 
-Use `mlwiz-dashboard --help` for host, port, and browser-opening options.
+Use `mlwiz-dashboard --help` for host, port, browser-opening, and request-log
+options. HTTP request logs are hidden by default; pass `--show-logs` to display
+them in the terminal.
 
 Portable dashboards can be shared without copying the result directory or
 custom model code. Use **Export all** in the dashboard or

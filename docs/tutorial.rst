@@ -1328,6 +1328,9 @@ operating system choose a free port:
 
     mlwiz-dashboard-import results-for-review.mlwiz --port 0 --open
 
+HTTP request logs are hidden by default for both dashboard commands. Add
+``--show-logs`` to display them in the terminal.
+
 The peer can navigate, filter, compare plots, and inspect captured JSON just as
 in the original dashboard. Model graph inspection is unavailable because
 checkpoints are intentionally omitted. Press ``Ctrl-C`` in the terminal to stop

@@ -2285,10 +2285,12 @@ class DashboardServer(ThreadingHTTPServer):
         self,
         server_address: tuple[str, int],
         repository: Any,
+        show_logs: bool = False,
     ):
         """Bind the server address and attach its result repository."""
         super().__init__(server_address, DashboardRequestHandler)
         self.repository = repository
+        self.show_logs = show_logs
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
@@ -2527,15 +2529,21 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def log_message(self, format: str, *args: Any) -> None:
-        """Use a concise dashboard access log."""
-        print(f"[mlwiz-dashboard] {self.address_string()} {format % args}")
+        """Write a concise access log when dashboard logging is enabled."""
+        if self.server.show_logs:
+            print(f"[mlwiz-dashboard] {self.address_string()} {format % args}")
 
 
 def create_server(
-    logdir: str | Path, host: str = "127.0.0.1", port: int = 6006
+    logdir: str | Path,
+    host: str = "127.0.0.1",
+    port: int = 6006,
+    show_logs: bool = False,
 ) -> DashboardServer:
     """Create, but do not start, a dashboard HTTP server."""
-    return DashboardServer((host, port), ResultsRepository(logdir))
+    return DashboardServer(
+        (host, port), ResultsRepository(logdir), show_logs=show_logs
+    )
 
 
 def _add_project_root(project_root: str | Path) -> Path:
@@ -2575,6 +2583,11 @@ def get_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
         dest="open_browser",
         help="Open the dashboard in the default browser after startup.",
     )
+    parser.add_argument(
+        "--show-logs",
+        action="store_true",
+        help="Show dashboard HTTP request logs in the terminal.",
+    )
     args = parser.parse_args(argv)
     if not Path(args.logdir).expanduser().is_dir():
         parser.error(f"--logdir is not a directory: {args.logdir}")
@@ -2589,7 +2602,9 @@ def main() -> None:
     """Start the MLWiz dashboard until interrupted."""
     args = get_args()
     _add_project_root(args.project_root)
-    server = create_server(args.logdir, args.host, args.port)
+    server = create_server(
+        args.logdir, args.host, args.port, show_logs=args.show_logs
+    )
     actual_port = server.server_address[1]
     display_host = "127.0.0.1" if args.host in ("0.0.0.0", "::") else args.host
     url = f"http://{display_host}:{actual_port}/"

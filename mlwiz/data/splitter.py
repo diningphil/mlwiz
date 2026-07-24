@@ -16,7 +16,11 @@ from sklearn.model_selection import (
 )
 
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.util import s2c, dill_load, atomic_dill_save
+from mlwiz.util import dill_load, atomic_dill_save
+
+
+SPLIT_KIND_SAMPLE = "sample"
+SPLIT_KIND_NODE = "node"
 
 
 class Fold:
@@ -149,6 +153,8 @@ class Splitter:
             hold_out model assessment. Default is ``0.1``
     """
 
+    split_kind = SPLIT_KIND_SAMPLE
+
     def __init__(
         self,
         n_outer_folds: int,
@@ -257,11 +263,31 @@ class Splitter:
         """
         splits = dill_load(path)
 
-        splitter_classname = splits.get("splitter_class", "Splitter")
-        splitter_class = s2c(splitter_classname)
-
-        splitter_args = splits.get("splitter_args")
-        splitter = splitter_class(**splitter_args)
+        splitter_args = splits["splitter_args"]
+        splitter = cls(
+            **{
+                name: splitter_args[name]
+                for name in (
+                    "n_outer_folds",
+                    "n_inner_folds",
+                    "seed",
+                    "stratify",
+                    "shuffle",
+                    "inner_val_ratio",
+                    "outer_val_ratio",
+                    "test_ratio",
+                )
+            }
+        )
+        splitter.split_kind = splits.get(
+            "split_kind",
+            (
+                SPLIT_KIND_NODE
+                if splits.get("splitter_class", "").rsplit(".", 1)[-1]
+                == "SingleGraphSplitter"
+                else SPLIT_KIND_SAMPLE
+            ),
+        )
 
         outer_folds = splits["outer_folds"]
         inner_folds = splits["inner_folds"]
@@ -536,6 +562,7 @@ class Splitter:
         Saves the split as a dictionary into a ``torch`` file. The arguments
         of the dictionary are
         * seed (int)
+        * split_kind (str)
         * splitter_class (str)
         * splitter_args (dict)
         * outer_folds (list of dicts)
@@ -554,6 +581,7 @@ class Splitter:
 
         savedict = {
             "seed": self.seed,
+            "split_kind": self.split_kind,
             "splitter_class": splitter_class,
             "splitter_args": self._splitter_args(),
             "outer_folds": [o.todict() for o in self.outer_folds],
@@ -590,6 +618,8 @@ class SingleGraphSplitter(Splitter):
         test_ratio  (float): percentage of test set for
             hold_out model assessment. Default is ``0.1``
     """
+
+    split_kind = SPLIT_KIND_NODE
 
     def split(
         self,
