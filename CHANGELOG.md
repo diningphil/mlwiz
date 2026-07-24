@@ -6,6 +6,8 @@
 
 - hid dashboard HTTP request logs by default and added the opt-in
   `--show-logs` CLI option
+- made `.splits` loading independent of the splitter generator class, using
+  explicit sample/node metadata while retaining support for legacy split files
 - bumped the package version to 1.7.6
 
 ## [1.7.5]

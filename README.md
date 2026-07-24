@@ -168,6 +168,12 @@ exp.yml  ──► mlwiz-exp  ──► Ray workers
 - 🛰️ **Orchestration**: the evaluator schedules training runs with Ray across CPU/GPU (or a Ray cluster).
 - 🏗️ **Execution**: each run builds a model + training engine from dotted paths, then logs artifacts and returns structured results.
 
+The configured splitter class is needed when `mlwiz-data` generates the
+indices, but it is not a runtime dependency when an experiment loads them.
+New `.splits` files record a `split_kind` (`sample` or `node`) for provider
+validation; the recorded splitter class is retained only as provenance.
+Legacy files created with MLWiz's built-in splitters remain loadable.
+
 ## ⚙️ Configuration At A Glance
 MLWiz expects:
 

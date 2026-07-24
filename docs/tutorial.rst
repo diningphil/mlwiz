@@ -69,6 +69,22 @@ Here's an snippet of a potential configuration file that splits a classification
         outer_val_ratio: 0.1
         test_ratio: 0.1
 
+The configured splitter class is instantiated only while ``mlwiz-data``
+generates the fold indices. Loading the resulting ``.splits`` file during an
+experiment does not import or instantiate that generator class. This makes a
+split artifact reusable without installing the project that defined a custom
+sample-level splitter.
+
+New split files store an explicit ``split_kind`` value: ``sample`` for regular
+dataset splits and ``node`` for single-graph node splits. Data providers use
+this value for compatibility checks. The recorded splitter class remains in
+the file as provenance only.
+
+Legacy ``.splits`` files that do not contain ``split_kind`` are still
+supported. MLWiz recognizes the legacy built-in ``SingleGraphSplitter`` class
+name as a node split and treats other legacy files as sample splits, without
+importing the recorded class.
+
 Dataset Creation
 -------------------
 
