@@ -2,6 +2,11 @@
 
 ## [1.7.6]
 
+## Fixed
+
+- stored final validation loss and score entries in the best-epoch results
+  under their `validation_` prefix instead of overwriting `training_` entries
+
 ## Changed
 
 - upgraded Run Explorer layer/component trend families with a persistent

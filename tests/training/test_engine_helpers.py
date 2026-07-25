@@ -29,6 +29,7 @@ from mlwiz.static import (
     SCHEDULER_STATE,
     STOP_TRAINING,
     TRAINING,
+    VALIDATION,
 )
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.metric import ToyMetric
@@ -158,6 +159,28 @@ def test_infer_sets_main_keys(
 
     assert MAIN_LOSS in loss
     assert MAIN_SCORE in score
+
+
+def test_final_validation_results_use_validation_prefix(tmp_path):
+    """Final validation metrics should not be stored as training metrics."""
+    x = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    y = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
+
+    engine = _make_engine(tmp_path)
+    engine.train(
+        train_loader=loader,
+        validation_loader=loader,
+        max_epochs=0,
+        progress_callback=_noop_progress,
+        should_terminate=lambda: False,
+    )
+
+    best_results = engine.state.best_epoch_results
+    assert f"{TRAINING}_{MAIN_LOSS}" in best_results
+    assert f"{TRAINING}_{MAIN_SCORE}" in best_results
+    assert f"{VALIDATION}_{MAIN_LOSS}" in best_results
+    assert f"{VALIDATION}_{MAIN_SCORE}" in best_results
 
 
 def test_on_termination_called_on_normal_end_and_interrupt(tmp_path):

@@ -920,9 +920,11 @@ class TrainingEngine(EventDispatcher):
                 val_loss, val_score = self.infer(
                     validation_loader, VALIDATION, _notify_progress
                 )
-                ber.update({f"{TRAINING}_{k}": v for k, v in val_loss.items()})
                 ber.update(
-                    {f"{TRAINING}_{k}": v for k, v in val_score.items()}
+                    {f"{VALIDATION}_{k}": v for k, v in val_loss.items()}
+                )
+                ber.update(
+                    {f"{VALIDATION}_{k}": v for k, v in val_score.items()}
                 )
 
             # Compute test output
