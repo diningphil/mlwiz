@@ -672,6 +672,9 @@ class Experiment:
             engine_args.get("engine_callback", DEFAULT_ENGINE_CALLBACK)
         )
         eval_training = engine_args.get("eval_training", False)
+        skip_final_training_validation_inference = engine_args.get(
+            "skip_final_training_validation_inference", False
+        )
         store_log_every_N_epochs = engine_args.get(
             "store_log_every_N_epochs", 1
         )
@@ -694,6 +697,9 @@ class Experiment:
             exp_path=self.exp_path,
             evaluate_every=evaluate_every,
             eval_training=eval_training,
+            skip_final_training_validation_inference=(
+                skip_final_training_validation_inference
+            ),
             store_last_checkpoint=store_last_checkpoint,
             store_log_every_N_epochs=store_log_every_N_epochs,
             mixed_precision=mixed_precision,

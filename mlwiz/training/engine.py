@@ -131,6 +131,10 @@ class TrainingEngine(EventDispatcher):
             Default is ``1``.
         eval_training (bool): whether to re-evaluate loss and scores on the
             training set after a training epoch. Defaults to False.
+        skip_final_training_validation_inference (bool): whether to reuse
+            best-epoch training and validation metrics instead of running
+            final inference when an early stopper is configured. Defaults to
+            ``False``.
         eval_test_every_epoch (bool): whether to evaluate loss and scores on
             the test set (if available) after each training epoch. Defaults to
             False because one should not care about test performance until the
@@ -162,6 +166,7 @@ class TrainingEngine(EventDispatcher):
         exp_path: str = None,
         evaluate_every: int = 1,
         eval_training: bool = False,
+        skip_final_training_validation_inference: bool = False,
         eval_test_every_epoch: bool = False,
         store_last_checkpoint: bool = False,
         store_log_every_N_epochs: int = 1,
@@ -190,6 +195,9 @@ class TrainingEngine(EventDispatcher):
                 results are reported/logged.
             eval_training (bool): Whether to re-evaluate loss/score on the
                 training set after each epoch.
+            skip_final_training_validation_inference (bool): Whether to reuse
+                the early stopper's best-epoch training and validation metrics
+                instead of performing final inference on those splits.
             eval_test_every_epoch (bool): Whether to evaluate on the test set
                 after each epoch (if available).
             store_last_checkpoint (bool): Whether to store a checkpoint at the
@@ -223,6 +231,9 @@ class TrainingEngine(EventDispatcher):
         self.exp_path = exp_path
         self.evaluate_every = evaluate_every
         self.eval_training = eval_training
+        self.skip_final_training_validation_inference = (
+            skip_final_training_validation_inference
+        )
         self.eval_test_every_epoch = eval_test_every_epoch
         self.store_last_checkpoint = store_last_checkpoint
         self.store_log_every_N_epochs = store_log_every_N_epochs
@@ -582,6 +593,19 @@ class TrainingEngine(EventDispatcher):
             reduced_metrics[metric_name] = reduced_tensor.cpu()
         return reduced_metrics
 
+    @staticmethod
+    def _split_metrics(epoch_results: dict, split: str) -> Tuple[dict, dict]:
+        """Return loss and score dictionaries for one prefixed split."""
+        prefix = f"{split}_"
+        return tuple(
+            {
+                key[len(prefix) :]: value
+                for key, value in epoch_results[result_type].items()
+                if key.startswith(prefix)
+            }
+            for result_type in (LOSSES, SCORES)
+        )
+
     def train(
         self,
         train_loader: DataLoader,
@@ -909,24 +933,45 @@ class TrainingEngine(EventDispatcher):
             final_epoch = self.state.epoch
 
             # Compute training output
-            self._buffer_log(
-                "Performing final inference on the training set.", logger
+            reuse_best_metrics = (
+                self.skip_final_training_validation_inference
+                and self.early_stopper is not None
             )
-            train_loss, train_score = self.infer(
-                train_loader, TRAINING, _notify_progress
-            )
+            if reuse_best_metrics:
+                self._buffer_log(
+                    "Skipping final inference on the training set; reusing "
+                    "best-epoch metrics captured by the early stopper.",
+                    logger,
+                )
+                train_loss, train_score = self._split_metrics(ber, TRAINING)
+            else:
+                self._buffer_log(
+                    "Performing final inference on the training set.", logger
+                )
+                train_loss, train_score = self.infer(
+                    train_loader, TRAINING, _notify_progress
+                )
             ber.update({f"{TRAINING}_{k}": v for k, v in train_loss.items()})
             ber.update({f"{TRAINING}_{k}": v for k, v in train_score.items()})
 
             # Compute validation output
             if validation_loader is not None:
-                self._buffer_log(
-                    "Performing final inference on the validation set.",
-                    logger,
-                )
-                val_loss, val_score = self.infer(
-                    validation_loader, VALIDATION, _notify_progress
-                )
+                if reuse_best_metrics:
+                    self._buffer_log(
+                        "Skipping final inference on the validation set; "
+                        "reusing best-epoch metrics captured by the early "
+                        "stopper.",
+                        logger,
+                    )
+                    val_loss, val_score = self._split_metrics(ber, VALIDATION)
+                else:
+                    self._buffer_log(
+                        "Performing final inference on the validation set.",
+                        logger,
+                    )
+                    val_loss, val_score = self.infer(
+                        validation_loader, VALIDATION, _notify_progress
+                    )
                 ber.update(
                     {f"{VALIDATION}_{k}": v for k, v in val_loss.items()}
                 )

@@ -2,6 +2,12 @@
 
 ## [1.7.6]
 
+## Added
+
+- added the opt-in `skip_final_training_validation_inference` engine setting
+  for reusing early-stopper metrics instead of repeating final training and
+  validation inference
+
 ## Fixed
 
 - stored final validation loss and score entries in the best-epoch results

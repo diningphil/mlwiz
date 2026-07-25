@@ -211,6 +211,7 @@ explanation of each field as a comment:
         class_name: mlwiz.training.engine.TrainingEngine
         args:
           eval_training: False  # if True, re-compute train metrics in eval mode every evaluate_every epochs
+          skip_final_training_validation_inference: False  # opt-in reuse of early-stopper metrics; see warning below
           mixed_precision: False  # set to True to enable torch AMP autocast (CUDA/CPU)
           mixed_precision_dtype: torch.float16  # torch.float16 | torch.bfloat16
 
@@ -504,6 +505,20 @@ interruption. Keeping checkpointing enabled lets you safely resume from where th
 with ``False`` (default), MLWiz reuses training-pass aggregates (faster); with
 ``True``, it performs an explicit inference pass on the training split
 (slower, but directly comparable to validation/test inference mode metrics).
+
+``skip_final_training_validation_inference`` defaults to ``False``. When set to
+``True``, MLWiz reuses the early stopper's best-epoch training and validation
+metrics instead of running final inference on those splits. This can save time
+on very large datasets. Test inference is never skipped, and the option has no
+effect without an early stopper.
+
+.. warning::
+
+   With ``eval_training: False``, reused training metrics were collected while
+   the model weights were changing, so they do not measure the restored model
+   in inference mode. Stochastic evaluation may also produce different results
+   on a fresh pass, and custom evaluation callbacks will not run for skipped
+   splits. Keep this option disabled when fresh final metrics are important.
 
 
 Grid Search

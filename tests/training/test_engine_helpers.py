@@ -22,16 +22,19 @@ from mlwiz.static import (
     LAST_CHECKPOINT_FILENAME,
     LAST_OPTIMIZER_CHECKPOINT_FILENAME,
     LAST_RUN_ELAPSED_TIME,
+    LOSSES,
     MAIN_LOSS,
     MAIN_SCORE,
     MODEL_STATE,
     OPTIMIZER_STATE,
     SCALER_STATE,
     SCHEDULER_STATE,
+    SCORES,
     STOP_TRAINING,
     TRAINING,
     VALIDATION,
 )
+from mlwiz.training.callback.early_stopping import PatienceEarlyStopper
 from mlwiz.training.callback.engine_callback import EngineCallback
 from mlwiz.training.callback.metric import ToyMetric
 from mlwiz.training.callback.optimizer import Optimizer
@@ -79,7 +82,7 @@ class _TerminationRecorder(EventHandler):
         self.termination_calls += 1
 
 
-def _make_engine(tmp_path=None, plotter=None) -> TrainingEngine:
+def _make_engine(tmp_path=None, plotter=None, **engine_kwargs) -> TrainingEngine:
     """
     Construct a TrainingEngine instance for unit tests.
 
@@ -102,6 +105,7 @@ def _make_engine(tmp_path=None, plotter=None) -> TrainingEngine:
         plotter=plotter,
         device="cpu",
         exp_path=str(tmp_path) if tmp_path is not None else None,
+        **engine_kwargs,
     )
 
 
@@ -192,7 +196,10 @@ def test_final_inference_logs_each_available_split(tmp_path):
     log_path = tmp_path / "experiment.log"
     logger = Logger(log_path, mode="a", debug=False)
 
-    engine = _make_engine(tmp_path)
+    engine = _make_engine(
+        tmp_path,
+        skip_final_training_validation_inference=True,
+    )
     engine.train(
         train_loader=loader,
         validation_loader=loader,
@@ -211,6 +218,69 @@ def test_final_inference_logs_each_available_split(tmp_path):
     ]
     positions = [log_text.index(message) for message in messages]
     assert positions == sorted(positions)
+
+
+def test_final_inference_reuses_early_stopper_metrics_when_enabled(tmp_path):
+    """The opt-in should skip final training/validation inference."""
+    x = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    y = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
+    log_path = tmp_path / "experiment.log"
+    logger = Logger(log_path, mode="a", debug=False)
+    early_stopper = PatienceEarlyStopper(
+        monitor=f"{VALIDATION}_{MAIN_SCORE}",
+        mode="max",
+        patience=1,
+    )
+    engine = _make_engine(
+        tmp_path,
+        early_stopper=early_stopper,
+        skip_final_training_validation_inference=True,
+    )
+    engine.state.update(
+        best_epoch_results={
+            BEST_EPOCH: 0,
+            MODEL_STATE: engine.model.state_dict(),
+            LOSSES: {
+                f"{TRAINING}_{MAIN_LOSS}": torch.tensor(1.0),
+                f"{VALIDATION}_{MAIN_LOSS}": torch.tensor(2.0),
+            },
+            SCORES: {
+                f"{TRAINING}_{MAIN_SCORE}": torch.tensor(3.0),
+                f"{VALIDATION}_{MAIN_SCORE}": torch.tensor(4.0),
+            },
+        }
+    )
+    inferred_splits = []
+    original_infer = engine.infer
+
+    def _recording_infer(loader, split, notify_progress):
+        inferred_splits.append(split)
+        return original_infer(loader, split, notify_progress)
+
+    engine.infer = _recording_infer
+    results = engine.train(
+        train_loader=loader,
+        validation_loader=loader,
+        max_epochs=0,
+        logger=logger,
+        progress_callback=_noop_progress,
+        should_terminate=lambda: False,
+    )
+
+    train_loss, train_score, val_loss, val_score, _, _ = results
+    assert inferred_splits == []
+    assert MAIN_LOSS in train_loss
+    assert MAIN_SCORE in train_score
+    assert MAIN_LOSS in val_loss
+    assert MAIN_SCORE in val_score
+    assert train_loss[MAIN_LOSS].item() == 1.0
+    assert train_score[MAIN_SCORE].item() == 3.0
+    assert val_loss[MAIN_LOSS].item() == 2.0
+    assert val_score[MAIN_SCORE].item() == 4.0
+    log_text = log_path.read_text()
+    assert "Skipping final inference on the training set" in log_text
+    assert "Skipping final inference on the validation set" in log_text
 
 
 def test_on_termination_called_on_normal_end_and_interrupt(tmp_path):
