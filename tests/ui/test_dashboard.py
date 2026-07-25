@@ -1124,6 +1124,15 @@ def test_frontend_filters_analysis_and_interacts_with_legends():
     assert app_script.count("const data = filteredAnalysisData();") == 4
     assert "parallelCoordinateRows(filteredAnalysisData(), axes)" in app_script
     assert "refreshConfigurationFilterViews" in app_script
+    assert "function mergeExperimentFilterData" in app_script
+    assert "state.filterData[experimentPath], freshData" in app_script
+    assert "...(previous.configurations?.[path]?.hyperparameters || {})" in app_script
+    assert 'clause.type === "hyperparameter"' in app_script
+    assert "(!clause.hyperparameter ? hyperparameters[0] : null)" in app_script
+    assert "clause.hyperparameter = descriptor.id;" in app_script
+    assert "if (!descriptor) return;" in app_script
+    assert "configurationFilterStoredValueLabel" in app_script
+    assert "temporarily unavailable" in app_script
     assert "No configurations match the active filters for this fold." in app_script
     assert "if (definition && !Array.isArray(definition.clauses))" in app_script
     assert "clauses: null" in app_script
@@ -1426,6 +1435,14 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'familyMode: "together"' in app_script
         assert 'plot.familyMode !== "separate"' in app_script
         assert 'label: `${quantity.label} · ${line.label}`' in app_script
+        assert "runFamilyModes" in app_script
+        assert "runMetricFamily" in app_script
+        assert "runFamilyChartGroups" in app_script
+        assert "runFamilyModeControl" in app_script
+        assert 'metric.match(/^(.*\\/)?(layer|component)_(\\d+)$/)' in app_script
+        assert 'state.runFamilyModes[family.id] !== "separate"' in app_script
+        assert 'renderChartsPreservingScroll();' in app_script
+        assert ".run-family-controls" in stylesheet
         assert "filterIqrOutliers" in app_script
         assert "firstQuartile - (1.5 * interquartileRange)" in app_script
         assert "thirdQuartile + (1.5 * interquartileRange)" in app_script

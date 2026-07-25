@@ -405,6 +405,10 @@ in Model Selection Analysis applies the same value to 2D, 3D, and combined
 trend curves and stays pinned above the analysis plots while you scroll. The
 chosen value is preserved for the dashboard session and included with
 reproducible plot exports.
+Run Explorer also recognizes related custom histories ending in `layer_N` or
+`component_N`. It overlays each family under its shared main key by default;
+use the persistent per-family **Series: Together / Separate** control to switch
+between the combined chart and one chart per layer or component.
 Use **Remove outliers** in a mean ± standard-deviation Run Explorer view, or on
 an individual Model Selection Analysis plot, to exclude values outside Tukey's
 1.5×IQR fences. Trend filtering is performed independently at each epoch or

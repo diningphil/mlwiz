@@ -1044,6 +1044,10 @@ Leave it at ``0`` to display only the original values. At higher settings, the
 smoothed curve drives the axis, legend, and hover readout while a faint raw
 trace preserves short-term spikes. The setting persists for the dashboard
 session and generated Python plots contain both the raw and displayed values.
+Related custom histories ending in ``layer_N`` or ``component_N`` are combined
+under their shared main key by default. Use the persistent per-family
+**Series: Together / Separate** control to overlay all members or restore one
+chart per layer or component.
 
 Model Selection Analysis
 ^^^^^^^^^^^^^^^^^^^^^^^^

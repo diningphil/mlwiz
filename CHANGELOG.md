@@ -4,6 +4,11 @@
 
 ## Changed
 
+- upgraded Run Explorer layer/component trend families with a persistent
+  Together/Separate control, overlaying related series by their main key by
+  default
+- kept active hyperparameter-value filters stable across live refreshes that
+  temporarily lack complete configuration manifests
 - hid dashboard HTTP request logs by default and added the opt-in
   `--show-logs` CLI option
 - made `.splits` loading independent of the splitter generator class, using

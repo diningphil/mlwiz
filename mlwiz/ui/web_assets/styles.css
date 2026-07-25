@@ -182,6 +182,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .analysis-quantity-chip button { display: grid; place-items: center; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%; color: #55806a; background: transparent; font-size: 0.8125rem; line-height: 1; cursor: pointer; }
 .analysis-quantity-chip button:hover { color: #9d3c33; background: #f7e3e0; }
 .analysis-metric-card-controls, .analysis-plot-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin: 0 0 12px; }
+.run-family-controls { margin: -2px 0 8px; }
 .analysis-plot-group-control { display: flex; align-items: center; gap: 6px; color: var(--faint); font-size: 0.5rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
 .analysis-plot-group-control select { max-width: 190px; padding: 5px 24px 5px 7px; border: 1px solid var(--line); border-radius: 7px; outline: 0; color: var(--ink); background: var(--panel); font-size: 0.5625rem; font-weight: 700; letter-spacing: 0; text-transform: none; }
 .analysis-plot-unit-control:has(select:disabled) { color: color-mix(in srgb, var(--faint) 68%, var(--line)); }

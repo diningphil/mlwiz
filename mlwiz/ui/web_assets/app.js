@@ -142,6 +142,11 @@
     scale: normalizedScale(storedState.scale),
     smoothing: normalizedSmoothing(storedState.smoothing),
     removeOutliers: Boolean(storedState.removeOutliers),
+    runFamilyModes: storedState.runFamilyModes
+      && typeof storedState.runFamilyModes === "object"
+      && !Array.isArray(storedState.runFamilyModes)
+      ? storedState.runFamilyModes
+      : {},
     theme: ["dark", "day"].includes(storedTheme)
       ? storedTheme
       : (["dark", "day"].includes(storedState.theme) ? storedState.theme : "dark"),
@@ -252,6 +257,7 @@
         scale: state.scale,
         smoothing: state.smoothing,
         removeOutliers: state.removeOutliers,
+        runFamilyModes: state.runFamilyModes,
         theme: state.theme,
         font: state.font,
         fontSize: state.fontSize,
@@ -3863,12 +3869,63 @@
     }
   }
 
+  function mergeExperimentFilterData(previous, current) {
+    if (!previous || previous.error) return current;
+    const previousHyperparameters = new Map(
+      (previous.hyperparameters || []).map((item) => [item.id, item]),
+    );
+    const currentHyperparameters = new Map(
+      (current.hyperparameters || []).map((item) => [item.id, item]),
+    );
+    const hyperparameters = [];
+    for (const id of new Set([
+      ...previousHyperparameters.keys(),
+      ...currentHyperparameters.keys(),
+    ])) {
+      const earlier = previousHyperparameters.get(id);
+      const latest = currentHyperparameters.get(id);
+      const values = [...new Map([
+        ...(earlier?.values || []),
+        ...(latest?.values || []),
+      ].map((value) => [configurationFilterValueKey(value), value])).values()];
+      hyperparameters.push({
+        ...(earlier || {}),
+        ...(latest || {}),
+        id,
+        values,
+      });
+    }
+    hyperparameters.sort((left, right) =>
+      (left.label || left.id).localeCompare(right.label || right.id, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+
+    const configurations = Object.fromEntries(
+      Object.entries(current.configurations || {}).map(([path, configuration]) => [
+        path,
+        {
+          ...configuration,
+          hyperparameters: {
+            ...(previous.configurations?.[path]?.hyperparameters || {}),
+            ...(configuration.hyperparameters || {}),
+          },
+        },
+      ]),
+    );
+    return { ...current, hyperparameters, configurations };
+  }
+
   async function loadExperimentFilter(experimentPath, rerender = true) {
     if (state.filterLoading[experimentPath]) return;
     state.filterLoading[experimentPath] = true;
     if (rerender) renderTree();
     try {
-      const data = await getJson(`/api/experiment-filter?path=${encodeURIComponent(experimentPath)}`);
+      const freshData = await getJson(`/api/experiment-filter?path=${encodeURIComponent(experimentPath)}`);
+      const data = mergeExperimentFilterData(
+        state.filterData[experimentPath], freshData,
+      );
       state.filterData[experimentPath] = data;
       renderCacheStatus(data.cache);
       const definition = state.experimentFilters[experimentPath];
@@ -3982,7 +4039,10 @@
       option.value = value;
       source.append(option);
     }
-    if ((data.hyperparameters || []).length) {
+    if (
+      (data.hyperparameters || []).length
+      || clause.type === "hyperparameter"
+    ) {
       const option = node("option", "", "Hyper-parameter");
       option.value = "hyperparameter";
       source.append(option);
@@ -3999,6 +4059,18 @@
         const option = node("option", "", descriptor.label);
         option.value = descriptor.id;
         target.append(option);
+      }
+      if (
+        clause.hyperparameter
+        && !(data.hyperparameters || []).some(
+          (descriptor) => descriptor.id === clause.hyperparameter,
+        )
+      ) {
+        const unavailable = node(
+          "option", "", `${clause.hyperparameter} · temporarily unavailable`,
+        );
+        unavailable.value = clause.hyperparameter;
+        target.append(unavailable);
       }
       target.value = clause.hyperparameter;
       target.addEventListener("change", (event) => updateFilterClause(
@@ -4051,6 +4123,20 @@
         const option = node("option", "", analysisValueLabel(value));
         option.value = configurationFilterValueKey(value);
         filterValue.append(option);
+      }
+      if (
+        clause.value !== ""
+        && !values.some(
+          (value) => configurationFilterValueKey(value) === clause.value,
+        )
+      ) {
+        const unavailable = node(
+          "option",
+          "",
+          `${configurationFilterStoredValueLabel(clause.value)} · temporarily unavailable`,
+        );
+        unavailable.value = clause.value;
+        filterValue.append(unavailable);
       }
     } else {
       filterValue = node("input", "filter-value");
@@ -4139,10 +4225,11 @@
 
   function normalizeFilterClause(clause, data) {
     const hyperparameters = data.hyperparameters || [];
-    if (clause.type === "hyperparameter" && hyperparameters.length) {
+    if (clause.type === "hyperparameter") {
       const descriptor = hyperparameters.find(
         (item) => item.id === clause.hyperparameter,
-      ) || hyperparameters[0];
+      ) || (!clause.hyperparameter ? hyperparameters[0] : null);
+      if (!descriptor) return;
       clause.hyperparameter = descriptor.id;
       if (!new Set(descriptor.values.map(configurationFilterValueKey)).has(clause.value)) {
         clause.value = descriptor.values.length
@@ -4171,6 +4258,14 @@
     return `{${Object.keys(value).sort().map((key) =>
       `${JSON.stringify(key)}:${configurationFilterValueKey(value[key])}`
     ).join(",")}}`;
+  }
+
+  function configurationFilterStoredValueLabel(valueKey) {
+    try {
+      return analysisValueLabel(JSON.parse(valueKey));
+    } catch (_error) {
+      return valueKey;
+    }
   }
 
   function activeFilterClauses(experimentPath) {
@@ -4764,6 +4859,23 @@
     return { split: "other", metric: name };
   }
 
+  function runMetricFamily(group, metric) {
+    const match = metric.match(/^(.*\/)?(layer|component)_(\d+)$/);
+    if (!match) return null;
+    const prefix = (match[1] || "").replace(/\/$/, "");
+    const kind = match[2];
+    const memberIndex = Number(match[3]);
+    const mainKey = [group, prefix].filter(Boolean).join(" · ");
+    return {
+      id: `${group}\u0000${prefix}\u0000${kind}`,
+      kind,
+      prefix,
+      memberIndex,
+      memberLabel: `${kind} ${memberIndex}`,
+      mainLabel: mainKey.replaceAll("_", " ").replaceAll("/", " · "),
+    };
+  }
+
   function innerFoldName(source) {
     const match = source.match(/(?:^|\/)(INNER_FOLD_\d+)(?:\/|$)/);
     return match ? match[1] : "Ungrouped";
@@ -5016,11 +5128,112 @@
       );
   }
 
+  function runFamilyChartGroups(groups) {
+    const buckets = new Map();
+    for (const group of groups) {
+      const family = runMetricFamily(group.group, group.metric);
+      if (!family) continue;
+      const key = `${group.source}\u0000${family.id}`;
+      if (!buckets.has(key)) buckets.set(key, { family, groups: [] });
+      buckets.get(key).groups.push(group);
+    }
+
+    const eligible = new Map(
+      [...buckets.entries()].filter(([_key, bucket]) => (
+        new Set(bucket.groups.map((group) => group.metric)).size > 1
+      )),
+    );
+    const emitted = new Set();
+    const output = [];
+    for (const group of groups) {
+      const family = runMetricFamily(group.group, group.metric);
+      const key = family ? `${group.source}\u0000${family.id}` : null;
+      const bucket = key ? eligible.get(key) : null;
+      if (!bucket) {
+        output.push(group);
+        continue;
+      }
+      const members = [...bucket.groups].sort((left, right) => (
+        runMetricFamily(left.group, left.metric).memberIndex
+          - runMetricFamily(right.group, right.metric).memberIndex
+      ));
+      const familyDetails = {
+        ...bucket.family,
+        memberCount: members.length,
+        title: `${bucket.family.mainLabel} (${members.length} ${bucket.family.kind}s)`,
+      };
+      if (state.runFamilyModes[family.id] === "separate") {
+        output.push({
+          ...group,
+          family: familyDetails,
+          title: `${familyDetails.mainLabel} · ${family.memberLabel}`,
+        });
+        continue;
+      }
+      if (emitted.has(key)) continue;
+      emitted.add(key);
+      const lines = members.flatMap((member) => {
+        const memberFamily = runMetricFamily(member.group, member.metric);
+        return member.lines.map((line) => ({
+          ...line,
+          id: `${member.metric}\u0000${line.id}`,
+          label: [
+            memberFamily.memberLabel,
+            line.split === "other"
+              ? line.label.replace(/^other(?: · |(?= mean)|$)/, "").trim()
+              : line.label,
+          ].filter(Boolean).join(" · "),
+        }));
+      }).map((line, index) => ({
+        ...line,
+        color: analysisSeriesColor(index),
+      }));
+      output.push({
+        source: group.source,
+        group: group.group,
+        metric: `family:${family.id}`,
+        title: familyDetails.title,
+        family: familyDetails,
+        lines,
+      });
+    }
+    return output;
+  }
+
+  function runFamilyModeControl(family) {
+    const control = node(
+      "div", "analysis-plot-dimension-control run-family-mode-control",
+    );
+    control.append(node("span", "", "Series"));
+    const choices = node("div", "segmented");
+    choices.setAttribute("role", "group");
+    choices.setAttribute("aria-label", `${family.mainLabel} series layout`);
+    const together = state.runFamilyModes[family.id] !== "separate";
+    const togetherButton = node("button", together ? "active" : "", "Together");
+    togetherButton.type = "button";
+    togetherButton.setAttribute("aria-pressed", String(together));
+    togetherButton.title = `Overlay all ${family.memberCount} family members with a legend`;
+    const separateButton = node("button", together ? "" : "active", "Separate");
+    separateButton.type = "button";
+    separateButton.setAttribute("aria-pressed", String(!together));
+    separateButton.title = `Show ${family.memberCount} individual plots`;
+    const selectMode = (mode) => {
+      state.runFamilyModes[family.id] = mode;
+      persistState();
+      renderChartsPreservingScroll();
+    };
+    togetherButton.addEventListener("click", () => selectMode("together"));
+    separateButton.addEventListener("click", () => selectMode("separate"));
+    choices.append(togetherButton, separateButton);
+    control.append(choices);
+    return control;
+  }
+
   function renderCharts() {
     state.charts = [];
     const grid = el("chart-grid");
     grid.replaceChildren();
-    const groups = groupedSeries();
+    const groups = runFamilyChartGroups(groupedSeries());
     if (!groups.length) {
       grid.append(chartMessage("Try another metric type, run, or search term."));
       return;
@@ -5029,7 +5242,7 @@
       const card = node("article", "chart-card");
       const head = node("div", "chart-head");
       const title = node("div", "chart-title");
-      const chartTitle = group.metric.replaceAll("_", " ");
+      const chartTitle = group.title || group.metric.replaceAll("_", " ");
       title.append(node("h3", "", chartTitle), node("p", "", group.source));
       const headMeta = node("div", "chart-head-meta");
       const epochLabel = node("span", "chart-epoch", "Latest");
@@ -5067,7 +5280,13 @@
         legend.append(item);
         legendEntries.push({ line, item });
       }
-      card.append(head, wrap, legend);
+      card.append(head);
+      if (group.family) {
+        const controls = node("div", "analysis-plot-controls run-family-controls");
+        controls.append(runFamilyModeControl(group.family));
+        card.append(controls);
+      }
+      card.append(wrap, legend);
       grid.append(card);
       const chart = {
         canvas,
