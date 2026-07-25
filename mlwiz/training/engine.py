@@ -909,6 +909,9 @@ class TrainingEngine(EventDispatcher):
             final_epoch = self.state.epoch
 
             # Compute training output
+            self._buffer_log(
+                "Performing final inference on the training set.", logger
+            )
             train_loss, train_score = self.infer(
                 train_loader, TRAINING, _notify_progress
             )
@@ -917,6 +920,10 @@ class TrainingEngine(EventDispatcher):
 
             # Compute validation output
             if validation_loader is not None:
+                self._buffer_log(
+                    "Performing final inference on the validation set.",
+                    logger,
+                )
                 val_loss, val_score = self.infer(
                     validation_loader, VALIDATION, _notify_progress
                 )
@@ -929,6 +936,9 @@ class TrainingEngine(EventDispatcher):
 
             # Compute test output
             if test_loader is not None:
+                self._buffer_log(
+                    "Performing final inference on the test set.", logger
+                )
                 test_loss, test_score = self.infer(
                     test_loader, TEST, _notify_progress
                 )

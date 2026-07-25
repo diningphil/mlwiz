@@ -12,6 +12,7 @@ import torch
 from torch.utils.data import DataLoader, TensorDataset
 
 from mlwiz.exceptions import TerminationRequested
+from mlwiz.log.logger import Logger
 from mlwiz.model.interface import ModelInterface
 from mlwiz.static import (
     BEST_CHECKPOINT_FILENAME,
@@ -181,6 +182,35 @@ def test_final_validation_results_use_validation_prefix(tmp_path):
     assert f"{TRAINING}_{MAIN_SCORE}" in best_results
     assert f"{VALIDATION}_{MAIN_LOSS}" in best_results
     assert f"{VALIDATION}_{MAIN_SCORE}" in best_results
+
+
+def test_final_inference_logs_each_available_split(tmp_path):
+    """Final inference should identify each evaluated split in the run log."""
+    x = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    y = torch.arange(4, dtype=torch.float32).unsqueeze(1)
+    loader = DataLoader(TensorDataset(x, y), batch_size=2, shuffle=False)
+    log_path = tmp_path / "experiment.log"
+    logger = Logger(log_path, mode="a", debug=False)
+
+    engine = _make_engine(tmp_path)
+    engine.train(
+        train_loader=loader,
+        validation_loader=loader,
+        test_loader=loader,
+        max_epochs=0,
+        logger=logger,
+        progress_callback=_noop_progress,
+        should_terminate=lambda: False,
+    )
+
+    log_text = log_path.read_text()
+    messages = [
+        "Performing final inference on the training set.",
+        "Performing final inference on the validation set.",
+        "Performing final inference on the test set.",
+    ]
+    positions = [log_text.index(message) for message in messages]
+    assert positions == sorted(positions)
 
 
 def test_on_termination_called_on_normal_end_and_interrupt(tmp_path):

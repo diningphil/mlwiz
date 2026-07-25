@@ -9,6 +9,8 @@
 
 ## Changed
 
+- logged the start of final inference on each available training, validation,
+  and test split in the experiment log
 - upgraded Run Explorer layer/component trend families with a persistent
   Together/Separate control, overlaying related series by their main key by
   default
