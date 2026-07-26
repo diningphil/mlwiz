@@ -399,6 +399,38 @@ def test_model_selection_analysis_uses_live_manifest_configuration(tmp_path):
     assert analysis["configurations"][0]["hyperparameters"]["optimizer.lr"] == 0.02
 
 
+def test_risk_assessment_analysis_exposes_final_run_losses_and_scores(tmp_path):
+    """Risk analysis should compare final runs without model-selection fields."""
+    experiment, _, _, first_run = _write_fixture_results(tmp_path)
+    second_run = first_run.parent / "final_run2"
+    second_run.mkdir()
+    torch.save(
+        {
+            "losses": {"validation_main_loss": [0.9, 0.4]},
+            "scores": {"validation_main_score": [0.5, 0.85]},
+            "diagnostics": {"gradient_norm": [3.0, 2.0]},
+        },
+        second_run / "metrics_data.torch",
+    )
+    repository = ResultsRepository(experiment.parent)
+
+    analysis = repository.risk_assessment_analysis(experiment.name, 1)
+
+    assert analysis["analysis_kind"] == "risk_assessment"
+    assert analysis["inner_fold"] is None
+    assert analysis["metrics_file_count"] == 2
+    assert [item["number"] for item in analysis["configurations"]] == [1, 2]
+    assert analysis["hyperparameters"] == [
+        {"id": "final_run", "label": "Final runs", "values": [1, 2]}
+    ]
+    assert {item["group"] for item in analysis["series"]} == {"losses", "scores"}
+    assert {item["run"] for item in analysis["series"]} == {1, 2}
+    assert all(
+        item["selected_value_source"] == "last_epoch"
+        for item in analysis["series"]
+    )
+
+
 def test_details_loads_oversized_selection_without_caching(tmp_path):
     """The cache ceiling must never prevent an active selection from loading."""
     experiment, _, selection_run, _ = _write_fixture_results(tmp_path)
@@ -1291,6 +1323,12 @@ def test_http_server_serves_frontend_and_api(tmp_path):
             timeout=3,
         ) as response:
             analysis_data = json.loads(response.read())
+        with urlopen(
+            f"{base_url}/api/risk-assessment-analysis?path=mlp_MNIST"
+            "&outer_fold=1",
+            timeout=3,
+        ) as response:
+            risk_analysis_data = json.loads(response.read())
         graph_path = selection_run.relative_to(experiment.parent).as_posix()
         with urlopen(
             f"{base_url}/api/model-graph?path={graph_path}", timeout=3
@@ -1330,6 +1368,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="analysis-smoothing-slider"' in page
         assert 'id="analysis-smoothing-value"' in page
         assert 'id="analysis-tab"' in page
+        assert 'id="risk-analysis-tab"' in page
+        assert "Risk assessment analysis" in page
         assert 'id="analysis-plot-type"' in page
         assert 'id="analysis-unit"' in page
         assert 'id="analysis-hyperparameter"' in page
@@ -1401,6 +1441,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'postJson("/api/cache/reset"' in app_script
         assert "/api/experiment-filter" in app_script
         assert "/api/model-selection-analysis" in app_script
+        assert "/api/risk-assessment-analysis" in app_script
+        assert '"Aggregated — mean ± std"' in app_script
+        assert '"Separate final runs"' in app_script
+        assert 'state.analysisPlotType = "trends"' in app_script
         assert "analysisQuantityOptions" in app_script
         assert "analysisTrendQuantityOptions" in app_script
         assert "plotTrendUnitControl" in app_script
@@ -1418,7 +1462,7 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert "drawParallelCoordinates" in app_script
         assert "attachParallelCoordinatesInteraction" in app_script
         assert "Drag on an axis to filter" in app_script
-        assert "Outer fold ${state.analysisData.outer_fold} · inner fold ${state.analysisData.inner_fold}" in app_script
+        assert "function analysisScopeLabel" in app_script
         assert 'noAnalysisGroupingValue = "__all_runs__"' in app_script
         assert "normalizedAnalysisGrouping" in app_script
         assert '"None — average all runs"' in app_script
@@ -1589,6 +1633,8 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert analysis_data["outer_fold"] == 1
         assert analysis_data["inner_fold"] == 1
         assert analysis_data["metrics_file_count"] == 1
+        assert risk_analysis_data["analysis_kind"] == "risk_assessment"
+        assert risk_analysis_data["metrics_file_count"] == 1
     finally:
         server.shutdown()
         server.server_close()
@@ -1616,6 +1662,9 @@ def test_snapshot_round_trip_contains_normalized_dashboard_data(tmp_path):
     assert repository.details(selected_path)["metrics_file_count"] == 1
     assert repository.details(selected_path)["series"]
     assert repository.model_selection_analysis(experiment.name, 1, 1)[
+        "metrics_file_count"
+    ] == 1
+    assert repository.risk_assessment_analysis(experiment.name, 1)[
         "metrics_file_count"
     ] == 1
     with zipfile.ZipFile(archive_path) as archive:

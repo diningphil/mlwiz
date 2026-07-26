@@ -1064,6 +1064,23 @@ under their shared main key by default. Use the persistent per-family
 **Series: Together / Separate** control to overlay all members or restore one
 chart per layer or component.
 
+Risk Assessment Analysis
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+The **Risk Assessment Analysis** tab is intentionally narrower than Model
+Selection Analysis. Select an experiment and outer fold, then add the loss or
+score histories that you want to inspect. It does not expose hyperparameter,
+dimensionality, or model-selection comparison controls because the final runs
+all use the selected configuration.
+
+Each plot has a **Final runs** control. **Aggregated — mean ± std** produces
+one curve and uncertainty band from every available final run in the selected
+outer fold. **Separate final runs** draws one curve per final run. Epoch and
+sampled-step histories are supported, as are smoothing, outlier removal,
+linear/logarithmic scaling, plot expansion, hover readouts, and Python export.
+The risk-assessment plot workspace is stored separately from the model-selection
+workspace when switching between tabs.
+
 Model Selection Analysis
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -1185,12 +1202,12 @@ The available plot types have different aggregation semantics:
 Exporting reproducible Python code
 """"""""""""""""""""""""""""""""""""""""
 
-Every rendered chart in the run browser and Model Selection Analysis has a
-**</> Python** button. It opens a dialog containing a standalone Matplotlib
-script with the normalized data currently displayed in that chart. Line and
-uncertainty-band plots, histograms, violin distributions, 3D heatmap bars, 3D
-trends, and combined trajectories are translated to their corresponding
-Matplotlib operations rather than exported as a screenshot.
+Every rendered chart in the run browser, Model Selection Analysis, and Risk
+Assessment Analysis has a **</> Python** button. It opens a dialog containing a
+standalone Matplotlib script with the normalized data currently displayed in
+that chart. Line and uncertainty-band plots, histograms, violin distributions,
+3D heatmap bars, 3D trends, and combined trajectories are translated to their
+corresponding Matplotlib operations rather than exported as a screenshot.
 
 Use the dialog to configure the generated figure:
 

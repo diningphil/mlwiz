@@ -92,6 +92,7 @@
         <nav class="dashboard-tabs" aria-label="Dashboard views">
           <button id="runs-tab" class="active" type="button" aria-selected="true">Run explorer</button>
           <button id="analysis-tab" type="button" aria-selected="false">Model selection analysis</button>
+          <button id="risk-analysis-tab" type="button" aria-selected="false">Risk assessment analysis</button>
         </nav>
         <div id="runs-panel">
         <div class="welcome" id="welcome">
@@ -307,20 +308,20 @@
           <div class="analysis-head">
             <div>
               <p class="eyebrow">Live comparison</p>
-              <h2>Model selection analysis</h2>
-              <p>Build a mixed collection of training trends and checkpoint-aware metric comparisons.</p>
+              <h2 id="analysis-title">Model selection analysis</h2>
+              <p id="analysis-description">Build a mixed collection of training trends and checkpoint-aware metric comparisons.</p>
             </div>
             <div class="analysis-head-actions">
               <span class="freshness" id="analysis-freshness">Waiting for data</span>
             </div>
           </div>
           <div class="analysis-controls">
-            <label><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option><option value="parallel-coordinates">Parallel Coordinates</option></select></label>
+            <label id="analysis-plot-type-field"><span>Plot type</span><select id="analysis-plot-type"><option value="trends">Trend Plots</option><option value="combined-trends">Combined Trends (3D)</option><option value="metric-vs-hyperparameter">Metric vs Hyper-Parameter</option><option value="parallel-coordinates">Parallel Coordinates</option></select></label>
             <label><span>Experiment</span><select id="analysis-experiment"></select></label>
             <label><span>Outer fold</span><select id="analysis-outer-fold"></select></label>
-            <label><span>Inner fold</span><select id="analysis-inner-fold"></select></label>
+            <label id="analysis-inner-fold-field"><span>Inner fold</span><select id="analysis-inner-fold"></select></label>
             <label id="analysis-unit-field"><span>Trend unit (next plot)</span><select id="analysis-unit"><option value="epoch">Epoch</option><option value="step">Step</option></select></label>
-            <label id="analysis-grouping-field"><span>Group by (next plot)</span><select id="analysis-hyperparameter"></select></label>
+            <label id="analysis-grouping-field"><span id="analysis-grouping-label">Group by (next plot)</span><select id="analysis-hyperparameter"></select></label>
             <label class="analysis-quantity" id="analysis-trend-quantity"><span>Quantity of interest</span><select id="analysis-quantity"></select></label>
             <label class="analysis-quantity" id="analysis-second-trend-quantity" hidden><span>Second trend</span><select id="analysis-second-quantity"></select></label>
             <label class="analysis-quantity" id="analysis-metric-quantity-field" hidden><span>Metric</span><select id="analysis-metric-quantity"></select></label>

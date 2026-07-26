@@ -1574,6 +1574,156 @@ class ResultsRepository:
             "cache": self.cache_status(),
         }
 
+    def risk_assessment_analysis(
+        self, relative_path: str, outer_fold: int
+    ) -> dict[str, Any]:
+        """Return live histories for the final runs of one outer fold."""
+        experiment = self.resolve(relative_path)
+        assessment = experiment / MODEL_ASSESSMENT
+        if not experiment.is_dir() or not assessment.is_dir():
+            raise ValueError("Select an experiment containing MODEL_ASSESSMENT.")
+        if outer_fold <= 0:
+            raise ValueError("Fold numbers must be positive integers.")
+
+        outer = assessment / f"OUTER_FOLD_{outer_fold}"
+        if not outer.is_dir():
+            raise FileNotFoundError(self._relative(outer))
+
+        configurations = []
+        all_series = []
+        errors = []
+        modified_at = None
+        metrics_file_count = 0
+        final_runs = _numbered_directories(outer, _FINAL_RUN_PATTERN)
+        for run_number, run_folder in final_runs:
+            metrics_file = run_folder / "metrics_data.torch"
+            if not metrics_file.is_file():
+                continue
+            if metrics_file_count >= _MAX_METRICS_FILES_PER_SELECTION:
+                break
+            metrics_file_count += 1
+            configurations.append(
+                {
+                    "number": run_number,
+                    "path": self._relative(run_folder),
+                    "hyperparameters": {"final_run": run_number},
+                }
+            )
+            try:
+                file_series, file_stat = self._metrics_file_series(metrics_file)
+                best_values, best_epoch = self._best_checkpoint_metrics(run_folder)
+                modified_at = max(modified_at or file_stat.st_mtime, file_stat.st_mtime)
+                for item in file_series:
+                    if item["group"] not in {"losses", "scores"}:
+                        continue
+                    unit = item.get("unit", "epoch")
+                    selected_value = None
+                    selection_source = None
+                    if unit == "epoch":
+                        selected_value = best_values.get(
+                            (item["group"], item["name"])
+                        )
+                        selection_source = "best_checkpoint"
+                        if selected_value is None and isinstance(best_epoch, int):
+                            if 0 <= best_epoch < len(item["values"]):
+                                selected_value = item["values"][best_epoch]
+                        if selected_value is None:
+                            selected_value = next(
+                                (
+                                    value
+                                    for value in reversed(item["values"])
+                                    if value is not None
+                                ),
+                                None,
+                            )
+                            selection_source = "last_epoch"
+                    all_series.append(
+                        {
+                            **item,
+                            "quantity_id": f"{item['group']}:{item['name']}",
+                            "configuration": run_number,
+                            "run": run_number,
+                            "source": self._relative(run_folder),
+                            "selected_value": selected_value,
+                            "selected_value_source": selection_source,
+                        }
+                    )
+            except (
+                OSError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+                EOFError,
+                pickle.UnpicklingError,
+            ) as error:
+                errors.append(
+                    {"file": self._relative(metrics_file), "message": str(error)}
+                )
+
+        quantity_counts: dict[str, set[int]] = {}
+        quantity_units: dict[str, set[str]] = {}
+        quantity_records = {}
+        for item in all_series:
+            identifier = item["quantity_id"]
+            quantity_counts.setdefault(identifier, set()).add(item["run"])
+            quantity_units.setdefault(identifier, set()).add(item.get("unit", "epoch"))
+            quantity_records[identifier] = {
+                "id": identifier,
+                "group": item["group"],
+                "name": item["name"],
+                "label": item["name"].replace("/", " · ").replace("_", " "),
+            }
+        quantities = [
+            {
+                **record,
+                "run_count": len(quantity_counts[identifier]),
+                "units": sorted(
+                    quantity_units[identifier], key=lambda unit: unit != "epoch"
+                ),
+            }
+            for identifier, record in quantity_records.items()
+        ]
+        quantities.sort(
+            key=lambda item: (
+                item["id"] != "scores:validation_main_score",
+                item["id"] != "losses:validation_main_loss",
+                item["group"] not in {"scores", "losses"},
+                item["group"],
+                item["name"],
+            )
+        )
+        return {
+            "analysis_kind": "risk_assessment",
+            "experiment": self._relative(experiment),
+            "outer_fold": outer_fold,
+            "inner_fold": None,
+            "hyperparameters": (
+                [
+                    {
+                        "id": "final_run",
+                        "label": "Final runs",
+                        "values": [
+                            configuration["number"]
+                            for configuration in configurations
+                        ],
+                    }
+                ]
+                if configurations
+                else []
+            ),
+            "quantities": quantities,
+            "units": sorted(
+                {item.get("unit", "epoch") for item in all_series},
+                key=lambda unit: unit != "epoch",
+            ),
+            "configurations": configurations,
+            "series": all_series,
+            "metrics_file_count": metrics_file_count,
+            "modified_at": modified_at,
+            "errors": errors,
+            "cache": self.cache_status(),
+        }
+
     @staticmethod
     def _analysis_configuration(config_folder: Path, inner_folder: Path) -> dict:
         """Read a completed config or fall back to a live run manifest."""
@@ -2395,6 +2545,27 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._send_json(
                     analyzer(relative_path, outer_fold, inner_fold)
                 )
+                return
+            if parsed.path == "/api/risk-assessment-analysis":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                try:
+                    outer_fold = int(query.get("outer_fold", ["1"])[0])
+                except ValueError as error:
+                    raise ValueError("Fold numbers must be integers.") from error
+                analyzer = getattr(
+                    self.server.repository, "risk_assessment_analysis", None
+                )
+                if analyzer is None:
+                    raise ValueError(
+                        "Risk assessment analysis is available only for live dashboards."
+                    )
+                self._send_json(analyzer(relative_path, outer_fold))
                 return
             if parsed.path in ("/", "/index.html"):
                 self._send_file(_ASSET_DIRECTORY / "index.html")

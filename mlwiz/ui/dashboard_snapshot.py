@@ -72,6 +72,7 @@ def build_snapshot(
     details: dict[str, Any] = {}
     filters: dict[str, Any] = {}
     analyses: dict[str, Any] = {}
+    risk_analyses: dict[str, Any] = {}
     for experiment in experiments:
         for path in _selection_paths(experiment):
             details[path] = repository.details(path)
@@ -83,6 +84,10 @@ def build_snapshot(
         experiment_path = experiment["path"]
         filters[experiment_path] = repository.experiment_filter_data(experiment_path)
         for outer_fold in experiment.get("outer_folds", []):
+            risk_key = f"{experiment_path}?outer={outer_fold['number']}"
+            risk_analyses[risk_key] = repository.risk_assessment_analysis(
+                experiment_path, outer_fold["number"]
+            )
             inner_numbers = {
                 inner_fold["number"]
                 for config in outer_fold.get("model_selection", [])
@@ -111,6 +116,7 @@ def build_snapshot(
         "details": details,
         "filters": filters,
         "analyses": analyses,
+        "risk_analyses": risk_analyses,
     }
 
 
@@ -230,6 +236,18 @@ class SnapshotRepository:
         if payload is None:
             raise FileNotFoundError(
                 "Model selection analysis was not captured in this snapshot."
+            )
+        return copy.deepcopy(payload)
+
+    def risk_assessment_analysis(
+        self, relative_path: str, outer_fold: int
+    ) -> dict[str, Any]:
+        """Return a captured final-run comparison when the snapshot includes it."""
+        key = f"{relative_path}?outer={outer_fold}"
+        payload = self.snapshot.get("risk_analyses", {}).get(key)
+        if payload is None:
+            raise FileNotFoundError(
+                "Risk assessment analysis was not captured in this snapshot."
             )
         return copy.deepcopy(payload)
 

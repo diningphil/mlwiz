@@ -96,7 +96,9 @@
     tree: null,
     details: null,
     selectedPath: storedState.selectedPath || null,
-    activeTab: storedState.activeTab === "analysis" ? "analysis" : "runs",
+    activeTab: ["analysis", "risk-analysis"].includes(storedState.activeTab)
+      ? storedState.activeTab
+      : "runs",
     analysisPlotType: ["trends", "combined-trends", "metric-vs-hyperparameter", "parallel-coordinates"]
       .includes(storedState.analysisPlotType)
       ? storedState.analysisPlotType
@@ -125,6 +127,10 @@
     analysisData: null,
     analysisCameras: storedState.analysisCameras || {},
     analysisExpandedCards: storedState.analysisExpandedCards || {},
+    analysisWorkspaces: storedState.analysisWorkspaces
+      && typeof storedState.analysisWorkspaces === "object"
+      ? storedState.analysisWorkspaces
+      : {},
     openNodes: storedState.openNodes || {},
     treeScrollTop: Number(storedState.treeScrollTop) || 0,
     group: storedState.group || "all",
@@ -243,6 +249,7 @@
         analysisPlots: state.analysisPlots,
         analysisCameras: state.analysisCameras,
         analysisExpandedCards: state.analysisExpandedCards,
+        analysisWorkspaces: state.analysisWorkspaces,
         openNodes: state.openNodes,
         treeScrollTop: state.treeScrollTop,
         group: state.group,
@@ -560,15 +567,104 @@
     return `${(size * state.fontSize) / canvasReferenceFontSize}px ${family}`;
   }
 
+  function analysisTabActive() {
+    return ["analysis", "risk-analysis"].includes(state.activeTab);
+  }
+
+  function riskAnalysisActive(data = state.analysisData) {
+    return state.activeTab === "risk-analysis"
+      || data?.analysis_kind === "risk_assessment";
+  }
+
+  function analysisScopeLabel(data = state.analysisData) {
+    if (!data) return "";
+    return riskAnalysisActive(data)
+      ? `Outer fold ${data.outer_fold} · final runs`
+      : `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}`;
+  }
+
+  const analysisWorkspaceFields = [
+    "analysisPlotType",
+    "analysisUnit",
+    "analysisExperiment",
+    "analysisOuterFold",
+    "analysisInnerFold",
+    "analysisHyperparameter",
+    "analysisQuantity",
+    "analysisSecondQuantity",
+    "analysisQuantities",
+    "analysisMetricQuantity",
+    "analysisParallelAxes",
+    "analysisPlots",
+    "analysisCameras",
+    "analysisExpandedCards",
+  ];
+
+  function analysisWorkspaceKey(tab) {
+    return tab === "risk-analysis" ? "risk_assessment" : "model_selection";
+  }
+
+  function captureAnalysisWorkspace(tab) {
+    if (!["analysis", "risk-analysis"].includes(tab)) return;
+    const workspace = {};
+    for (const field of analysisWorkspaceFields) {
+      workspace[field] = structuredClone(state[field]);
+    }
+    state.analysisWorkspaces[analysisWorkspaceKey(tab)] = workspace;
+  }
+
+  function restoreAnalysisWorkspace(tab) {
+    const workspace = state.analysisWorkspaces[analysisWorkspaceKey(tab)];
+    if (workspace) {
+      for (const field of analysisWorkspaceFields) {
+        if (Object.hasOwn(workspace, field)) state[field] = structuredClone(workspace[field]);
+      }
+      return;
+    }
+    const riskAnalysis = tab === "risk-analysis";
+    Object.assign(state, {
+      analysisPlotType: "trends",
+      analysisUnit: "epoch",
+      analysisInnerFold: riskAnalysis ? null : state.analysisInnerFold,
+      analysisHyperparameter: riskAnalysis ? noAnalysisGroupingValue : null,
+      analysisQuantity: null,
+      analysisSecondQuantity: null,
+      analysisQuantities: [],
+      analysisMetricQuantity: null,
+      analysisParallelAxes: [],
+      analysisPlots: [],
+      analysisCameras: {},
+      analysisExpandedCards: {},
+    });
+  }
+
   function setActiveTab(tab, { load = true } = {}) {
-    state.activeTab = tab === "analysis" ? "analysis" : "runs";
-    const analysis = state.activeTab === "analysis";
+    const previousTab = state.activeTab;
+    const nextTab = ["analysis", "risk-analysis"].includes(tab) ? tab : "runs";
+    if (previousTab !== nextTab) {
+      captureAnalysisWorkspace(previousTab);
+      if (["analysis", "risk-analysis"].includes(nextTab)) {
+        restoreAnalysisWorkspace(nextTab);
+      }
+      state.analysisData = null;
+    }
+    state.activeTab = nextTab;
+    const analysis = analysisTabActive();
+    const riskAnalysis = state.activeTab === "risk-analysis";
     el("runs-panel").hidden = analysis;
     el("analysis-view").hidden = !analysis;
     el("runs-tab").classList.toggle("active", !analysis);
-    el("analysis-tab").classList.toggle("active", analysis);
+    el("analysis-tab").classList.toggle("active", state.activeTab === "analysis");
+    el("risk-analysis-tab").classList.toggle("active", riskAnalysis);
     el("runs-tab").setAttribute("aria-selected", String(!analysis));
-    el("analysis-tab").setAttribute("aria-selected", String(analysis));
+    el("analysis-tab").setAttribute("aria-selected", String(state.activeTab === "analysis"));
+    el("risk-analysis-tab").setAttribute("aria-selected", String(riskAnalysis));
+    el("analysis-title").textContent = riskAnalysis
+      ? "Risk assessment analysis"
+      : "Model selection analysis";
+    el("analysis-description").textContent = riskAnalysis
+      ? "Inspect final-run losses and scores separately or aggregate them with mean ± standard deviation."
+      : "Build a mixed collection of training trends and checkpoint-aware metric comparisons.";
     persistState();
     if (analysis && state.tree) {
       syncAnalysisFoldControls();
@@ -585,6 +681,7 @@
   }
 
   function syncAnalysisFoldControls() {
+    const riskAnalysis = state.activeTab === "risk-analysis";
     const experiments = state.tree?.experiments || [];
     const experimentPaths = experiments.map((experiment) => experiment.path);
     if (!experimentPaths.includes(state.analysisExperiment)) {
@@ -597,7 +694,9 @@
       (path) => experiments.find((item) => item.path === path)?.name || path,
     );
     const experiment = selectedAnalysisExperiment();
-    const outerValues = (experiment?.outer_folds || []).map((fold) => String(fold.number));
+    const outerValues = (experiment?.outer_folds || [])
+      .filter((fold) => !riskAnalysis || fold.final_runs?.length)
+      .map((fold) => String(fold.number));
     if (!outerValues.includes(String(state.analysisOuterFold))) {
       state.analysisOuterFold = outerValues[0] || null;
     }
@@ -605,14 +704,19 @@
     const outer = experiment?.outer_folds.find(
       (fold) => String(fold.number) === String(state.analysisOuterFold),
     );
-    const innerValues = naturalSort(new Set(
-      (outer?.model_selection || []).flatMap((config) =>
-        config.inner_folds.map((fold) => String(fold.number))),
-    ));
-    if (!innerValues.includes(String(state.analysisInnerFold))) {
+    const innerValues = riskAnalysis
+      ? []
+      : naturalSort(new Set(
+        (outer?.model_selection || []).flatMap((config) =>
+          config.inner_folds.map((fold) => String(fold.number))),
+      ));
+    if (riskAnalysis) {
+      state.analysisInnerFold = null;
+    } else if (!innerValues.includes(String(state.analysisInnerFold))) {
       state.analysisInnerFold = innerValues[0] || null;
     }
     setSelectOptions(el("analysis-inner-fold"), innerValues, String(state.analysisInnerFold), (value) => `Inner fold ${value}`);
+    el("analysis-inner-fold-field").hidden = riskAnalysis;
     persistState();
   }
 
@@ -627,6 +731,7 @@
 
   function filteredAnalysisData(data = state.analysisData) {
     if (!data) return data;
+    if (data.analysis_kind === "risk_assessment") return data;
     const experimentPath = data.experiment || state.analysisExperiment;
     if (!activeFilterClauses(experimentPath).length) return data;
     const configurations = data.configurations.filter((configuration) =>
@@ -716,25 +821,37 @@
   async function loadAnalysisData({ quiet = false } = {}) {
     syncAnalysisFoldControls();
     const notice = el("analysis-notice");
-    if (!state.analysisExperiment || !state.analysisOuterFold || !state.analysisInnerFold) {
+    const riskAnalysis = state.activeTab === "risk-analysis";
+    if (
+      !state.analysisExperiment
+      || !state.analysisOuterFold
+      || (!riskAnalysis && !state.analysisInnerFold)
+    ) {
       notice.hidden = false;
       notice.className = "notice";
-      notice.textContent = "No model-selection fold is available yet.";
+      notice.textContent = riskAnalysis
+        ? "No outer fold with final runs is available yet."
+        : "No model-selection fold is available yet.";
       clearAnalysisCharts();
       return;
     }
     if (!quiet) {
       notice.hidden = false;
       notice.className = "notice";
-      notice.textContent = "Reading live model-selection histories…";
+      notice.textContent = riskAnalysis
+        ? "Reading live final-run histories…"
+        : "Reading live model-selection histories…";
     }
     try {
       const query = new URLSearchParams({
         path: state.analysisExperiment,
         outer_fold: state.analysisOuterFold,
-        inner_fold: state.analysisInnerFold,
       });
-      state.analysisData = await getJson(`/api/model-selection-analysis?${query}`);
+      if (!riskAnalysis) query.set("inner_fold", state.analysisInnerFold);
+      const endpoint = riskAnalysis
+        ? "/api/risk-assessment-analysis"
+        : "/api/model-selection-analysis";
+      state.analysisData = await getJson(`${endpoint}?${query}`);
       renderCacheStatus(state.analysisData.cache);
       renderAnalysisPreservingScroll();
     } catch (error) {
@@ -798,6 +915,17 @@
     const data = state.analysisData;
     const visibleData = filteredAnalysisData(data);
     const notice = el("analysis-notice");
+    const riskAnalysis = data.analysis_kind === "risk_assessment";
+    if (riskAnalysis) state.analysisPlotType = "trends";
+    el("analysis-title").textContent = riskAnalysis
+      ? "Risk assessment analysis"
+      : "Model selection analysis";
+    el("analysis-description").textContent = riskAnalysis
+      ? "Compare final-run metric histories separately or aggregate them with mean ± standard deviation."
+      : "Build a mixed collection of training trends and checkpoint-aware metric comparisons.";
+    el("analysis-grouping-label").textContent = riskAnalysis
+      ? "Final runs (next plot)"
+      : "Group by (next plot)";
     el("analysis-freshness").textContent = formatTime(data.modified_at);
     const analysisUnits = availableAnalysisUnits(data);
     state.analysisUnit = normalizedAnalysisUnit(state.analysisUnit, data);
@@ -817,8 +945,12 @@
     setSelectOptions(
       el("analysis-hyperparameter"), groupingOptions, state.analysisHyperparameter,
       (id) => id === noAnalysisGroupingValue
-        ? "None — average all runs"
-        : (data.hyperparameters.find((item) => item.id === id)?.label || id),
+        ? (riskAnalysis
+          ? "Aggregated — mean ± std"
+          : "None — average all runs")
+        : (riskAnalysis && id === "final_run"
+          ? "Separate final runs"
+          : (data.hyperparameters.find((item) => item.id === id)?.label || id)),
     );
     const quantityOptions = analysisTrendQuantityOptions(state.analysisUnit);
     const quantityIds = quantityOptions.map((item) => item.id);
@@ -855,6 +987,7 @@
       state.analysisParallelAxes = defaultParallelAxes(parallelAxisOptions);
     }
     state.analysisPlots = state.analysisPlots.flatMap((plot) => {
+      if (riskAnalysis && plot.type !== "trends") return [];
       if (plot.type === "parallel-coordinates") {
         const axes = normalizedParallelAxes(plot.axes, parallelAxisOptions);
         return axes.length >= 2 ? [{
@@ -951,6 +1084,7 @@
     const combinedTrends = state.analysisPlotType === "combined-trends";
     const parallelCoordinates = state.analysisPlotType === "parallel-coordinates";
     el("analysis-plot-type").value = state.analysisPlotType;
+    el("analysis-plot-type-field").hidden = riskAnalysis;
     el("analysis-trend-quantity").hidden = !(trendPlots || combinedTrends);
     el("analysis-second-trend-quantity").hidden = !combinedTrends;
     el("analysis-unit-field").hidden = !(trendPlots || combinedTrends);
@@ -1203,7 +1337,7 @@
     const grid = el("analysis-chart-grid");
     grid.replaceChildren();
     grid.hidden = true;
-    if (state.activeTab === "analysis") {
+    if (analysisTabActive()) {
       state.charts = [];
       state.metricBarCharts = [];
       state.analysis3DCharts = [];
@@ -1254,16 +1388,25 @@
 
   function plotGroupingControl(plot) {
     const control = node("label", "analysis-plot-group-control");
-    control.append(node("span", "", "Group by"));
+    const riskAnalysis = riskAnalysisActive();
+    control.append(node("span", "", riskAnalysis ? "Final runs" : "Group by"));
     const select = document.createElement("select");
     const allowNone = plot.type !== "combined-trends" && !plot.secondaryHyperparameter;
     if (allowNone) {
-      const option = node("option", "", "None — average all runs");
+      const option = node(
+        "option", "",
+        riskAnalysis ? "Aggregated — mean ± std" : "None — average all runs",
+      );
       option.value = noAnalysisGroupingValue;
       select.append(option);
     }
     for (const hyperparameter of state.analysisData.hyperparameters) {
-      const option = node("option", "", hyperparameter.label);
+      const option = node(
+        "option", "",
+        riskAnalysis && hyperparameter.id === "final_run"
+          ? "Separate final runs"
+          : hyperparameter.label,
+      );
       option.value = hyperparameter.id;
       select.append(option);
     }
@@ -1722,7 +1865,9 @@
             color: analysisSeriesColor(index),
             label: [
               plot.hyperparameter
-                ? `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)}`
+                ? (data.analysis_kind === "risk_assessment"
+                  ? `Final run ${analysisValueLabel(bucket.value)}`
+                  : `${plot.hyperparameter} = ${analysisValueLabel(bucket.value)}`)
                 : "All runs",
               plot.secondaryHyperparameter
                 ? `${plot.secondaryHyperparameter} = ${analysisValueLabel(bucket.secondaryValue)}`
@@ -1779,11 +1924,15 @@
         const title = node("div", "chart-title");
         const chartTitle = chartGroup.title;
         const groupingSummary = plot.hyperparameter
-          ? `averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`
-          : "averaged across all runs";
+          ? (data.analysis_kind === "risk_assessment"
+            ? "separate final runs"
+            : `averaged by ${plot.hyperparameter}${plot.secondaryHyperparameter ? ` × ${plot.secondaryHyperparameter}` : ""}`)
+          : (data.analysis_kind === "risk_assessment"
+            ? "aggregated across final runs"
+            : "averaged across all runs");
         title.append(
           node("h3", "", chartTitle),
-          node("p", "", `${useLog ? "Log scale · " : ""}${plot.removeOutliers ? "1.5×IQR filter · " : ""}${plot.unit} trend · outer fold ${data.outer_fold} · inner fold ${data.inner_fold} · ${groupingSummary}`),
+          node("p", "", `${useLog ? "Log scale · " : ""}${plot.removeOutliers ? "1.5×IQR filter · " : ""}${plot.unit} trend · ${analysisScopeLabel(data)} · ${groupingSummary}`),
         );
         const epochLabel = node("span", "chart-epoch", "Latest");
         const headMeta = node("div", "chart-head-meta");
@@ -1796,7 +1945,7 @@
           ...(zoomOutButton ? [zoomOutButton] : []),
           plotCodeButton(() => linePlotExportSpec({
             title: chartTitle,
-            subtitle: `Outer fold ${data.outer_fold} · inner fold ${data.inner_fold}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
+            subtitle: `${analysisScopeLabel(data)}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
             yLabel: chartGroup.yLabel,
             lines,
             kind: plot.secondaryHyperparameter ? "trend3d" : "line",
@@ -1835,9 +1984,11 @@
         }
         const controls = node("div", "analysis-plot-controls");
         const cameraKey = `${plot.id}:${chartGroup.key}`;
+        controls.append(plotGroupingControl(plot));
+        if (data.analysis_kind !== "risk_assessment") {
+          controls.append(plotDimensionControl(plot));
+        }
         controls.append(
-          plotGroupingControl(plot),
-          plotDimensionControl(plot),
           plotTrendUnitControl(plot),
           plotOutlierControl(plot),
           plotTrendLogControl(plot),
@@ -1883,7 +2034,9 @@
           const chart = {
             canvas,
             group: {
-              source: "model selection",
+              source: data.analysis_kind === "risk_assessment"
+                ? "risk assessment"
+                : "model selection",
               group: chartGroup.quantity.group,
               metric: chartGroup.quantity.name,
               lines,
@@ -2528,7 +2681,7 @@
       node("h3", "", "Parallel coordinates"),
       node(
         "p", "",
-        `Outer fold ${state.analysisData.outer_fold} · inner fold ${state.analysisData.inner_fold} · Brush one or more axes to select the curves that satisfy every range.`,
+        `${analysisScopeLabel()} · Brush one or more axes to select the curves that satisfy every range.`,
       ),
     );
     const headMeta = node("div", "chart-head-meta");
@@ -3753,7 +3906,7 @@
       el("experiment-count").textContent = String(tree.experiment_count);
       el("last-refresh").textContent = `Refreshed ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
       renderTree();
-      if (state.activeTab === "analysis") {
+      if (analysisTabActive()) {
         await loadAnalysisData({ quiet: true });
       } else if (state.selectedPath) {
         await loadDetails(state.selectedPath, { preserveScroll: true, quiet: true });
@@ -3861,7 +4014,7 @@
   function refreshConfigurationFilterViews(experimentPath) {
     renderTree();
     if (
-      state.activeTab === "analysis"
+      analysisTabActive()
       && state.analysisExperiment === experimentPath
       && state.analysisData
     ) {
@@ -7199,6 +7352,7 @@
   el("refresh-button").addEventListener("click", () => loadTree());
   el("runs-tab").addEventListener("click", () => setActiveTab("runs"));
   el("analysis-tab").addEventListener("click", () => setActiveTab("analysis"));
+  el("risk-analysis-tab").addEventListener("click", () => setActiveTab("risk-analysis"));
   el("analysis-experiment").addEventListener("change", (event) => {
     state.analysisExperiment = event.target.value;
     state.analysisOuterFold = null;
@@ -7311,7 +7465,7 @@
     state.smoothing = normalizedSmoothing(value);
     syncSmoothingControl();
     persistState();
-    if (state.activeTab === "analysis") {
+    if (analysisTabActive()) {
       if (state.analysisData) renderAnalysisPlotsPreservingScroll();
     } else if (state.details) {
       renderChartsPreservingScroll();

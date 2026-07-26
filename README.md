@@ -481,9 +481,19 @@ expand/shrink controls. See the
 [model-selection analysis tutorial](docs/tutorial.rst#model-selection-analysis)
 for the aggregation rules, plot semantics, and custom `WidthPlotter` example.
 
+#### Risk Assessment Analysis
+
+The **Risk Assessment Analysis** tab focuses only on the loss and score
+histories produced by the final runs of one outer fold. Add any number of
+epoch- or sampled-step plots, then choose **Aggregated — mean ± std** to show
+one summary curve and uncertainty band across all available final runs, or
+**Separate final runs** to inspect each run as its own curve. Plot definitions,
+smoothing, outlier removal, scale, and expansion remain independent from the
+Model Selection Analysis workspace.
+
 #### Exporting reproducible plot code
 
-Every rendered metric or model-selection chart includes a **</> Python** button.
+Every rendered metric or analysis chart includes a **</> Python** button.
 Click it to open a live preview of a standalone script containing the normalized
 data currently displayed by that chart. The generated code uses Matplotlib and
 [`tueplots`](https://github.com/pnkraemer/tueplots) to reproduce line and
