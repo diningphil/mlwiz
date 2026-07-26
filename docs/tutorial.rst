@@ -70,7 +70,7 @@ Here's an snippet of a potential configuration file that splits a classification
         test_ratio: 0.1
 
 The configured splitter class is instantiated only while ``mlwiz-data``
-generates the fold indices. Loading the resulting ``.splits`` file during an
+generates the fold indices. Loading the resulting ``*_splits.json`` file during an
 experiment does not import or instantiate that generator class. This makes a
 split artifact reusable without installing the project that defined a custom
 sample-level splitter.
@@ -345,7 +345,7 @@ Here we can specify some information about the dataset:
     dataset:
       storage_folder: DATA
       dataset_class: mlwiz.data.dataset.MNIST
-      data_splits_file: examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
+      data_splits_file: examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2_splits.json
 
 
 Hardware
@@ -1501,7 +1501,7 @@ We provide utilities to use your model immediately after experiments end to run 
     from mlwiz.evaluation.util import *
 
     config = retrieve_best_configuration('RESULTS/mlp_MNIST/MODEL_ASSESSMENT/OUTER_FOLD_1/MODEL_SELECTION/')
-    splits_filepath = 'examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits'
+    splits_filepath = 'examples/DATA_SPLITS/MNIST/MNIST_outer3_inner2_splits.json'
     device = 'cpu'
 
     # instantiate dataset

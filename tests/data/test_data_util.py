@@ -88,6 +88,11 @@ def test_preprocess_data_saves_declarative_transform_specs_as_json(
     assert stored["transform_train"] == transform_spec
     assert isinstance(_RecordingDataset.last_kwargs["transform_train"], Counter)
     assert not kwargs_path.with_suffix(".pt").exists()
+    assert (
+        splits_folder
+        / "_RecordingDataset"
+        / "_RecordingDataset_outer1_inner1_splits.json"
+    ).exists()
 
 
 def test_load_dataset_prefers_json_and_instantiates_transforms(tmp_path):

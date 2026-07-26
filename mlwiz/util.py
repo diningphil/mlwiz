@@ -6,6 +6,7 @@ Includes dotted-path resolution, config parsing helpers, and atomic dill seriali
 from pydoc import locate
 from typing import Tuple, Callable
 
+import json
 import os
 import dill
 from mlwiz.static import ATOMIC_SAVE_EXTENSION
@@ -79,6 +80,20 @@ def atomic_dill_save(data: object, filepath: str) -> object:
         os.replace(tmp_path, filepath)
     finally:
         # Best-effort cleanup of temp file (if replace failed)
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
+
+
+def atomic_json_save(data: object, filepath: str, **json_kwargs) -> None:
+    """Atomically save an object as JSON."""
+    tmp_path = str(filepath) + ATOMIC_SAVE_EXTENSION
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, **json_kwargs)
+        os.replace(tmp_path, filepath)
+    finally:
         try:
             os.remove(tmp_path)
         except FileNotFoundError:

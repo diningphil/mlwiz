@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.7.7]
+
+## Added
+
+- added a dedicated Risk Assessment Analysis dashboard tab for inspecting the
+  loss and score histories of final runs within a selected outer fold
+- added per-plot **Aggregated — mean ± std** and **Separate final runs** modes
+  for final-run histories, with support for epoch and sampled-step data
+- included risk-assessment analysis data in portable dashboard snapshots
+
+## Changed
+
+- stored dataset constructor arguments in readable `dataset_kwargs.json` files,
+  preserving declarative transform specifications and retaining legacy
+  `dataset_kwargs.pt` loading
+- stored newly generated data splits in portable `*_splits.json` files,
+  preferring them when configurations use legacy `.splits` paths while
+  retaining dill-based `.splits` loading for backward compatibility
+- kept Risk Assessment Analysis intentionally focused on final-run losses and
+  scores, without model-selection hyperparameter or dimensionality controls
+- stored risk-assessment and model-selection plot workspaces independently when
+  switching between analysis tabs
+- reused analysis smoothing, outlier removal, logarithmic scaling, expansion,
+  hover readouts, and reproducible Python export for final-run plots
+- bumped the package version to 1.7.7
+
 ## [1.7.6]
 
 ## Added
