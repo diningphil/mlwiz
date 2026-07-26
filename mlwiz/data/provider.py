@@ -288,7 +288,7 @@ class DataProvider:
     def _get_dataset(self, **kwargs: dict) -> DatasetInterface:
         """
         Instantiates the dataset. Relies on the parameters stored in
-        the ``dataset_kwargs.pt`` file.
+        the dataset kwargs file.
 
         Args:
             kwargs (dict): a dictionary of additional arguments to be passed

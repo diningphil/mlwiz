@@ -4,13 +4,45 @@ Implements config-driven dataset/splitter instantiation and utilities like :func
 """
 
 import inspect
+import json
 import os
 import os.path as osp
 import warnings
 from typing import Callable
 
-from mlwiz.util import s2c, dill_load, atomic_dill_save, return_class_and_args
-from mlwiz.static import STORAGE_FOLDER, SKIP_SPLITS_CHECK
+from mlwiz.util import s2c, dill_load, return_class_and_args
+from mlwiz.static import (
+    ATOMIC_SAVE_EXTENSION,
+    STORAGE_FOLDER,
+    SKIP_SPLITS_CHECK,
+)
+
+
+_TRANSFORM_ARGUMENTS = ("pre_transform", "transform_train", "transform_eval")
+
+
+def _instantiate_transforms(dataset_args: dict) -> dict:
+    """Return dataset arguments with declarative transform specs instantiated."""
+    instantiated_args = dataset_args.copy()
+    for key in _TRANSFORM_ARGUMENTS:
+        transform_class, transform_args = return_class_and_args(dataset_args, key)
+        if transform_class is not None:
+            instantiated_args[key] = transform_class(**transform_args)
+    return instantiated_args
+
+
+def _atomic_json_save(data: dict, filepath: str) -> None:
+    """Atomically save a JSON dictionary."""
+    tmp_path = filepath + ATOMIC_SAVE_EXTENSION
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+        os.replace(tmp_path, filepath)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
 
 
 def get_or_create_dir(path: str) -> str:
@@ -60,56 +92,19 @@ def preprocess_data(options: dict) -> dict:
     if "class_name" not in data_info:
         raise ValueError("You must specify 'class_name' in your dataset.")
     dataset_class = s2c(data_info.pop("class_name"))
-    dataset_args = data_info.pop("args")
-    storage_folder = dataset_args.get(STORAGE_FOLDER)
-
-    dataset_kwargs = {}
-
-    pre_transform_class, pre_transform_args = return_class_and_args(
-        dataset_args, "pre_transform"
-    )
-    if pre_transform_class is not None:
-        pre_transform_args = (
-            {} if pre_transform_args is None else pre_transform_args
-        )
-        dataset_kwargs.update(
-            pre_transform=pre_transform_class(**pre_transform_args)
-        )
-
-    transform_tr_class, transform_tr_args = return_class_and_args(
-        dataset_args, "transform_train"
-    )
-    if transform_tr_class is not None:
-        transform_tr_args = (
-            {} if transform_tr_args is None else transform_tr_args
-        )
-        dataset_kwargs.update(
-            transform_train=transform_tr_class(**transform_tr_args)
-        )
-
-    transform_ev_class, transform_ev_args = return_class_and_args(
-        dataset_args, "transform_eval"
-    )
-
-    if transform_ev_class is not None:
-        transform_ev_class = (
-            {} if transform_ev_class is None else transform_ev_class
-        )
-        dataset_kwargs.update(
-            transform_eval=transform_ev_class(**transform_ev_args)
-        )
-
-    dataset_args.update(dataset_kwargs)
+    dataset_args_specification = data_info.pop("args")
+    storage_folder = dataset_args_specification.get(STORAGE_FOLDER)
+    dataset_args = _instantiate_transforms(dataset_args_specification)
 
     dataset = dataset_class(**dataset_args)
     dataset_name = dataset.__class__.__name__
 
     # Store dataset additional arguments in a separate file
     kwargs_folder = osp.join(storage_folder, dataset_name)
-    kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.pt")
+    kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.json")
 
     get_or_create_dir(kwargs_folder)
-    atomic_dill_save(dataset_args, kwargs_path)
+    _atomic_json_save(dataset_args_specification, kwargs_path)
 
     # Process data splits
 
@@ -149,15 +144,15 @@ def load_dataset(
     **kwargs: dict,
 ) -> object:
     r"""
-    Loads the dataset using the ``dataset_kwargs.pt`` file created when parsing
-    the data config file.
+    Loads the dataset using the ``dataset_kwargs.json`` file created when parsing
+    the data config file. Legacy ``dataset_kwargs.pt`` files remain supported.
 
     Args:
         storage_folder (str): path of the folder that contains the dataset folder
         dataset_class
             (Callable):
             the class of the dataset to instantiate with the parameters
-            stored in the ``dataset_kwargs.pt`` file.
+            stored in the dataset kwargs file.
         kwargs (dict): additional arguments to be passed to the
             dataset (potentially provided by a DataProvider)
 
@@ -166,13 +161,19 @@ def load_dataset(
     """
     # Load arguments
     dataset_name = dataset_class.__name__
-    kwargs_path = osp.join(storage_folder, dataset_name, "dataset_kwargs.pt")
-    if not os.path.exists(kwargs_path):  # backward compatibility
-        kwargs_path = osp.join(
-            storage_folder, dataset_name, "processed", "dataset_kwargs.pt"
-        )
+    kwargs_folder = osp.join(storage_folder, dataset_name)
+    kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.json")
+    if not os.path.exists(kwargs_path):
+        kwargs_path = osp.join(kwargs_folder, "processed", "dataset_kwargs.json")
 
-    dataset_args = dill_load(kwargs_path)
+    if os.path.exists(kwargs_path):
+        with open(kwargs_path, "r", encoding="utf-8") as file:
+            dataset_args = _instantiate_transforms(json.load(file))
+    else:  # backward compatibility
+        kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.pt")
+        if not os.path.exists(kwargs_path):
+            kwargs_path = osp.join(kwargs_folder, "processed", "dataset_kwargs.pt")
+        dataset_args = dill_load(kwargs_path)
 
     # Overwrite original storage_folder field, which may have changed
     dataset_args["storage_folder"] = storage_folder
