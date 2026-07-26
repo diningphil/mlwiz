@@ -64,8 +64,7 @@ def main():
             new_config["dataset"]["data_splits_file"] = os.path.join(
                 splits_folder,
                 dataset_name,
-                f"{dataset_name}_outer{outer_folds}"
-                f"_inner{inner_folds}_splits.json",
+                f"{dataset_name}_outer{outer_folds}_inner{inner_folds}.splits",
             )
 
             # Store yaml into a new file

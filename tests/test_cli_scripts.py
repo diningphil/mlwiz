@@ -140,7 +140,7 @@ def test_config_duplicator_creates_dataset_specific_files(
         == "mlwiz.data.dataset.FakeMNIST"
     )
     assert merged["dataset"]["data_splits_file"] == os.path.join(
-        "/SPLITS", "FakeMNIST", "FakeMNIST_outer3_inner2_splits.json"
+        "/SPLITS", "FakeMNIST", "FakeMNIST_outer3_inner2.splits"
     )
 
 

@@ -183,8 +183,7 @@ class DataProvider:
 
         Args:
             storage_folder (str): Root folder where datasets are stored.
-            splits_filepath (str): Path to a ``*_splits.json`` or legacy
-                ``.splits`` file produced by a
+            splits_filepath (str): Path to a ``.splits`` file produced by a
                 :class:`~mlwiz.data.splitter.Splitter`.
             dataset_class (Callable[..., DatasetInterface]): Dataset class to
                 instantiate.

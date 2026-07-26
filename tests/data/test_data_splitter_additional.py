@@ -7,7 +7,6 @@ existing split-overlap integration test.
 
 from __future__ import annotations
 
-import json
 import numpy as np
 import pytest
 import torch
@@ -26,7 +25,7 @@ from mlwiz.data.splitter import (
     SingleGraphSplitter,
     _NoShuffleTrainTestSplit,
 )
-from mlwiz.util import atomic_dill_save
+from mlwiz.util import atomic_dill_save, dill_load
 
 
 class _TargetDataset:
@@ -217,19 +216,14 @@ def test_save_and_load_roundtrip(tmp_path):
     )
     splitter.split(dataset, targets=None)
 
-    legacy_path = tmp_path / "demo.splits"
-    json_path = tmp_path / "demo_splits.json"
-    splitter.save(str(legacy_path))
-    legacy_path.write_bytes(b"invalid legacy data")
+    splits_path = tmp_path / "demo.splits"
+    splitter.save(str(splits_path))
 
-    loaded = Splitter.load(str(legacy_path))
-    loaded_directly = Splitter.load(str(json_path))
-    saved = json.loads(json_path.read_text(encoding="utf-8"))
+    loaded = Splitter.load(str(splits_path))
+    saved = dill_load(str(splits_path))
 
-    assert json_path.exists()
     assert saved["split_kind"] == SPLIT_KIND_SAMPLE
     assert loaded.split_kind == SPLIT_KIND_SAMPLE
-    assert loaded_directly.split_kind == SPLIT_KIND_SAMPLE
     assert loaded.n_outer_folds == splitter.n_outer_folds
     assert loaded.n_inner_folds == splitter.n_inner_folds
     assert len(loaded.outer_folds) == len(splitter.outer_folds)
@@ -290,13 +284,9 @@ def test_load_legacy_splits_without_importing_splitter_class(
     atomic_dill_save(legacy_splits, str(path))
 
     loaded = Splitter.load(str(path))
-    loaded_via_json_name = Splitter.load(
-        str(tmp_path / "legacy_splits.json")
-    )
 
     assert type(loaded) is Splitter
     assert loaded.split_kind == expected_kind
-    assert loaded_via_json_name.split_kind == expected_kind
 
 
 def test_load_validates_fold_counts(tmp_path):

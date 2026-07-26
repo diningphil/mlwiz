@@ -3,9 +3,7 @@
 Defines splitters and fold containers used for hold-out and (nested) cross-validation.
 """
 
-import json
 import random
-from pathlib import Path
 from typing import Tuple
 
 import numpy as np
@@ -18,39 +16,11 @@ from sklearn.model_selection import (
 )
 
 from mlwiz.data.dataset import DatasetInterface
-from mlwiz.util import atomic_json_save, dill_load
+from mlwiz.util import dill_load, atomic_dill_save
 
 
 SPLIT_KIND_SAMPLE = "sample"
 SPLIT_KIND_NODE = "node"
-
-
-def _json_splits_path(path: str) -> Path:
-    """Return the canonical JSON path for a split artifact."""
-    split_path = Path(path)
-    if split_path.name.endswith("_splits.json") or split_path.suffix == ".json":
-        return split_path
-    if split_path.suffix == ".splits":
-        return split_path.with_name(f"{split_path.stem}_splits.json")
-    return split_path.with_name(f"{split_path.name}_splits.json")
-
-
-def _legacy_splits_path(path: str) -> Path:
-    """Return the legacy dill path corresponding to a split artifact."""
-    split_path = Path(path)
-    if split_path.name.endswith("_splits.json"):
-        stem = split_path.name[: -len("_splits.json")]
-        return split_path.with_name(f"{stem}.splits")
-    return split_path
-
-
-def _json_default(value):
-    """Convert supported numeric containers to JSON-compatible values."""
-    if isinstance(value, (np.ndarray, torch.Tensor)):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 class Fold:
@@ -286,20 +256,12 @@ class Splitter:
         Loads the data splits from disk.
 
         Args:
-            path: Path to a ``*_splits.json`` file or its legacy ``.splits``
-                counterpart.
+            :param path: the path of the file with the splits
 
         Returns:
             a :class:`~mlwiz.data.splitter.Splitter` object
         """
-        json_path = _json_splits_path(path)
-        if json_path.exists():
-            with json_path.open("r", encoding="utf-8") as file:
-                splits = json.load(file)
-            loaded_path = json_path
-        else:
-            loaded_path = _legacy_splits_path(path)
-            splits = dill_load(str(loaded_path))
+        splits = dill_load(path)
 
         splitter_args = splits["splitter_args"]
         splitter = cls(
@@ -334,13 +296,13 @@ class Splitter:
             raise ValueError(
                 "Invalid splits file: expected "
                 f"{splitter.n_outer_folds} outer folds, got {len(outer_folds)} "
-                f"({loaded_path})."
+                f"({path})."
             )
         if splitter.n_inner_folds != len(inner_folds[0]):
             raise ValueError(
                 "Invalid splits file: expected "
                 f"{splitter.n_inner_folds} inner folds, got {len(inner_folds[0])} "
-                f"({loaded_path})."
+                f"({path})."
             )
 
         for fold_data in outer_folds:
@@ -597,7 +559,7 @@ class Splitter:
 
     def save(self, path: str):
         r"""
-        Saves the split as a dictionary into a JSON file. The arguments
+        Saves the split as a dictionary into a dill file. The arguments
         of the dictionary are
         * seed (int)
         * split_kind (str)
@@ -607,8 +569,7 @@ class Splitter:
         * inner_folds (list of lists of dicts)
 
         Args:
-            path (str): filepath used to derive the canonical
-                ``*_splits.json`` destination
+            path (str): filepath where to save the object
         """
         print("Saving splits on disk...")
 
@@ -631,12 +592,7 @@ class Splitter:
             inner_split
         ) in self.inner_folds:  # len(self.inner_folds) == # of **outer** folds
             savedict["inner_folds"].append([i.todict() for i in inner_split])
-        atomic_json_save(
-            savedict,
-            str(_json_splits_path(path)),
-            indent=4,
-            default=_json_default,
-        )
+        atomic_dill_save(savedict, path)
         print("Done.")
 
 

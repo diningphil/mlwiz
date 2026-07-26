@@ -37,7 +37,7 @@ Inspired by (and a generalized version of) [PyDGN](https://github.com/diningphil
 | --- | --- |
 | Research Oriented Framework | Anything is customizable, easy prototyping of models and setups |
 | Reproducibility | Ensure your results are reproducible across multiple runs |
-| Automatic Split Generation | Dataset preparation + `_splits.json` generation for hold-out / (nested) CV |
+| Automatic Split Generation | Dataset preparation + `.splits` generation for hold-out / (nested) CV |
 | Automatic and Robust Evaluation | Nested model selection (inner folds) + risk assessment (outer folds) |
 | Parallelism | Ray-based execution across CPU/GPU (or a Ray cluster) |
 | Visualization Dashboard | Explore experiment progress, metric histories, configurations, and model graphs, then export plots as publication-styled Python code |
@@ -63,7 +63,7 @@ official installation instructions before adding MLWiz.
 ### ⚡ Quickstart
 | Step | Command | Notes |
 | --- | --- | --- |
-| 1) Prepare dataset + splits | `mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml` | Creates processed data + a `_splits.json` file |
+| 1) Prepare dataset + splits | `mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml` | Creates processed data + a `.splits` file |
 | 2) Run an experiment (grid search) | `mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP.yml` | Add `--debug` to run sequentially and print logs |
 | 3) Inspect results | `cat RESULTS/mlp_MNIST/MODEL_ASSESSMENT/assessment_results.json` | Aggregated results live under `RESULTS/` |
 | 4) Explore in MLWiz Dashboard | `mlwiz-dashboard --logdir RESULTS` | Browse model-selection configs and final-run metric histories |
@@ -157,22 +157,22 @@ You can use **left-right arrows** to move across configurations, and **up-down a
 MLWiz is built around two YAML files and a small set of composable components:
 
 ```text
-data.yml ──► mlwiz-data ──► processed dataset + _splits.json
+data.yml ──► mlwiz-data ──► processed dataset + .splits
 exp.yml  ──► mlwiz-exp  ──► Ray workers
                       ├─ inner folds: model selection (best hyperparams)
                       └─ outer folds: risk assessment (final scores)
 ```
 
-- 🧰 **Data pipeline**: `mlwiz-data` instantiates your dataset class and writes a `_splits.json` file for hold-out / (nested) CV.
+- 🧰 **Data pipeline**: `mlwiz-data` instantiates your dataset class and writes a `.splits` file for hold-out / (nested) CV.
 - 🧪 **Search space**: `grid:` and `random:` sections expand into concrete hyperparameter configurations.
 - 🛰️ **Orchestration**: the evaluator schedules training runs with Ray across CPU/GPU (or a Ray cluster).
 - 🏗️ **Execution**: each run builds a model + training engine from dotted paths, then logs artifacts and returns structured results.
 
 The configured splitter class is needed when `mlwiz-data` generates the
 indices, but it is not a runtime dependency when an experiment loads them.
-New `_splits.json` files record a `split_kind` (`sample` or `node`) for provider
+New `.splits` files record a `split_kind` (`sample` or `node`) for provider
 validation; the recorded splitter class is retained only as provenance.
-Legacy `.splits` files created with MLWiz's built-in splitters remain loadable.
+Legacy files created with MLWiz's built-in splitters remain loadable.
 
 ## ⚙️ Configuration At A Glance
 MLWiz expects:
@@ -204,7 +204,7 @@ model-selection section:
 dataset:
   storage_folder: DATA
   dataset_class: mlwiz.data.dataset.MNIST
-  data_splits_file: DATA_SPLITS/MNIST/MNIST_outer3_inner2_splits.json
+  data_splits_file: DATA_SPLITS/MNIST/MNIST_outer3_inner2.splits
 
 resources:
   device: cpu

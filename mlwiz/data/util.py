@@ -10,13 +10,12 @@ import os.path as osp
 import warnings
 from typing import Callable
 
-from mlwiz.util import (
-    atomic_json_save,
-    dill_load,
-    return_class_and_args,
-    s2c,
+from mlwiz.util import s2c, dill_load, return_class_and_args
+from mlwiz.static import (
+    ATOMIC_SAVE_EXTENSION,
+    STORAGE_FOLDER,
+    SKIP_SPLITS_CHECK,
 )
-from mlwiz.static import STORAGE_FOLDER, SKIP_SPLITS_CHECK
 
 
 _TRANSFORM_ARGUMENTS = ("pre_transform", "transform_train", "transform_eval")
@@ -30,6 +29,20 @@ def _instantiate_transforms(dataset_args: dict) -> dict:
         if transform_class is not None:
             instantiated_args[key] = transform_class(**transform_args)
     return instantiated_args
+
+
+def _atomic_json_save(data: dict, filepath: str) -> None:
+    """Atomically save a JSON dictionary."""
+    tmp_path = filepath + ATOMIC_SAVE_EXTENSION
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+        os.replace(tmp_path, filepath)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except FileNotFoundError:
+            pass
 
 
 def get_or_create_dir(path: str) -> str:
@@ -91,7 +104,7 @@ def preprocess_data(options: dict) -> dict:
     kwargs_path = osp.join(kwargs_folder, "dataset_kwargs.json")
 
     get_or_create_dir(kwargs_folder)
-    atomic_json_save(dataset_args_specification, kwargs_path, indent=4)
+    _atomic_json_save(dataset_args_specification, kwargs_path)
 
     # Process data splits
 
@@ -104,19 +117,13 @@ def preprocess_data(options: dict) -> dict:
     splitter = splitter_class(**splitter_args)
 
     splits_dir = get_or_create_dir(osp.join(splits_folder, dataset_name))
-    splits_name = (
-        f"{dataset_name}_outer{splitter.n_outer_folds}"
-        f"_inner{splitter.n_inner_folds}"
-    )
     splits_path = osp.join(
         splits_dir,
-        f"{splits_name}_splits.json",
+        f"{dataset_name}_outer{splitter.n_outer_folds}"
+        f"_inner{splitter.n_inner_folds}.splits",
     )
-    legacy_splits_path = osp.join(splits_dir, f"{splits_name}.splits")
 
-    if not os.path.exists(splits_path) and not os.path.exists(
-        legacy_splits_path
-    ):
+    if not os.path.exists(splits_path):
         if splitter.stratify:
             has_targets, targets = splitter.get_targets(dataset)
         else:

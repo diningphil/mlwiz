@@ -15,9 +15,6 @@
 - stored dataset constructor arguments in readable `dataset_kwargs.json` files,
   preserving declarative transform specifications and retaining legacy
   `dataset_kwargs.pt` loading
-- stored newly generated data splits in portable `*_splits.json` files,
-  preferring them when configurations use legacy `.splits` paths while
-  retaining dill-based `.splits` loading for backward compatibility
 - kept Risk Assessment Analysis intentionally focused on final-run losses and
   scores, without model-selection hyperparameter or dimensionality controls
 - stored risk-assessment and model-selection plot workspaces independently when
