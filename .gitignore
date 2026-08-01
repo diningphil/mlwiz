@@ -67,3 +67,4 @@ wandb/
 
 # Telegram config file
 telegram_config.yml
+mlwiz/data/.DS_Store

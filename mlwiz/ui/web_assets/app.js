@@ -1940,7 +1940,6 @@
           ? null
           : chartZoomOutButton();
         headMeta.append(
-          epochLabel,
           node("span", "chart-type", plot.secondaryHyperparameter ? "3D · mean ± std" : "mean ± std"),
           ...(zoomOutButton ? [zoomOutButton] : []),
           plotCodeButton(() => linePlotExportSpec({
@@ -2004,7 +2003,7 @@
             plot3DAlignmentControl(cameraKey),
           );
         }
-        card.append(head, controls, wrap, legend);
+        card.append(head, controls, epochLabel, wrap, legend);
         grid.append(card);
         if (plot.secondaryHyperparameter) {
           const chart = {
@@ -5401,7 +5400,6 @@
       const epochLabel = node("span", "chart-epoch", "Latest");
       const zoomOutButton = chartZoomOutButton();
       headMeta.append(
-        epochLabel,
         node("span", "chart-type", group.group),
         zoomOutButton,
         plotCodeButton(() => linePlotExportSpec({
@@ -5439,7 +5437,7 @@
         controls.append(runFamilyModeControl(group.family));
         card.append(controls);
       }
-      card.append(wrap, legend);
+      card.append(epochLabel, wrap, legend);
       grid.append(card);
       const chart = {
         canvas,

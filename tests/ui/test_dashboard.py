@@ -1233,6 +1233,9 @@ def test_frontend_shows_step_timestamps_and_epoch_markers():
     assert app_script.count("formatTrendTimestamp(") >= 4
     assert "formatTrendTimestamp([line], index)" in app_script
     assert "Recorded ${first === last ? first" in app_script
+    assert "card.append(head, controls, epochLabel, wrap, legend);" in app_script
+    assert "card.append(epochLabel, wrap, legend);" in app_script
+    assert ".chart-epoch { display: block; height: 12px;" in stylesheet
     assert "function seriesEpochBoundaries" in app_script
     assert "function aggregateEpochBoundaries" in app_script
     assert "chart.epochMarkerGeometry" in app_script

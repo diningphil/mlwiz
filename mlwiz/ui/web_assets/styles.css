@@ -329,7 +329,7 @@ details[open] > summary .chevron { transform: rotate(90deg); }
 .chart-head { display: flex; align-items: start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .chart-head-meta { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
 .chart-title { min-width: 0; }
-.chart-epoch { color: #748075; font-size: 0.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart-epoch { display: block; height: 12px; margin: 0 0 4px; overflow: hidden; color: #748075; font-size: 0.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 12px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .chart-title h3 { margin: 0 0 4px; font-size: 0.8125rem; letter-spacing: -.01em; }
 .chart-title p { margin: 0; color: var(--faint); font-size: 0.5625rem; }
 .chart-type { padding: 4px 7px; border-radius: 99px; color: #46604f; background: #edf5ef; font-size: 0.5rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
