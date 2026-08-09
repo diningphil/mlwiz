@@ -67,6 +67,42 @@ def test_send_telegram_update_builds_url_and_returns_json(monkeypatch):
     assert "text=Hello" in captured["url"]
 
 
+def test_record_run_failure_sends_one_telegram_warning(monkeypatch, tmp_path):
+    """Failed runs should notify Telegram once with run context."""
+    assessor = object.__new__(evaluator.RiskAssesser)
+    assessor.model_configs = types.SimpleNamespace(telegram_config={})
+    assessor.exp_path = str(tmp_path / "experiment")
+    assessor.telegram_bot_token = "TOKEN"
+    assessor.telegram_bot_chat_ID = "CHAT"
+    assessor.failure_message = None
+    assessor._failure_notification_sent = False
+
+    sent = []
+    monkeypatch.setattr(
+        evaluator,
+        "send_telegram_update",
+        lambda token, chat_id, message: sent.append(
+            (token, chat_id, message)
+        ),
+    )
+
+    assessor._record_run_failure(
+        "A final run failed.",
+        run_kind="final run",
+        outer_k=1,
+        run_id=2,
+    )
+    assessor._record_run_failure("Another run failed.", run_kind="final run")
+
+    assert assessor.failure_message == "A final run failed."
+    assert len(sent) == 1
+    assert sent[0][0:2] == ("TOKEN", "CHAT")
+    assert "Run failed" in sent[0][2]
+    assert "Type: *final run*" in sent[0][2]
+    assert "Outer fold: *2*" in sent[0][2]
+    assert "Run: *3*" in sent[0][2]
+
+
 def test_extract_and_sum_elapsed_seconds_sums_all_matches(tmp_path):
     """Verify elapsed seconds extraction and summation from a log file."""
     log_path = tmp_path / "experiment.log"

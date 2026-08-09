@@ -1566,4 +1566,8 @@ to specify your telegram configuration file by adding:
     telegram_config_file: telegram_config.yml
 
 And that's all you have to do to start receiving messages when the model selection/final runs for a specific fold end!
-You will also receive a message when the experiment terminates with the test score.
+Failures send a separate warning automatically, including whether the failed
+run was model selection or a final run and its fold/run identifiers. The
+warning is sent once per evaluation; inspect the run's ``experiment.err`` file
+for the traceback. You will also receive a message when the experiment
+terminates with the test score.

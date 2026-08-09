@@ -9,6 +9,8 @@
 - added per-plot **Aggregated — mean ± std** and **Separate final runs** modes
   for final-run histories, with support for epoch and sampled-step data
 - included risk-assessment analysis data in portable dashboard snapshots
+- added a deduplicated Telegram warning when a model-selection or final run
+  fails, including the affected fold and run identifiers
 
 ## Changed
 
