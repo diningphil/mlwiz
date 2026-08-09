@@ -629,6 +629,7 @@ class RiskAssesser:
         # Runs that were already completed on disk (restart flow)
         self.completed_model_selection_runs = []
         self.completed_final_runs = []
+        self._job_context = {}
         self.progress_actor = None
         self._detailed_gui_enabled = False
 
@@ -645,6 +646,65 @@ class RiskAssesser:
         )
         self.log_final_runs = tc[LOG_FINAL_RUNS] if tc is not None else None
         self.failure_message = None
+        self._failure_notification_sent = False
+
+    def _record_run_failure(
+        self,
+        message: str,
+        *,
+        run_kind: Optional[str] = None,
+        outer_k: Optional[int] = None,
+        inner_k: Optional[int] = None,
+        config_id: Optional[int] = None,
+        run_id: Optional[int] = None,
+    ):
+        """Record a failed run and send at most one Telegram warning.
+
+        A failed Ray task returns ``None`` to the evaluator, while debug runs
+        fail in-process. Keeping notification dispatch here makes both paths
+        behave consistently and prevents several failing tasks from flooding
+        the configured chat with duplicate warnings.
+        """
+        if self.failure_message is None:
+            self.failure_message = message
+
+        if (
+            self.model_configs.telegram_config is None
+            or self._failure_notification_sent
+        ):
+            return
+
+        self._failure_notification_sent = True
+        exp_name = os.path.basename(self.exp_path)
+        telegram_lines = [
+            f"Exp *{exp_name}*",
+            "Run failed",
+        ]
+        if run_kind is not None:
+            telegram_lines.append(f"Type: *{run_kind}*")
+        if outer_k is not None:
+            telegram_lines.append(f"Outer fold: *{outer_k + 1}*")
+        if inner_k is not None:
+            telegram_lines.append(f"Inner fold: *{inner_k + 1}*")
+        if config_id is not None:
+            telegram_lines.append(f"Configuration: *{config_id + 1}*")
+        if run_id is not None:
+            telegram_lines.append(f"Run: *{run_id + 1}*")
+        telegram_lines.append("Check the run logs for details.")
+
+        try:
+            send_telegram_update(
+                self.telegram_bot_token,
+                self.telegram_bot_chat_ID,
+                "\n".join(telegram_lines),
+            )
+        except Exception:
+            # A notification outage must not hide the original run failure.
+            pass
+
+    def _track_job(self, future, **context):
+        """Keep identifiers for a distributed run until Ray returns."""
+        self._job_context[id(future)] = context
 
     def _create_dataset_getter(
         self, outer_k: int, inner_k: Optional[int]
@@ -725,11 +785,13 @@ class RiskAssesser:
 
         # Reset failure state at the beginning of each evaluation
         self.failure_message = None
+        self._failure_notification_sent = False
 
         self.model_selection_job_list = []
         self.final_runs_job_list = []
         self.completed_model_selection_runs = []
         self.completed_final_runs = []
+        self._job_context = {}
         self._detailed_gui_enabled = (not debug) and bool(detailed_gui)
 
         self.progress_actor = None
@@ -1062,16 +1124,30 @@ class RiskAssesser:
                 )
                 is_final_run = future in self.final_runs_job_list
                 result = ray.get(future)
+                run_context = self._job_context.pop(id(future), {})
 
                 if result is None:
-                    if self.failure_message is None:
-                        self.failure_message = (
+                    self._record_run_failure(
+                        (
                             "A model selection run failed; stopping before computing the best configuration. "
                             "Check the run logs for details."
                             if is_model_selection_run
                             else "A final run failed; skipping outer fold scoring and final assessment. "
                             "Check the run logs for details."
-                        )
+                        ),
+                        run_kind=run_context.get(
+                            "run_kind",
+                            (
+                                "model selection"
+                                if is_model_selection_run
+                                else "final run"
+                            ),
+                        ),
+                        outer_k=run_context.get("outer_k"),
+                        inner_k=run_context.get("inner_k"),
+                        config_id=run_context.get("config_id"),
+                        run_id=run_context.get("run_id"),
+                    )
                     success = False
 
                 elif is_model_selection_run:  # Model selection
@@ -1274,6 +1350,14 @@ class RiskAssesser:
                                     self._detailed_gui_enabled,
                                 )
                                 self.model_selection_job_list.append(future)
+                                self._track_job(
+                                    future,
+                                    run_kind="model selection",
+                                    outer_k=dataset_getter.outer_k,
+                                    inner_k=dataset_getter.inner_k,
+                                    config_id=config_id,
+                                    run_id=run_id,
+                                )
                         else:  # debug mode
                             if not osp.exists(fold_run_results_torch_path):
                                 experiment = self.experiment_class(
@@ -1355,12 +1439,16 @@ class RiskAssesser:
                                     )
 
                                     elapsed = -1
-                                    if self.failure_message is None:
-                                        self.failure_message = (
-                                            "A model selection run failed; "
-                                            "stopping before computing the best configuration. "
-                                            "Check the run logs for details."
-                                        )
+                                    self._record_run_failure(
+                                        "A model selection run failed; "
+                                        "stopping before computing the best configuration. "
+                                        "Check the run logs for details.",
+                                        run_kind="model selection",
+                                        outer_k=dataset_getter.outer_k,
+                                        inner_k=dataset_getter.inner_k,
+                                        config_id=config_id,
+                                        run_id=run_id,
+                                    )
                                     return None
 
                     if debug:
@@ -1516,6 +1604,12 @@ class RiskAssesser:
                         self._detailed_gui_enabled,
                     )
                     self.final_runs_job_list.append(future)
+                    self._track_job(
+                        future,
+                        run_kind="final run",
+                        outer_k=outer_k,
+                        run_id=i,
+                    )
             else:
                 if not osp.exists(final_run_torch_path):
                     experiment = self.experiment_class(
@@ -1585,12 +1679,14 @@ class RiskAssesser:
                         )
 
                         elapsed = -1
-                        if self.failure_message is None:
-                            self.failure_message = (
-                                f"Final run {i + 1} for outer fold {outer_k + 1} failed; "
-                                "skipping outer fold scoring and final assessment. "
-                                "Check the run logs for details."
-                            )
+                        self._record_run_failure(
+                            f"Final run {i + 1} for outer fold {outer_k + 1} failed; "
+                            "skipping outer fold scoring and final assessment. "
+                            "Check the run logs for details.",
+                            run_kind="final run",
+                            outer_k=outer_k,
+                            run_id=i,
+                        )
                         return None
 
         if debug:
@@ -2464,6 +2560,14 @@ class BayesOptRiskAssesser(RiskAssesser):
                             self._detailed_gui_enabled,
                         )
                         self.model_selection_job_list.append(future)
+                        self._track_job(
+                            future,
+                            run_kind="model selection",
+                            outer_k=dataset_getter.outer_k,
+                            inner_k=dataset_getter.inner_k,
+                            config_id=config_id,
+                            run_id=run_id,
+                        )
                 else:
                     if not osp.exists(fold_run_results_torch_path):
                         experiment = self.experiment_class(
@@ -2524,13 +2628,17 @@ class BayesOptRiskAssesser(RiskAssesser):
                                     "message": f"{e}\n{traceback.format_exc()}",
                                 },
                             )
-                            if self.failure_message is None:
-                                self.failure_message = (
-                                    "A model selection run failed; "
-                                    "stopping before computing the best "
-                                    "configuration. Check the run logs for "
-                                    "details."
-                                )
+                            self._record_run_failure(
+                                "A model selection run failed; "
+                                "stopping before computing the best "
+                                "configuration. Check the run logs for "
+                                "details.",
+                                run_kind="model selection",
+                                outer_k=dataset_getter.outer_k,
+                                inner_k=dataset_getter.inner_k,
+                                config_id=config_id,
+                                run_id=run_id,
+                            )
                             return
 
             if debug:
@@ -2765,10 +2873,11 @@ class BayesOptRiskAssesser(RiskAssesser):
                 )
                 is_final_run = future in self.final_runs_job_list
                 result = ray.get(future)
+                run_context = self._job_context.pop(id(future), {})
 
                 if result is None:
-                    if self.failure_message is None:
-                        self.failure_message = (
+                    self._record_run_failure(
+                        (
                             "A model selection run failed; stopping before "
                             "computing the best configuration. Check the run "
                             "logs for details."
@@ -2776,7 +2885,20 @@ class BayesOptRiskAssesser(RiskAssesser):
                             else "A final run failed; skipping outer fold "
                             "scoring and final assessment. Check the run logs "
                             "for details."
-                        )
+                        ),
+                        run_kind=run_context.get(
+                            "run_kind",
+                            (
+                                "model selection"
+                                if is_model_selection_run
+                                else "final run"
+                            ),
+                        ),
+                        outer_k=run_context.get("outer_k"),
+                        inner_k=run_context.get("inner_k"),
+                        config_id=run_context.get("config_id"),
+                        run_id=run_context.get("run_id"),
+                    )
                     success = False
                 elif is_model_selection_run:
                     handle_model_selection_result(result)
