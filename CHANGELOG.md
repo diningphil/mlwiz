@@ -4,6 +4,15 @@
 
 ## Added
 
+- added a dedicated Configuration Space dashboard tab that reconstructs every
+  field and distinct value actually materialized within a selected outer fold,
+  including fixed settings and lossless nested variants for correlated values
+- added a nested YAML view for reconstructed configuration spaces, with YAML
+  clipboard copying, live `model_manifest.json` fallback, and queued-
+  configuration reporting
+- included reconstructed configuration spaces in portable dashboard snapshots
+  while retaining compatibility with version-one snapshots created before this
+  data was captured
 - added a dedicated Risk Assessment Analysis dashboard tab for inspecting the
   loss and score histories of final runs within a selected outer fold
 - added per-plot **Aggregated — mean ± std** and **Separate final runs** modes

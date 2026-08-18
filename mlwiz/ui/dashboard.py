@@ -27,6 +27,7 @@ from typing import Any, Iterable, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
 import torch
+import yaml
 
 from mlwiz.evaluation.config import Config
 from mlwiz.static import (
@@ -219,6 +220,74 @@ def _configuration_leaves(
         else:
             leaves[path] = item
     return leaves
+
+
+def _unique_configuration_values(values: Iterable[Any]) -> list[Any]:
+    """Return JSON-safe values deduplicated in first-observed order."""
+    unique: dict[str, Any] = {}
+    for value in values:
+        safe_value = _json_safe(value)
+        identity = json.dumps(
+            safe_value, sort_keys=True, ensure_ascii=False, allow_nan=False
+        )
+        unique.setdefault(identity, safe_value)
+    return list(unique.values())
+
+
+def _mapping_values_form_cartesian_product(values: list[dict[str, Any]]) -> bool:
+    """Return whether mapping-valued observations contain every child combination."""
+    if not values:
+        return True
+    key_set = set(values[0])
+    if any(set(value) != key_set for value in values[1:]):
+        return False
+    unique_mappings = _unique_configuration_values(values)
+    combination_count = 1
+    for key in values[0]:
+        combination_count *= len(
+            _unique_configuration_values(value[key] for value in values)
+        )
+    return combination_count == len(unique_mappings)
+
+
+def _configuration_space(configurations: list[dict[str, Any]]) -> dict[str, Any]:
+    """Factor concrete configurations without inventing unobserved combinations."""
+    keys: list[str] = []
+    seen_keys = set()
+    for configuration in configurations:
+        for key in configuration:
+            normalized_key = str(key)
+            if normalized_key not in seen_keys:
+                seen_keys.add(normalized_key)
+                keys.append(normalized_key)
+
+    reconstructed: dict[str, Any] = {}
+    for key in keys:
+        values = [
+            configuration[key]
+            for configuration in configurations
+            if key in configuration
+        ]
+        if (
+            values
+            and all(isinstance(value, dict) for value in values)
+            and _mapping_values_form_cartesian_product(values)
+        ):
+            reconstructed[key] = _configuration_space(values)
+            continue
+        reconstructed[key] = _unique_configuration_values(values)
+    return reconstructed
+
+
+def _reconstructed_configuration_space(
+    configurations: list[dict[str, Any]],
+) -> dict[str, Any] | list[dict[str, Any]]:
+    """Return a compact lossless factorization or the exact root variants."""
+    if not configurations:
+        return {}
+    if _mapping_values_form_cartesian_product(configurations):
+        return _configuration_space(configurations)
+    return [_json_safe(configuration) for configuration in configurations]
 
 
 def _history_series(value: Any, prefix: str = "") -> list[tuple[str, list]]:
@@ -1409,6 +1478,53 @@ class ResultsRepository:
             "cache": self.cache_status(),
         }
 
+    def configuration_space(
+        self, relative_path: str, outer_fold: int
+    ) -> dict[str, Any]:
+        """Reconstruct tried configuration values for one outer fold."""
+        experiment = self.resolve(relative_path)
+        assessment = experiment / MODEL_ASSESSMENT
+        if not experiment.is_dir() or not assessment.is_dir():
+            raise ValueError("Select an experiment containing MODEL_ASSESSMENT.")
+        if outer_fold <= 0:
+            raise ValueError("Fold numbers must be positive integers.")
+
+        selection = assessment / f"OUTER_FOLD_{outer_fold}" / "MODEL_SELECTION"
+        if not selection.is_dir():
+            raise FileNotFoundError(self._relative(selection))
+
+        discovered = _numbered_directories(selection, _CONFIG_PATTERN)
+        readable: list[dict[str, Any]] = []
+        unavailable = []
+        for config_number, config_folder in discovered:
+            configuration = self._stored_configuration(config_folder)
+            if configuration is None:
+                unavailable.append(config_number)
+            else:
+                readable.append(configuration)
+
+        reconstructed = _reconstructed_configuration_space(readable)
+        parameter_paths = {
+            path
+            for configuration in readable
+            for path in _configuration_leaves(configuration)
+        }
+        return {
+            "experiment": self._relative(experiment),
+            "outer_fold": outer_fold,
+            "discovered_configuration_count": len(discovered),
+            "readable_configuration_count": len(readable),
+            "unavailable_configurations": unavailable,
+            "parameter_count": len(parameter_paths),
+            "reconstructed": reconstructed,
+            "yaml": yaml.safe_dump(
+                reconstructed,
+                sort_keys=False,
+                allow_unicode=True,
+                default_flow_style=False,
+            ),
+        }
+
     def model_selection_analysis(
         self, relative_path: str, outer_fold: int, inner_fold: int
     ) -> dict[str, Any]:
@@ -1737,8 +1853,8 @@ class ResultsRepository:
         return {}
 
     @staticmethod
-    def _filter_configuration(config_folder: Path) -> dict:
-        """Read filterable hyperparameters from results or any live run."""
+    def _stored_configuration(config_folder: Path) -> Optional[dict[str, Any]]:
+        """Read a completed configuration or the first live run manifest."""
         results = _read_json(config_folder / "config_results.json")
         if isinstance(results, dict) and isinstance(results.get("config"), dict):
             return results["config"]
@@ -1748,7 +1864,12 @@ class ResultsRepository:
             manifest = _read_json(manifest_path)
             if isinstance(manifest, dict) and isinstance(manifest.get("config"), dict):
                 return manifest["config"]
-        return {}
+        return None
+
+    @staticmethod
+    def _filter_configuration(config_folder: Path) -> dict:
+        """Read filterable hyperparameters from results or any live run."""
+        return ResultsRepository._stored_configuration(config_folder) or {}
 
     @staticmethod
     def _best_checkpoint_metrics(
@@ -2520,6 +2641,24 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     return
                 self._send_json(
                     self.server.repository.experiment_filter_data(relative_path)
+                )
+                return
+            if parsed.path == "/api/configuration-space":
+                query = parse_qs(parsed.query)
+                relative_path = query.get("path", [None])[0]
+                if not relative_path:
+                    self._send_error(
+                        HTTPStatus.BAD_REQUEST, "Missing the 'path' parameter."
+                    )
+                    return
+                try:
+                    outer_fold = int(query.get("outer_fold", ["1"])[0])
+                except ValueError as error:
+                    raise ValueError("Fold numbers must be integers.") from error
+                self._send_json(
+                    self.server.repository.configuration_space(
+                        relative_path, outer_fold
+                    )
                 )
                 return
             if parsed.path == "/api/model-selection-analysis":

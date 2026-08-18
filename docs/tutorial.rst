@@ -1064,6 +1064,25 @@ under their shared main key by default. Use the persistent per-family
 **Series: Together / Separate** control to overlay all members or restore one
 chart per layer or component.
 
+Configuration Space
+^^^^^^^^^^^^^^^^^^^
+
+The **Configuration Space** tab reconstructs the settings actually tried in a
+selected outer fold. Choose an experiment and outer fold, then inspect a nested
+YAML representation of the observed configurations. Every concrete
+field is shown, even when it had only one value. Correlated settings are kept
+together as complete nested variants; MLWiz expands a mapping only when all of
+its observed child combinations are present. When the top-level observations
+cannot be factored without inventing combinations, the YAML lists the complete
+concrete configurations. **Copy YAML** copies the reconstruction.
+
+MLWiz reads completed configurations from ``config_results.json`` and falls
+back to a live run's ``model_manifest.json`` while aggregation is still in
+progress. Configuration directories without either artifact remain listed as
+unavailable and do not contribute values. The reconstructed view records
+materialized candidates; it does not claim to reproduce an original random or
+Bayesian sampling distribution that may have proposed additional values.
+
 Risk Assessment Analysis
 ^^^^^^^^^^^^^^^^^^^^^^^^
 

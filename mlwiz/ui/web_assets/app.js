@@ -96,9 +96,12 @@
     tree: null,
     details: null,
     selectedPath: storedState.selectedPath || null,
-    activeTab: ["analysis", "risk-analysis"].includes(storedState.activeTab)
+    activeTab: ["analysis", "risk-analysis", "configuration-space"].includes(storedState.activeTab)
       ? storedState.activeTab
       : "runs",
+    configurationSpaceExperiment: storedState.configurationSpaceExperiment || null,
+    configurationSpaceOuterFold: storedState.configurationSpaceOuterFold || null,
+    configurationSpaceData: null,
     analysisPlotType: ["trends", "combined-trends", "metric-vs-hyperparameter", "parallel-coordinates"]
       .includes(storedState.analysisPlotType)
       ? storedState.analysisPlotType
@@ -235,6 +238,8 @@
     return {
         selectedPath: state.selectedPath,
         activeTab: state.activeTab,
+        configurationSpaceExperiment: state.configurationSpaceExperiment,
+        configurationSpaceOuterFold: state.configurationSpaceOuterFold,
         analysisPlotType: state.analysisPlotType,
         analysisUnit: state.analysisUnit,
         analysisExperiment: state.analysisExperiment,
@@ -640,7 +645,9 @@
 
   function setActiveTab(tab, { load = true } = {}) {
     const previousTab = state.activeTab;
-    const nextTab = ["analysis", "risk-analysis"].includes(tab) ? tab : "runs";
+    const nextTab = ["analysis", "risk-analysis", "configuration-space"].includes(tab)
+      ? tab
+      : "runs";
     if (previousTab !== nextTab) {
       captureAnalysisWorkspace(previousTab);
       if (["analysis", "risk-analysis"].includes(nextTab)) {
@@ -651,14 +658,18 @@
     state.activeTab = nextTab;
     const analysis = analysisTabActive();
     const riskAnalysis = state.activeTab === "risk-analysis";
-    el("runs-panel").hidden = analysis;
+    const configurationSpace = state.activeTab === "configuration-space";
+    el("runs-panel").hidden = analysis || configurationSpace;
     el("analysis-view").hidden = !analysis;
-    el("runs-tab").classList.toggle("active", !analysis);
+    el("configuration-space-view").hidden = !configurationSpace;
+    el("runs-tab").classList.toggle("active", state.activeTab === "runs");
     el("analysis-tab").classList.toggle("active", state.activeTab === "analysis");
     el("risk-analysis-tab").classList.toggle("active", riskAnalysis);
-    el("runs-tab").setAttribute("aria-selected", String(!analysis));
+    el("configuration-space-tab").classList.toggle("active", configurationSpace);
+    el("runs-tab").setAttribute("aria-selected", String(state.activeTab === "runs"));
     el("analysis-tab").setAttribute("aria-selected", String(state.activeTab === "analysis"));
     el("risk-analysis-tab").setAttribute("aria-selected", String(riskAnalysis));
+    el("configuration-space-tab").setAttribute("aria-selected", String(configurationSpace));
     el("analysis-title").textContent = riskAnalysis
       ? "Risk assessment analysis"
       : "Model selection analysis";
@@ -669,8 +680,112 @@
     if (analysis && state.tree) {
       syncAnalysisFoldControls();
       if (load) loadAnalysisData();
+    } else if (configurationSpace && state.tree) {
+      syncConfigurationSpaceControls();
+      if (load) loadConfigurationSpace();
     } else if (state.details) {
       renderCharts();
+    }
+  }
+
+  function selectedConfigurationSpaceExperiment() {
+    return state.tree?.experiments.find(
+      (experiment) => experiment.path === state.configurationSpaceExperiment,
+    ) || null;
+  }
+
+  function syncConfigurationSpaceControls() {
+    const experiments = state.tree?.experiments || [];
+    const experimentPaths = experiments.map((experiment) => experiment.path);
+    if (!experimentPaths.includes(state.configurationSpaceExperiment)) {
+      state.configurationSpaceExperiment = experimentPaths[0] || null;
+    }
+    setSelectOptions(
+      el("configuration-space-experiment"),
+      experimentPaths,
+      state.configurationSpaceExperiment,
+      (path) => experiments.find((item) => item.path === path)?.name || path,
+    );
+    const experiment = selectedConfigurationSpaceExperiment();
+    const outerValues = (experiment?.outer_folds || []).map((fold) => String(fold.number));
+    if (!outerValues.includes(String(state.configurationSpaceOuterFold))) {
+      state.configurationSpaceOuterFold = outerValues[0] || null;
+    }
+    setSelectOptions(
+      el("configuration-space-outer-fold"),
+      outerValues,
+      String(state.configurationSpaceOuterFold),
+      (value) => `Outer fold ${value}`,
+    );
+    persistState();
+  }
+
+  function renderConfigurationSpace() {
+    const data = state.configurationSpaceData;
+    const summary = el("configuration-space-summary");
+    const notice = el("configuration-space-notice");
+    summary.replaceChildren();
+    el("configuration-space-yaml").textContent = data?.yaml || "{}\n";
+    if (!data) return;
+
+    for (const [label, value] of [
+      ["Configurations found", data.discovered_configuration_count],
+      ["Configurations read", data.readable_configuration_count],
+      ["Parameters", data.parameter_count],
+    ]) {
+      const card = node("div", "summary-card");
+      card.append(node("span", "", label), node("strong", "", String(value)));
+      summary.append(card);
+    }
+
+    if (!data.discovered_configuration_count) {
+      notice.hidden = false;
+      notice.className = "notice";
+      notice.textContent = "No model-selection configurations have been materialized in this outer fold yet.";
+    } else if (!data.readable_configuration_count) {
+      notice.hidden = false;
+      notice.className = "notice";
+      notice.textContent = "Configurations are queued, but none has results or a live model manifest yet.";
+    } else if (data.unavailable_configurations.length) {
+      notice.hidden = false;
+      notice.className = "notice";
+      const plural = data.unavailable_configurations.length !== 1;
+      notice.textContent = `${plural ? "Configurations" : "Configuration"} ${data.unavailable_configurations.join(", ")} ${plural ? "are" : "is"} not included because no results or live manifest is available.`;
+    } else {
+      notice.hidden = true;
+    }
+
+  }
+
+  async function loadConfigurationSpace({ quiet = false } = {}) {
+    syncConfigurationSpaceControls();
+    const notice = el("configuration-space-notice");
+    if (!state.configurationSpaceExperiment || !state.configurationSpaceOuterFold) {
+      state.configurationSpaceData = null;
+      renderConfigurationSpace();
+      notice.hidden = false;
+      notice.className = "notice";
+      notice.textContent = "No outer fold is available yet.";
+      return;
+    }
+    if (!quiet) {
+      notice.hidden = false;
+      notice.className = "notice";
+      notice.textContent = "Reading materialized configurations…";
+    }
+    try {
+      const query = new URLSearchParams({
+        path: state.configurationSpaceExperiment,
+        outer_fold: state.configurationSpaceOuterFold,
+      });
+      state.configurationSpaceData = await getJson(`/api/configuration-space?${query}`);
+      renderConfigurationSpace();
+    } catch (error) {
+      state.configurationSpaceData = null;
+      renderConfigurationSpace();
+      notice.hidden = false;
+      notice.className = "notice error";
+      notice.textContent = error.message;
     }
   }
 
@@ -3907,6 +4022,8 @@
       renderTree();
       if (analysisTabActive()) {
         await loadAnalysisData({ quiet: true });
+      } else if (state.activeTab === "configuration-space") {
+        await loadConfigurationSpace({ quiet: true });
       } else if (state.selectedPath) {
         await loadDetails(state.selectedPath, { preserveScroll: true, quiet: true });
       }
@@ -7351,6 +7468,40 @@
   el("runs-tab").addEventListener("click", () => setActiveTab("runs"));
   el("analysis-tab").addEventListener("click", () => setActiveTab("analysis"));
   el("risk-analysis-tab").addEventListener("click", () => setActiveTab("risk-analysis"));
+  el("configuration-space-tab").addEventListener("click", () => setActiveTab("configuration-space"));
+  el("configuration-space-experiment").addEventListener("change", (event) => {
+    state.configurationSpaceExperiment = event.target.value;
+    state.configurationSpaceOuterFold = null;
+    syncConfigurationSpaceControls();
+    loadConfigurationSpace();
+  });
+  el("configuration-space-outer-fold").addEventListener("change", (event) => {
+    state.configurationSpaceOuterFold = event.target.value;
+    persistState();
+    loadConfigurationSpace();
+  });
+  el("configuration-space-copy").addEventListener("click", async () => {
+    const button = el("configuration-space-copy");
+    const yaml = state.configurationSpaceData?.yaml || "{}\n";
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(yaml);
+      } else {
+        const temporary = document.createElement("textarea");
+        temporary.value = yaml;
+        temporary.style.position = "fixed";
+        temporary.style.opacity = "0";
+        document.body.append(temporary);
+        temporary.select();
+        document.execCommand("copy");
+        temporary.remove();
+      }
+      button.textContent = "Copied";
+    } catch (_error) {
+      button.textContent = "Copy failed";
+    }
+    setTimeout(() => { button.textContent = "Copy YAML"; }, 1200);
+  });
   el("analysis-experiment").addEventListener("change", (event) => {
     state.analysisExperiment = event.target.value;
     state.analysisOuterFold = null;
@@ -7645,6 +7796,7 @@
         Object.assign(state, imported, {
           tree: null,
           details: null,
+          configurationSpaceData: null,
           charts: [],
           modelGraphData: null,
         });

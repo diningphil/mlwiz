@@ -93,6 +93,7 @@
           <button id="runs-tab" class="active" type="button" aria-selected="true">Run explorer</button>
           <button id="analysis-tab" type="button" aria-selected="false">Model selection analysis</button>
           <button id="risk-analysis-tab" type="button" aria-selected="false">Risk assessment analysis</button>
+          <button id="configuration-space-tab" type="button" aria-selected="false">Configuration space</button>
         </nav>
         <div id="runs-panel">
         <div class="welcome" id="welcome">
@@ -361,6 +362,32 @@
           </div>
           <div class="notice" id="analysis-notice" hidden></div>
           <div class="chart-grid analysis-chart-grid" id="analysis-chart-grid" hidden></div>
+        </section>
+
+        <section class="configuration-space-view" id="configuration-space-view" hidden>
+          <div class="analysis-head">
+            <div>
+              <p class="eyebrow">Observed search space</p>
+              <h2>Configuration space</h2>
+              <p>Reconstruct the values actually materialized for every configuration field in one outer fold.</p>
+            </div>
+          </div>
+          <div class="configuration-space-controls">
+            <label><span>Experiment</span><select id="configuration-space-experiment"></select></label>
+            <label><span>Outer fold</span><select id="configuration-space-outer-fold"></select></label>
+          </div>
+          <div class="summary-grid configuration-space-summary" id="configuration-space-summary"></div>
+          <div class="notice" id="configuration-space-notice" hidden></div>
+          <section class="configuration-space-panel">
+            <header>
+              <div>
+                <p class="eyebrow">Config-like reconstruction</p>
+                <h3>Values tried</h3>
+              </div>
+              <button id="configuration-space-copy" type="button">Copy YAML</button>
+            </header>
+            <pre><code id="configuration-space-yaml"></code></pre>
+          </section>
         </section>
       </section>
     </main>

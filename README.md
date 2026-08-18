@@ -440,6 +440,25 @@ hidden, Model Selection Analysis plots and exports include only matching
 configurations, and an experiment with no matching configuration shows only its
 filter controls.
 
+#### Configuration Space
+
+The dedicated **Configuration Space** tab reconstructs a config-like view from
+the concrete configurations actually materialized in a selected outer fold.
+Every discovered field is included, including settings that stayed fixed, and
+each leaf lists its distinct tried values. Correlated nested settings remain
+grouped as complete mapping variants rather than being presented as an
+unobserved Cartesian product. If the observed top-level configurations cannot
+be factored losslessly, the YAML lists the complete concrete configurations.
+The reconstruction can be copied directly.
+
+Completed configurations are read from `config_results.json`. While an
+experiment is running, MLWiz falls back to the first available
+`model_manifest.json` below a configuration. A queued configuration without
+either artifact is reported but is not counted as tried. This view describes
+observed, materialized configurations—not the original declarative grid or the
+sampling distribution from the experiment YAML. This distinction is especially
+important for random and Bayesian searches.
+
 #### Model Selection Analysis
 
 The separate **Model Selection Analysis** tab compares configurations and runs

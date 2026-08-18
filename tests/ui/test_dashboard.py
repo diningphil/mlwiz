@@ -9,10 +9,12 @@ import threading
 import zipfile
 from pathlib import Path
 from pydoc import locate
+from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import pytest
 import torch
+import yaml
 
 from mlwiz.static import (
     LAST_OPTIMIZER_CHECKPOINT_FILENAME,
@@ -592,6 +594,158 @@ def test_experiment_filter_discovers_nested_hyperparameter_values(tmp_path):
         "layers": [64, 16],
         "batch_size": 32,
     }
+
+
+def test_configuration_space_reconstructs_all_concrete_values(tmp_path):
+    """Configuration space should retain correlated nested variants."""
+    experiment, first_config, _, _ = _write_fixture_results(tmp_path)
+    variants = [
+        ("torch.optim.Adam", 0.01, 0.0),
+        ("torch.optim.AdamW", 0.005, 0.01),
+    ]
+    configurations = [
+        {
+            "optimizer": {
+                "class_name": "example.Optimizer",
+                "args": {
+                    "optimizer_class_name": optimizer,
+                    "lr": learning_rate,
+                    "weight_decay": weight_decay,
+                },
+            },
+            "engine": {"args": {"eval_training": eval_training}},
+            "layers": [32, 16],
+            "nullable": None,
+            "fixed": "shared",
+        }
+        for optimizer, learning_rate, weight_decay in variants
+        for eval_training in (False, True)
+    ]
+    for offset, configuration in enumerate(configurations):
+        config_folder = first_config.parent / f"config_{offset + 2}"
+        run_folder = config_folder / "INNER_FOLD_1" / "run_1"
+        run_folder.mkdir(parents=True, exist_ok=True)
+        artifact = (
+            config_folder / "config_results.json"
+            if offset < 3
+            else run_folder / "model_manifest.json"
+        )
+        artifact.write_text(json.dumps({"config": configuration}))
+    (first_config.parent / "config_6").mkdir()
+
+    data = ResultsRepository(experiment.parent).configuration_space(
+        experiment.name, 1
+    )
+
+    assert data["discovered_configuration_count"] == 5
+    assert data["readable_configuration_count"] == 4
+    assert data["unavailable_configurations"] == [6]
+    assert data["reconstructed"]["optimizer"] == {
+        "class_name": ["example.Optimizer"],
+        "args": [
+            {
+                "optimizer_class_name": "torch.optim.Adam",
+                "lr": 0.01,
+                "weight_decay": 0.0,
+            },
+            {
+                "optimizer_class_name": "torch.optim.AdamW",
+                "lr": 0.005,
+                "weight_decay": 0.01,
+            },
+        ],
+    }
+    assert data["reconstructed"]["engine"] == {
+        "args": {"eval_training": [False, True]}
+    }
+    assert data["reconstructed"]["layers"] == [[32, 16]]
+    assert data["reconstructed"]["nullable"] == [None]
+    assert data["reconstructed"]["fixed"] == ["shared"]
+    assert yaml.safe_load(data["yaml"]) == data["reconstructed"]
+
+
+def test_configuration_space_uses_exact_root_variants_when_not_cartesian(tmp_path):
+    """Incomplete or conditional root combinations must never be invented."""
+    experiment, first_config, _, _ = _write_fixture_results(tmp_path)
+    first = {"model": "one", "optional": True}
+    second = {"model": "two"}
+    (first_config / "config_results.json").write_text(
+        json.dumps({"config": first})
+    )
+    second_config = first_config.parent / "config_3"
+    second_config.mkdir()
+    (second_config / "config_results.json").write_text(
+        json.dumps({"config": second})
+    )
+
+    data = ResultsRepository(experiment.parent).configuration_space(
+        experiment.name, 1
+    )
+
+    assert data["reconstructed"] == [first, second]
+    assert yaml.safe_load(data["yaml"]) == [first, second]
+
+
+@pytest.mark.parametrize(
+    ("config_name", "search_name"),
+    [
+        ("template_grid_search.yml", "Grid"),
+        ("template_random_search.yml", "RandomSearch"),
+    ],
+)
+def test_configuration_space_matches_example_generated_configs(
+    tmp_path, config_name, search_name
+):
+    """Example YAML candidates should round-trip through result artifacts."""
+    from mlwiz.config_loader import load_experiment_config
+    from mlwiz.evaluation.grid import Grid
+    from mlwiz.evaluation.random_search import RandomSearch
+
+    project_root = Path(__file__).parents[2]
+    composed = load_experiment_config(
+        project_root / "examples" / "MODEL_CONFIGS" / config_name
+    )
+    search_class = {"Grid": Grid, "RandomSearch": RandomSearch}[search_name]
+    candidates = list(search_class(composed))
+    selection = (
+        tmp_path
+        / "RESULTS"
+        / "example"
+        / "MODEL_ASSESSMENT"
+        / "OUTER_FOLD_1"
+        / "MODEL_SELECTION"
+    )
+    for index, candidate in enumerate(candidates, start=1):
+        folder = selection / f"config_{index}"
+        folder.mkdir(parents=True)
+        (folder / "config_results.json").write_text(
+            json.dumps({"config": candidate})
+        )
+
+    data = ResultsRepository(tmp_path / "RESULTS").configuration_space(
+        "example", 1
+    )
+    assert data["readable_configuration_count"] == len(candidates)
+    reconstructed = data["reconstructed"]
+    if isinstance(reconstructed, list):
+        expanded = reconstructed
+    else:
+        def expand_mapping(mapping):
+            expanded_mappings = [{}]
+            for key, value in mapping.items():
+                choices = expand_mapping(value) if isinstance(value, dict) else value
+                expanded_mappings = [
+                    {**configuration, key: choice}
+                    for configuration in expanded_mappings
+                    for choice in choices
+                ]
+            return expanded_mappings
+
+        expanded = expand_mapping(reconstructed)
+    def canonical(values):
+        return sorted(json.dumps(value, sort_keys=True) for value in values)
+
+    assert canonical(expanded) == canonical(candidates)
 
 
 def test_running_experiment_filter_uses_last_recorded_metrics(tmp_path):
@@ -1321,6 +1475,19 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         ) as response:
             filter_data = json.loads(response.read())
         with urlopen(
+            f"{base_url}/api/configuration-space?path=mlp_MNIST&outer_fold=1",
+            timeout=3,
+        ) as response:
+            configuration_space_data = json.loads(response.read())
+        with pytest.raises(HTTPError) as missing_path_error:
+            urlopen(f"{base_url}/api/configuration-space", timeout=3)
+        with pytest.raises(HTTPError) as invalid_fold_error:
+            urlopen(
+                f"{base_url}/api/configuration-space?path=mlp_MNIST"
+                "&outer_fold=invalid",
+                timeout=3,
+            )
+        with urlopen(
             f"{base_url}/api/model-selection-analysis?path=mlp_MNIST"
             "&outer_fold=1&inner_fold=1",
             timeout=3,
@@ -1372,6 +1539,12 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="analysis-smoothing-value"' in page
         assert 'id="analysis-tab"' in page
         assert 'id="risk-analysis-tab"' in page
+        assert 'id="configuration-space-tab"' in page
+        assert 'id="configuration-space-experiment"' in page
+        assert 'id="configuration-space-outer-fold"' in page
+        assert 'id="configuration-space-yaml"' in page
+        assert 'id="configuration-space-copy"' in page
+        assert 'id="configuration-space-table-body"' not in page
         assert "Risk assessment analysis" in page
         assert 'id="analysis-plot-type"' in page
         assert 'id="analysis-unit"' in page
@@ -1403,6 +1576,9 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert 'id="plot-code-palette"' in page
         assert 'id="plot-code-latex"' in page
         assert '/assets/plot_export.js' in page
+        assert 'getJson(`/api/configuration-space?${query}`)' in app_script
+        assert 'navigator.clipboard?.writeText' in app_script
+        assert ".configuration-space-table" not in stylesheet
         assert 'id="experiment-overview"' in page
         assert 'id="model-graph-section"' in page
         assert 'id="model-graph-checkpoint-select"' in page
@@ -1633,6 +1809,10 @@ def test_http_server_serves_frontend_and_api(tmp_path):
         assert operator_graph["graph_mode"] == "operators"
         assert operator_graph["summary"]["operators"] >= 3
         assert filter_data["default_metric"] == "scores:main_score"
+        assert configuration_space_data["readable_configuration_count"] == 1
+        assert configuration_space_data["reconstructed"] == {"lr": [0.01]}
+        assert missing_path_error.value.code == 400
+        assert invalid_fold_error.value.code == 400
         assert analysis_data["outer_fold"] == 1
         assert analysis_data["inner_fold"] == 1
         assert analysis_data["metrics_file_count"] == 1
@@ -1670,11 +1850,26 @@ def test_snapshot_round_trip_contains_normalized_dashboard_data(tmp_path):
     assert repository.risk_assessment_analysis(experiment.name, 1)[
         "metrics_file_count"
     ] == 1
+    assert repository.configuration_space(experiment.name, 1)[
+        "reconstructed"
+    ] == {"lr": [0.01]}
     with zipfile.ZipFile(archive_path) as archive:
         assert archive.namelist() == [SNAPSHOT_MEMBER]
         assert "metrics_data.torch" not in archive.read(SNAPSHOT_MEMBER).decode()
     with pytest.raises(ValueError, match="not included"):
         repository.model_graph_info(selected_path)
+
+
+def test_old_snapshot_reports_configuration_space_unavailable(tmp_path):
+    """Version-one snapshots predating this feature should remain readable."""
+    experiment, _, _, _ = _write_fixture_results(tmp_path)
+    snapshot = build_snapshot(ResultsRepository(experiment.parent), {})
+    snapshot.pop("configuration_spaces")
+
+    repository = SnapshotRepository(snapshot)
+
+    with pytest.raises(ValueError, match="were not captured"):
+        repository.configuration_space(experiment.name, 1)
 
 
 def test_snapshot_export_does_not_require_a_selection(tmp_path):

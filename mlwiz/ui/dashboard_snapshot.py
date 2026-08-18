@@ -73,6 +73,7 @@ def build_snapshot(
     filters: dict[str, Any] = {}
     analyses: dict[str, Any] = {}
     risk_analyses: dict[str, Any] = {}
+    configuration_spaces: dict[str, Any] = {}
     for experiment in experiments:
         for path in _selection_paths(experiment):
             details[path] = repository.details(path)
@@ -84,6 +85,10 @@ def build_snapshot(
         experiment_path = experiment["path"]
         filters[experiment_path] = repository.experiment_filter_data(experiment_path)
         for outer_fold in experiment.get("outer_folds", []):
+            space_key = f"{experiment_path}?outer={outer_fold['number']}"
+            configuration_spaces[space_key] = repository.configuration_space(
+                experiment_path, outer_fold["number"]
+            )
             risk_key = f"{experiment_path}?outer={outer_fold['number']}"
             risk_analyses[risk_key] = repository.risk_assessment_analysis(
                 experiment_path, outer_fold["number"]
@@ -117,6 +122,7 @@ def build_snapshot(
         "filters": filters,
         "analyses": analyses,
         "risk_analyses": risk_analyses,
+        "configuration_spaces": configuration_spaces,
     }
 
 
@@ -225,6 +231,18 @@ class SnapshotRepository:
         payload = self.snapshot["filters"].get(relative_path)
         if payload is None:
             raise FileNotFoundError(relative_path)
+        return copy.deepcopy(payload)
+
+    def configuration_space(
+        self, relative_path: str, outer_fold: int
+    ) -> dict[str, Any]:
+        """Return a captured tried-configuration space when available."""
+        key = f"{relative_path}?outer={outer_fold}"
+        payload = self.snapshot.get("configuration_spaces", {}).get(key)
+        if payload is None:
+            raise ValueError(
+                "Configuration spaces were not captured in this dashboard snapshot."
+            )
         return copy.deepcopy(payload)
 
     def model_selection_analysis(
