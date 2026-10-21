@@ -1,16 +1,12 @@
 # Changelog
 
-## [1.7.8]
+## [1.7.7]
 
 ## Added
 
 - made the dashboard experiment browser horizontally resizable by dragging its
   right edge or using the focused divider’s arrow keys, with a saved width
   preference and bounds that preserve room for dashboard content
-
-## [1.7.7]
-
-## Added
 
 - added a dedicated Configuration Space dashboard tab that reconstructs every
   field and distinct value actually materialized within a selected outer fold,
