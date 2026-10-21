@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.8]
+
+## Added
+
+- made the dashboard experiment browser horizontally resizable by dragging its
+  right edge or using the focused divider’s arrow keys, with a saved width
+  preference and bounds that preserve room for dashboard content
+
 ## [1.7.7]
 
 ## Added

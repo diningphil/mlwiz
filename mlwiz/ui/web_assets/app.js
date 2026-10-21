@@ -7703,8 +7703,81 @@
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(persistState, 100);
   });
+  const sidebarWidthStorageKey = "mlwiz-dashboard-sidebar-width-v1";
+  const workspace = document.querySelector(".workspace");
+  const sidebar = el("experiment-sidebar");
+  const sidebarResizer = el("sidebar-resizer");
+  let preferredSidebarWidth = null;
+  let sidebarDrag = null;
+  try {
+    const saved = Number(localStorage.getItem(sidebarWidthStorageKey));
+    if (Number.isFinite(saved) && saved > 0) preferredSidebarWidth = saved;
+  } catch (_error) {
+    // Resizing also works when browser storage is unavailable.
+  }
+
+  function syncSidebarWidth() {
+    if (window.matchMedia("(max-width: 720px)").matches) return;
+    const maximum = Math.max(240, Math.min(800, workspace.clientWidth - 360));
+    const width = Math.round(Math.max(240, Math.min(maximum,
+      preferredSidebarWidth ?? sidebar.getBoundingClientRect().width)));
+    if (preferredSidebarWidth !== null) workspace.style.setProperty("--sidebar-width", `${width}px`);
+    sidebarResizer.setAttribute("aria-valuemin", "240");
+    sidebarResizer.setAttribute("aria-valuemax", String(maximum));
+    sidebarResizer.setAttribute("aria-valuenow", String(width));
+  }
+
+  function setSidebarWidth(width) {
+    preferredSidebarWidth = width;
+    syncSidebarWidth();
+    preferredSidebarWidth = Number(sidebarResizer.getAttribute("aria-valuenow"));
+    window.dispatchEvent(new Event("resize"));
+  }
+
+  function saveSidebarWidth() {
+    try {
+      localStorage.setItem(sidebarWidthStorageKey, String(preferredSidebarWidth));
+    } catch (_error) {
+      // Keep the current width for this session when storage is blocked.
+    }
+  }
+
+  sidebarResizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    event.preventDefault();
+    sidebarDrag = { pointerId: event.pointerId, x: event.clientX, width: sidebar.getBoundingClientRect().width };
+    sidebarResizer.setPointerCapture(event.pointerId);
+    sidebarResizer.focus();
+    document.body.classList.add("resizing-sidebar");
+  });
+  sidebarResizer.addEventListener("pointermove", (event) => {
+    if (sidebarDrag?.pointerId !== event.pointerId) return;
+    setSidebarWidth(sidebarDrag.width + event.clientX - sidebarDrag.x);
+  });
+  function finishSidebarResize(event) {
+    if (sidebarDrag?.pointerId !== event.pointerId) return;
+    sidebarDrag = null;
+    document.body.classList.remove("resizing-sidebar");
+    if (sidebarResizer.hasPointerCapture(event.pointerId)) sidebarResizer.releasePointerCapture(event.pointerId);
+    saveSidebarWidth();
+  }
+  sidebarResizer.addEventListener("pointerup", finishSidebarResize);
+  sidebarResizer.addEventListener("pointercancel", finishSidebarResize);
+  sidebarResizer.addEventListener("lostpointercapture", finishSidebarResize);
+  sidebarResizer.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const width = sidebar.getBoundingClientRect().width;
+    const step = event.shiftKey ? 50 : 10;
+    setSidebarWidth(event.key === "Home" ? 240 : event.key === "End" ? 800
+      : width + (event.key === "ArrowLeft" ? -step : step));
+    saveSidebarWidth();
+  });
+  syncSidebarWidth();
+
   let resizeTimer;
   window.addEventListener("resize", () => {
+    syncSidebarWidth();
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
       state.charts.forEach((chart) => drawChart(chart));

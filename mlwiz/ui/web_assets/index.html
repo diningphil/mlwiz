@@ -71,7 +71,7 @@
     </header>
 
     <main class="workspace">
-      <aside class="sidebar" aria-label="Experiment browser">
+      <aside class="sidebar" id="experiment-sidebar" aria-label="Experiment browser">
         <div class="sidebar-head">
           <div>
             <p class="eyebrow">Run browser</p>
@@ -86,6 +86,9 @@
           <span id="last-refresh">Waiting for first refresh</span>
           <span id="refresh-status">Auto-refresh · 15s</span>
         </footer>
+        <div id="sidebar-resizer" class="sidebar-resizer" role="separator" tabindex="0"
+             aria-label="Resize experiment browser" aria-orientation="vertical"
+             aria-controls="experiment-sidebar" title="Drag to resize; use arrow keys when focused"></div>
       </aside>
 
       <section class="content" id="content" aria-live="polite">
