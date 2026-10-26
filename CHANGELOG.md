@@ -4,6 +4,8 @@
 
 ## Fixed
 
+- used exact Pareto dominance comparisons to prevent cycles for near-equal
+  objectives, retaining tolerance only for compromise-distance tie-breaking
 - derived dashboard epoch summaries and inferred legacy step boundaries from
   loss/score histories so longer component-value lists do not inflate epochs
 - corrected the Pareto tutorial subsection level so the strict Sphinx build

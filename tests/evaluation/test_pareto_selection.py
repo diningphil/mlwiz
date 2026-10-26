@@ -70,23 +70,36 @@ def test_arbitrary_dimensions_duplicates_and_constant_objectives(dimension):
     assert select_pareto_configuration(configs[:1], criteria).winner[0] == 3
 
 
-def test_tolerance_and_standard_deviation_tiebreaks():
+def test_exact_dominance_and_standard_deviation_tiebreaks():
     criteria = [("x", operator.gt)]
     configs = [(2, {"x": 1}), (1, {"x": 1 + 5e-13})]
-    assert len(pareto_frontier(configs, criteria)) == 2
-    assert [i for i, _ in pareto_frontier(configs, criteria, atol=0)] == [1]
+    for tolerance in (0, 1e-12, 1):
+        assert [
+            i for i, _ in pareto_frontier(configs, criteria, atol=tolerance)
+        ] == [1]
+        assert (
+            select_pareto_configuration(
+                configs, criteria, atol=tolerance
+            ).winner[0]
+            == 1
+        )
+        assert [
+            [i for i, _ in front]
+            for front in pareto_fronts(configs, criteria, atol=tolerance)
+        ] == [[1], [2]]
     # Equal objective vectors: lower std wins; missing std loses to finite std.
     configs = [
         (3, {"x": 1}),
         (2, {"x": 1, "std_validation_score": 0.2}),
         (1, {"x": 1, "std_validation_score": 0.1}),
     ]
-    assert [i for i, _ in select_pareto_configuration(configs, criteria).frontier] == [
+    assert [
+        i for i, _ in select_pareto_configuration(configs, criteria).frontier
+    ] == [
         1,
         2,
         3,
     ]
-
 
 def test_large_finite_objectives():
     configs = [
@@ -420,3 +433,61 @@ def test_duplicate_vectors_share_front_and_use_std_ties():
         [i for i, _ in front]
         for front in pareto_fronts(configs, [("x", operator.gt)])
     ] == [[3], [4, 2], [1]]
+
+
+@pytest.mark.parametrize("mixed_directions", [False, True])
+def test_near_equal_objectives_cannot_form_dominance_cycle(
+    tmp_path, mixed_directions
+):
+    """Pairwise tolerance previously made A dominate B, B dominate C, C dominate A."""
+    from itertools import permutations
+
+    epsilon = 0.75e-12
+    vectors = [
+        (2 * epsilon, epsilon, 0),
+        (0, 2 * epsilon, epsilon),
+        (epsilon, 0, 2 * epsilon),
+        (-epsilon, -epsilon, -epsilon),
+    ]
+    criteria = [
+        ("x", operator.gt),
+        ("y", operator.lt if mixed_directions else operator.gt),
+        ("z", operator.gt),
+    ]
+    configs = [
+        (i, {"x": x, "y": -y if mixed_directions else y, "z": z})
+        for i, (x, y, z) in enumerate(vectors, 1)
+    ]
+    for order in permutations(configs[:3]):
+        candidates = list(order) + [configs[3]]
+        assert {i for i, _ in pareto_frontier(candidates, criteria)} == {
+            1,
+            2,
+            3,
+        }
+        selection = select_pareto_configuration(candidates, criteria)
+        assert selection.winner[0] == 1
+        assert [
+            [i for i, _ in front]
+            for front in pareto_fronts(candidates, criteria)
+        ] == [[1, 2, 3], [4]]
+        write_pareto_report(tmp_path, candidates, criteria, selection)
+        assert (
+            "| Dominated | 2 |" in (tmp_path / "pareto_results.md").read_text()
+        )
+
+
+def test_tolerance_only_affects_compromise_distance_ties():
+    configs = [
+        (2, {"x": 0.0, "y": 1.0}),
+        (1, {"x": 0.6 + 1e-13, "y": 0.4 - 1e-13}),
+        (3, {"x": 0.6, "y": 0.4}),
+        (4, {"x": 1.0, "y": 0.0}),
+    ]
+    criteria = [("x", operator.gt), ("y", operator.gt)]
+    assert {i for i, _ in pareto_frontier(configs, criteria)} == {1, 2, 3, 4}
+    exact = select_pareto_configuration(configs, criteria, atol=0)
+    tolerant = select_pareto_configuration(configs, criteria)
+    assert exact.distances == tolerant.distances
+    assert exact.winner[0] == 3
+    assert tolerant.winner[0] == 1

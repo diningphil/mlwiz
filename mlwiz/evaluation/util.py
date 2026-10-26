@@ -159,24 +159,22 @@ def _pareto_values(configurations, criteria, atol):
     return np.asarray(values, dtype=float)
 
 
-def _dominates(other, candidate, criteria, atol):
-    """Compare two objective vectors under the selection tolerance."""
+def _dominates(other, candidate, criteria):
+    """Use exact objective comparisons to preserve transitive dominance."""
     comparisons = [
-        0
-        if math.isclose(float(a), float(b), rel_tol=0.0, abs_tol=atol)
-        else (1 if comparator(a, b) else -1)
+        0 if a == b else (1 if comparator(a, b) else -1)
         for a, b, (_, comparator) in zip(other, candidate, criteria)
     ]
     return all(c >= 0 for c in comparisons) and any(c > 0 for c in comparisons)
 
 
-def _frontier_indices(values, criteria, atol):
+def _frontier_indices(values, criteria):
     """Find all non-dominated rows using direction-aware pairwise comparisons."""
     return [
         i
         for i, candidate in enumerate(values)
         if not any(
-            i != j and _dominates(other, candidate, criteria, atol)
+            i != j and _dominates(other, candidate, criteria)
             for j, other in enumerate(values)
         )
     ]
@@ -185,12 +183,13 @@ def _frontier_indices(values, criteria, atol):
 def pareto_frontier(configurations, criteria, atol: float = 1e-12):
     """Return non-dominated ``(id, results)`` pairs in their original order.
 
-    Criteria are ``(result_key, strict_better_comparator)`` pairs. Values
-    within ``atol`` are equal; duplicate objective vectors remain eligible.
+    Criteria are ``(result_key, strict_better_comparator)`` pairs. Dominance
+    uses exact comparisons; duplicate objective vectors remain eligible.
+    ``atol`` is accepted for compatibility but does not affect membership.
     """
     values = _pareto_values(configurations, criteria, atol)
     return [
-        configurations[i] for i in _frontier_indices(values, criteria, atol)
+        configurations[i] for i in _frontier_indices(values, criteria)
     ]
 
 
@@ -206,15 +205,16 @@ class ParetoSelection:
 def select_pareto_configuration(configurations, criteria, atol: float = 1e-12):
     """Choose an equally weighted, normalized ideal-point compromise.
 
-    Normalize over frontier extrema only. Distance ties use lower main-score
+    Dominance uses exact comparisons. Normalize over frontier extrema only.
+    ``atol`` applies only to distance ties. Distance ties use lower main-score
     standard deviation (missing means infinity), then lower configuration ID.
     The returned frontier is ordered by this same rule, winner first.
     """
     values = _pareto_values(configurations, criteria, atol)
-    indices = _frontier_indices(values, criteria, atol)
+    indices = _frontier_indices(values, criteria)
     if not indices:
         raise ValueError(
-            "No Pareto frontier exists under the configured tolerance."
+            "No Pareto frontier: comparators must define strict min/max ordering."
         )
     return _order_pareto_frontier(
         [configurations[i] for i in indices], values[indices], criteria, atol
@@ -267,6 +267,7 @@ def _order_pareto_frontier(configurations, frontier_values, criteria, atol):
 def pareto_fronts(configurations, criteria, atol: float = 1e-12):
     """Return successive Pareto fronts, each ordered by its ideal-point distance.
 
+    Dominance uses exact comparisons; ``atol`` only controls distance ties.
     Removing the first front reveals the second, and so on. Build the dominance
     graph once, so a configuration always precedes any configuration it dominates
     without repeating pairwise comparisons for each front.
@@ -276,10 +277,10 @@ def pareto_fronts(configurations, criteria, atol: float = 1e-12):
     counts = [0 for _ in configurations]
     for i, candidate in enumerate(values):
         for j in range(i + 1, len(configurations)):
-            if _dominates(candidate, values[j], criteria, atol):
+            if _dominates(candidate, values[j], criteria):
                 dominated[i].append(j)
                 counts[j] += 1
-            elif _dominates(values[j], candidate, criteria, atol):
+            elif _dominates(values[j], candidate, criteria):
                 dominated[j].append(i)
                 counts[i] += 1
     front = [i for i, count in enumerate(counts) if count == 0]
@@ -300,7 +301,7 @@ def pareto_fronts(configurations, criteria, atol: float = 1e-12):
         front = following
     if ranked != len(configurations):
         raise ValueError(
-            "Cannot rank Pareto fronts: dominance cycle under the configured tolerance."
+            "Cannot rank Pareto fronts: comparators must define strict min/max ordering."
         )
     return fronts
 

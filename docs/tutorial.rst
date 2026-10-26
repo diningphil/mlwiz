@@ -532,8 +532,12 @@ Mode and criterion definitions are checked when initializing the search.
 
 Pareto selection uses aggregated inner-validation results. A configuration is
 on the frontier when no other configuration is no worse on every objective and
-strictly better on at least one. Differences within an absolute tolerance of
-``1e-12`` count as equal; duplicate objective vectors remain on the frontier.
+strictly better on at least one. Dominance uses exact comparisons of the
+stored floating-point values; identical objective vectors remain on the frontier.
+Pairwise objective tolerances are not used, preventing cyclic dominance for
+near-equal values. A finite, non-empty set of configurations with valid scores
+always has a frontier. The ``1e-12`` tolerance applies only to compromise-distance
+ties, not to frontier membership or dominance ranks.
 
 MLWiz selects one compromise from the frontier for final training. For each
 objective, normalize its shortfall from the ideal using frontier extrema:
