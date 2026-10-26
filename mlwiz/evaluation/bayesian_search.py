@@ -240,7 +240,9 @@ class BayesianSearch(Grid):
         if self.higher_results_are_better is not None:
             shared_cfg[HIGHER_RESULTS_ARE_BETTER] = self.higher_results_are_better
         if self.model_selection_criteria is not None:
-            shared_cfg[MODEL_SELECTION_CRITERIA] = self.model_selection_criteria
+            shared_cfg[MODEL_SELECTION_CRITERIA] = deepcopy(
+                self.model_selection_config
+            )
         config.update(shared_cfg)
         return config
 

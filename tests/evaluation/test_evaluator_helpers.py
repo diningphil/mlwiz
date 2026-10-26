@@ -514,48 +514,5 @@ def test_compute_best_hyperparameters_requires_source_for_non_main_metric(
             {"metric": "aux", "direction": "max"},
         ],
     )
-    search = evaluator.Grid(configs_dict)
-    search.telegram_config = None
-
-    assesser = evaluator.RiskAssesser(
-        outer_folds=1,
-        inner_folds=1,
-        experiment_class=object,
-        exp_path=str(tmp_path / "RESULTS"),
-        splits_filepath=str(tmp_path / "dummy.splits"),
-        model_configs=search,
-        risk_assessment_training_runs=1,
-        model_selection_training_runs=1,
-        higher_is_better=None,
-        gpus_per_task=0,
-        base_seed=42,
-    )
-
-    model_selection_folder = tmp_path / "MODEL_SELECTION"
-    config_1 = model_selection_folder / "config_1"
-    config_2 = model_selection_folder / "config_2"
-    config_1.mkdir(parents=True, exist_ok=True)
-    config_2.mkdir(parents=True, exist_ok=True)
-
-    payload_1 = {
-        "config": {"hp_id": 0},
-        "avg_validation_score": 0.8,
-        "std_validation_score": 0.1,
-        "avg_validation_aux_score": 0.3,
-    }
-    payload_2 = {
-        "config": {"hp_id": 1},
-        "avg_validation_score": 0.8,
-        "std_validation_score": 0.2,
-        "avg_validation_aux_score": 0.7,
-    }
-    (config_1 / "config_results.json").write_text(json.dumps(payload_1))
-    (config_2 / "config_results.json").write_text(json.dumps(payload_2))
-
     with pytest.raises(ValueError, match="must define 'source'"):
-        assesser.compute_best_hyperparameters(
-            folder=str(model_selection_folder),
-            outer_k=0,
-            no_configurations=2,
-            skip_config_ids=[],
-        )
+        evaluator.Grid(configs_dict)

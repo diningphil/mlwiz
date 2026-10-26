@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import List
 
 from mlwiz.config_loader import validate_experiment_config
+from mlwiz.evaluation.util import normalize_selection_criteria
 from mlwiz.util import return_class_and_args, s2c
 from mlwiz.static import (
     DATASET,
@@ -74,27 +75,23 @@ class Grid:
             data_loading_config, DATA_LOADER, return_class_name=True
         )
         self.experiment = experiment_config[EXPERIMENT]
-        self.model_selection_criteria = experiment_config.get(
-            MODEL_SELECTION_CRITERIA, None
+        self.model_selection_config = experiment_config.get(
+            MODEL_SELECTION_CRITERIA
         )
         self.higher_results_are_better = experiment_config.get(
-            HIGHER_RESULTS_ARE_BETTER, None
+            HIGHER_RESULTS_ARE_BETTER
+        )
+        (self.model_selection_mode, self.model_selection_criteria) = (
+            normalize_selection_criteria(
+                self.model_selection_config, self.higher_results_are_better
+            )
         )
         if (
-            self.model_selection_criteria is not None
-            and self.higher_results_are_better is not None
+            self.model_selection_mode == "pareto"
+            and self.__search_type__ == "bayes"
         ):
             raise ValueError(
-                f"Configuration cannot define both '{MODEL_SELECTION_CRITERIA}' "
-                f"and '{HIGHER_RESULTS_ARE_BETTER}'."
-            )
-        if (
-            self.model_selection_criteria is None
-            and self.higher_results_are_better is None
-        ):
-            raise KeyError(
-                f"Configuration must define either '{MODEL_SELECTION_CRITERIA}' "
-                f"or '{HIGHER_RESULTS_ARE_BETTER}'."
+                "Pareto model selection is not supported with Bayesian search."
             )
         self.evaluate_every = experiment_config[evaluate_every]
         self.device = resources_config[DEVICE]
@@ -133,7 +130,9 @@ class Grid:
             if self.higher_results_are_better is not None:
                 shared_cfg[HIGHER_RESULTS_ARE_BETTER] = self.higher_results_are_better
             if self.model_selection_criteria is not None:
-                shared_cfg[MODEL_SELECTION_CRITERIA] = self.model_selection_criteria
+                shared_cfg[MODEL_SELECTION_CRITERIA] = deepcopy(
+                    self.model_selection_config
+                )
             cfg.update(shared_cfg)
         return configs
 

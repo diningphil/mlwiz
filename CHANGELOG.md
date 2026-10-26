@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.7.8]
+
+## Added
+
+- added opt-in Pareto-frontier model selection for grid and random search,
+  supporting any number of validation criteria and selecting an equally
+  weighted, normalized ideal-point compromise for final training
+- added ordered `pareto_results.md` reports beside `winner_config.json`, with
+  the winner first, highlighted frontier members, and all remaining evaluated
+  configurations and criterion values
+- added a runnable CPU MLP Pareto example at
+  `examples/MODEL_CONFIGS/config_MLP_pareto.yml`
+
+## Changed
+
+- added structured `classic`, `lexicographic`, and `pareto` selection modes
+  while preserving existing criterion lists and legacy main-score selection
+- validated selection settings during search initialization and rejected
+  Pareto mode for Bayesian search
+- bumped the package version to 1.7.8
+
 ## [1.7.7]
 
 ## Added
