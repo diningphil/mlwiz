@@ -14,6 +14,7 @@ from mlwiz.evaluation.random_search import RandomSearch
 from mlwiz.evaluation.util import (
     normalize_selection_criteria,
     pareto_frontier,
+    pareto_fronts,
     select_pareto_configuration,
     write_pareto_report,
 )
@@ -141,7 +142,7 @@ def test_markdown_report_order_values_and_replacement(tmp_path):
     assert "avg\\_validation\\_score (max)" in report
     assert "avg\\_validation\\_loss (min)" in report
     assert "6.12345678901" in rows[0]
-    assert "not a Pareto rank" in report
+    assert "Pareto front is the dominance rank" in report
     path.write_text(report + "stale content")
     write_pareto_report(tmp_path, configs, CRITERIA, selection)
     assert path.read_text() == report
@@ -336,3 +337,86 @@ def test_mlp_pareto_example_records_dashboard_histories(tmp_path):
         assert metrics["scores"]["validation_main_score"] == pytest.approx([.5])
         assert metrics["step"]["steps"] == [10]
         assert metrics["step"]["losses"]["training_main_loss"] == pytest.approx([.8])
+
+
+def test_dominated_configurations_follow_successive_fronts(tmp_path):
+    """The reported user example must rank config 4 ahead of configs 1 and 3."""
+    configs = [
+        (
+            1,
+            {
+                "avg_validation_score": 92.7248954773,
+                "avg_validation_loss": 0.260843224823,
+            },
+        ),
+        (
+            2,
+            {
+                "avg_validation_score": 95.2277870178,
+                "avg_validation_loss": 0.165865018964,
+            },
+        ),
+        (
+            3,
+            {
+                "avg_validation_score": 90.4062919617,
+                "avg_validation_loss": 0.331355884671,
+            },
+        ),
+        (
+            4,
+            {
+                "avg_validation_score": 93.2670440674,
+                "avg_validation_loss": 0.229290112853,
+            },
+        ),
+    ]
+    assert [
+        [i for i, _ in front] for front in pareto_fronts(configs, CRITERIA)
+    ] == [[2], [4], [1], [3]]
+    selection = select_pareto_configuration(configs, CRITERIA)
+    write_pareto_report(tmp_path, configs, CRITERIA, selection)
+    rows = [
+        line
+        for line in (tmp_path / "pareto_results.md").read_text().splitlines()
+        if "](config_" in line
+    ]
+    assert [
+        next(i for i in range(1, 5) if f"[config_{i}]" in row) for row in rows
+    ] == [2, 4, 1, 3]
+    assert "| Pareto front |" in (tmp_path / "pareto_results.md").read_text()
+    assert "| Dominated | 2 |" in rows[1]
+    assert "| Dominated | 4 |" in rows[3]
+
+
+def test_later_fronts_use_compromise_and_are_input_order_invariant():
+    configs = [
+        (8, {"x": 20, "y": 20}),
+        (3, {"x": 10, "y": 0}),
+        (2, {"x": 6, "y": 6}),
+        (1, {"x": 0, "y": 10}),
+        (4, {"x": -1, "y": -1}),
+    ]
+    criteria = [("x", operator.gt), ("y", operator.gt)]
+    original = deepcopy(configs)
+    for candidates in (configs, configs[::-1]):
+        fronts = pareto_fronts(candidates, criteria)
+        assert [[i for i, _ in front] for front in fronts] == [
+            [8],
+            [2, 1, 3],
+            [4],
+        ]
+    assert configs == original
+
+
+def test_duplicate_vectors_share_front_and_use_std_ties():
+    configs = [
+        (3, {"x": 2}),
+        (2, {"x": 1}),
+        (4, {"x": 1, "std_validation_score": 0.1}),
+        (1, {"x": 0}),
+    ]
+    assert [
+        [i for i, _ in front]
+        for front in pareto_fronts(configs, [("x", operator.gt)])
+    ] == [[3], [4, 2], [1]]

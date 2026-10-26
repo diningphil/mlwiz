@@ -549,10 +549,14 @@ Whenever a frontier is computed, ``pareto_results.md`` is written beside
 ``winner_config.json`` in each outer fold's ``MODEL_SELECTION`` directory.
 It contains all evaluated, non-skipped configurations and each criterion's
 validation value and optimization direction. The winner appears first, followed
-by other frontier members under the same compromise ordering, then dominated
-configurations in configuration-ID order. Frontier rows are bold and explicitly
+by other frontier members under the same compromise ordering. Dominated
+configurations follow in successive Pareto fronts: remove the first frontier
+to find the second, and repeat. Within each front, apply the same compromise
+ordering using that front's extrema. A configuration always precedes any
+configuration it dominates. Frontier rows are bold and explicitly
 marked ``Winner · Pareto`` or ``Pareto``. Table positions are display positions,
-not Pareto ranks. Values use up to 12 significant digits; selection uses full
+with a separate ``Pareto front`` column giving the dominance rank (1 is the
+non-dominated frontier). Values use up to 12 significant digits; selection uses full
 precision. Recomputing selection replaces the report.
 
 Pareto mode supports grid and random search. Bayesian search rejects this mode;

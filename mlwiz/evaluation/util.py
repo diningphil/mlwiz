@@ -159,28 +159,27 @@ def _pareto_values(configurations, criteria, atol):
     return np.asarray(values, dtype=float)
 
 
+def _dominates(other, candidate, criteria, atol):
+    """Compare two objective vectors under the selection tolerance."""
+    comparisons = [
+        0
+        if math.isclose(float(a), float(b), rel_tol=0.0, abs_tol=atol)
+        else (1 if comparator(a, b) else -1)
+        for a, b, (_, comparator) in zip(other, candidate, criteria)
+    ]
+    return all(c >= 0 for c in comparisons) and any(c > 0 for c in comparisons)
+
+
 def _frontier_indices(values, criteria, atol):
     """Find all non-dominated rows using direction-aware pairwise comparisons."""
-    frontier = []
-    for i, candidate in enumerate(values):
-        dominated = False
-        for j, other in enumerate(values):
-            if i == j:
-                continue
-            comparisons = [
-                0
-                if math.isclose(float(a), float(b), rel_tol=0.0, abs_tol=atol)
-                else (1 if comparator(a, b) else -1)
-                for a, b, (_, comparator) in zip(other, candidate, criteria)
-            ]
-            if all(c >= 0 for c in comparisons) and any(
-                c > 0 for c in comparisons
-            ):
-                dominated = True
-                break
-        if not dominated:
-            frontier.append(i)
-    return frontier
+    return [
+        i
+        for i, candidate in enumerate(values)
+        if not any(
+            i != j and _dominates(other, candidate, criteria, atol)
+            for j, other in enumerate(values)
+        )
+    ]
 
 
 def pareto_frontier(configurations, criteria, atol: float = 1e-12):
@@ -217,7 +216,13 @@ def select_pareto_configuration(configurations, criteria, atol: float = 1e-12):
         raise ValueError(
             "No Pareto frontier exists under the configured tolerance."
         )
-    frontier_values = values[indices]
+    return _order_pareto_frontier(
+        [configurations[i] for i in indices], values[indices], criteria, atol
+    )
+
+
+def _order_pareto_frontier(configurations, frontier_values, criteria, atol):
+    """Apply the same normalized compromise ordering within any Pareto front."""
     low, high = frontier_values.min(axis=0), frontier_values.max(axis=0)
     # Scale first to avoid overflow when subtracting opposite large finite values.
     scale = np.maximum(np.maximum(np.abs(low), np.abs(high)), 1.0)
@@ -236,9 +241,9 @@ def select_pareto_configuration(configurations, criteria, atol: float = 1e-12):
         )
     distances = {
         configurations[i][0]: float(distance)
-        for i, distance in zip(indices, np.linalg.norm(shortfalls, axis=1))
+        for i, distance in enumerate(np.linalg.norm(shortfalls, axis=1))
     }
-    remaining = [configurations[i] for i in indices]
+    remaining = list(configurations)
     ordered = []
     while remaining:
         closest = min(distances[config_id] for config_id, _ in remaining)
@@ -259,6 +264,47 @@ def select_pareto_configuration(configurations, criteria, atol: float = 1e-12):
     return ParetoSelection(ordered[0], ordered, distances)
 
 
+def pareto_fronts(configurations, criteria, atol: float = 1e-12):
+    """Return successive Pareto fronts, each ordered by its ideal-point distance.
+
+    Removing the first front reveals the second, and so on. Build the dominance
+    graph once, so a configuration always precedes any configuration it dominates
+    without repeating pairwise comparisons for each front.
+    """
+    values = _pareto_values(configurations, criteria, atol)
+    dominated = [[] for _ in configurations]
+    counts = [0 for _ in configurations]
+    for i, candidate in enumerate(values):
+        for j in range(i + 1, len(configurations)):
+            if _dominates(candidate, values[j], criteria, atol):
+                dominated[i].append(j)
+                counts[j] += 1
+            elif _dominates(values[j], candidate, criteria, atol):
+                dominated[j].append(i)
+                counts[i] += 1
+    front = [i for i, count in enumerate(counts) if count == 0]
+    fronts = []
+    ranked = 0
+    while front:
+        selection = _order_pareto_frontier(
+            [configurations[i] for i in front], values[front], criteria, atol
+        )
+        fronts.append(selection.frontier)
+        ranked += len(front)
+        following = []
+        for i in front:
+            for j in dominated[i]:
+                counts[j] -= 1
+                if counts[j] == 0:
+                    following.append(j)
+        front = following
+    if ranked != len(configurations):
+        raise ValueError(
+            "Cannot rank Pareto fronts: dominance cycle under the configured tolerance."
+        )
+    return fronts
+
+
 def write_pareto_report(folder, configurations, criteria, selection):
     """Replace ``pareto_results.md`` beside the selected configuration artifact."""
 
@@ -271,26 +317,32 @@ def write_pareto_report(folder, configurations, criteria, selection):
         )
 
     frontier_ids = {config_id for config_id, _ in selection.frontier}
-    ordered = selection.frontier + sorted(
-        (pair for pair in configurations if pair[0] not in frontier_ids),
-        key=lambda pair: pair[0],
+    remaining = [
+        pair for pair in configurations if pair[0] not in frontier_ids
+    ]
+    fronts = [selection.frontier] + (
+        pareto_fronts(remaining, criteria) if remaining else []
     )
-    headers = ["Position", "Configuration", "Status"] + [
+    ordered = [
+        (rank, pair) for rank, front in enumerate(fronts, 1) for pair in front
+    ]
+    headers = ["Position", "Configuration", "Status", "Pareto front"] + [
         f"{markdown(key)} ({'max' if comparator(1.0, 0.0) else 'min'})"
         for key, comparator in criteria
     ]
     lines = [
         "# Pareto model selection",
         "",
-        "The winner is first. Other frontier members follow by normalized "
-        "distance to the ideal, with ties resolved by main-score standard "
-        "deviation and configuration ID. Dominated configurations follow by ID. "
-        "Position is a display order, not a Pareto rank.",
+        "The winner is first. Configurations are ordered by successive Pareto "
+        "fronts (1 is the non-dominated frontier). Within each front, normalized "
+        "distance to that front's ideal determines order, with ties resolved by "
+        "main-score standard deviation and configuration ID. Position is the "
+        "display order; Pareto front is the dominance rank.",
         "",
         "| " + " | ".join(headers) + " |",
         "| " + " | ".join(["---"] * len(headers)) + " |",
     ]
-    for position, (config_id, results) in enumerate(ordered, 1):
+    for position, (rank, (config_id, results)) in enumerate(ordered, 1):
         status = (
             "Winner · Pareto"
             if config_id == selection.winner[0]
@@ -300,6 +352,7 @@ def write_pareto_report(folder, configurations, criteria, selection):
             str(position),
             f"[config_{config_id}](config_{config_id}/config_results.json)",
             status,
+            str(rank),
         ]
         cells.extend(
             format(float(results[key]), ".12g") for key, _ in criteria
@@ -311,6 +364,7 @@ def write_pareto_report(folder, configurations, criteria, selection):
         os.path.join(folder, "pareto_results.md"), "w", encoding="utf-8"
     ) as stream:
         stream.write("\n".join(lines) + "\n")
+
 
 """
 Various options for random search model selection

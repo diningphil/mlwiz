@@ -26,6 +26,9 @@
 
 ## Changed
 
+- ordered dominated configurations in Pareto reports by successive Pareto
+  fronts and normalized compromise distance within each front, with an explicit
+  front-number column instead of listing dominated configurations by ID
 - added structured `classic`, `lexicographic`, and `pareto` selection modes
   while preserving existing criterion lists and legacy main-score selection
 - validated selection settings during search initialization and rejected
