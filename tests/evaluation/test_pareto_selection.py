@@ -294,3 +294,45 @@ def test_compromise_distance_ties_use_std_then_id():
     assert select_pareto_configuration(configs, criteria).winner[0] == 3
     configs[1][1]["std_validation_score"] = 0.1
     assert select_pareto_configuration(configs, criteria).winner[0] == 2
+
+
+
+def test_mlp_pareto_example_records_dashboard_histories(tmp_path):
+    """The runnable example must override the inherited disabled plotter."""
+    from pathlib import Path
+    from types import SimpleNamespace
+
+    import torch
+
+    from mlwiz.config_loader import load_experiment_config
+    from mlwiz.util import return_class_and_args
+
+    config_path = (
+        Path(__file__).parents[2]
+        / "examples/MODEL_CONFIGS/config_MLP_pareto.yml"
+    )
+    search = Grid(load_experiment_config(config_path))
+    assert len(search) == 4
+    for config_id, candidate in enumerate(search):
+        plotter_class, args = return_class_and_args(candidate, "plotter")
+        assert plotter_class is not None
+        folder = tmp_path / f"config_{config_id}"
+        folder.mkdir()
+        plotter = plotter_class(str(folder), **args)
+        state = SimpleNamespace(
+            epoch=0,
+            batch_loss={"main_loss": torch.tensor(.8)},
+            batch_score={"main_score": torch.tensor(.6)},
+            epoch_results={
+                "losses": {"validation_main_loss": torch.tensor(.9)},
+                "scores": {"validation_main_score": torch.tensor(.5)},
+            },
+        )
+        for _ in range(10):
+            plotter.on_training_batch_end(state)
+        plotter.on_epoch_end(state)
+        metrics = torch.load(folder / "metrics_data.torch", weights_only=True)
+        assert metrics["losses"]["validation_main_loss"] == pytest.approx([.9])
+        assert metrics["scores"]["validation_main_score"] == pytest.approx([.5])
+        assert metrics["step"]["steps"] == [10]
+        assert metrics["step"]["losses"]["training_main_loss"] == pytest.approx([.8])

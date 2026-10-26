@@ -2,6 +2,11 @@
 
 ## [1.7.8]
 
+## Fixed
+
+- enabled epoch and sampled-step metric persistence in the MLP Pareto example,
+  overriding the classification search defaults so dashboard trends are saved
+
 ## Added
 
 - added a persistent **Show min/max** checkbox shared by Run Explorer,

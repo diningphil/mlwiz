@@ -19,7 +19,8 @@ resources:
   gpus_per_task: 0
 
 experiment:
-  exp_name: mlp_pareto
+  # Avoid reusing completed results from the earlier example without histories.
+  exp_name: mlp_pareto_history
   model_selection_training_runs: 1
   risk_assessment_training_runs: 1
   model_selection_criteria:
@@ -45,3 +46,11 @@ grid:
     - 16
     - 64
   mlwiz_tests: true
+  # Override search/classification.yml's plotter: null so dashboard curves
+  # are recorded during both model selection and final training.
+  plotter:
+    class_name: mlwiz.training.callback.plotter.Plotter
+    args:
+      store_on_disk: true
+      store_every_N_epochs: 1
+      store_every_N_steps: 10
