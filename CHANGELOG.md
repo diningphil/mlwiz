@@ -4,6 +4,10 @@
 
 ## Fixed
 
+- derived dashboard epoch summaries and inferred legacy step boundaries from
+  loss/score histories so longer component-value lists do not inflate epochs
+- corrected the Pareto tutorial subsection level so the strict Sphinx build
+  succeeds in GitHub Actions
 - enabled epoch and sampled-step metric persistence in the MLP Pareto example,
   overriding the classification search defaults so dashboard trends are saved
 

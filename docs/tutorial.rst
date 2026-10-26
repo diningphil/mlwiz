@@ -496,7 +496,7 @@ For non-main metrics (anything different from ``main_score`` and ``main_loss``),
 you must specify ``source`` as either ``score`` or ``loss``.
 
 Selection modes and Pareto reports
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 The list syntax above remains lexicographic. To select by a Pareto frontier,
 use a structured setting in the ``experiment`` section:

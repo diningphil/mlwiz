@@ -4722,6 +4722,28 @@
     return series.values.map((_value, index) => index + 1);
   }
 
+  function recordedHistoryPosition(series, unit) {
+    const bySource = new Map();
+    for (const item of series) {
+      const source = item.source || "";
+      if (!bySource.has(source)) bySource.set(source, []);
+      bySource.get(source).push(item);
+    }
+    let latest = 0;
+    for (const items of bySource.values()) {
+      // Auxiliary numeric lists can describe components rather than epochs.
+      // Prefer actual loss/score histories independently for each run.
+      const histories = unit === "epoch" ? items.filter((item) => (
+        ["losses", "scores"].includes(item.group) && item.values.length
+      )) : [];
+      for (const item of histories.length ? histories : items) {
+        const positions = seriesXValues(item);
+        latest = Math.max(latest, positions.at(-1) || 0);
+      }
+    }
+    return latest;
+  }
+
   function seriesTimestamps(series) {
     const storedTimestamps = series.timestamps;
     if (
@@ -4803,10 +4825,7 @@
 
     renderMetricUnit();
     const visibleSeries = metricSeries();
-    const maxPosition = visibleSeries.reduce((max, series) => {
-      const positions = seriesXValues(series);
-      return Math.max(max, positions.at(-1) || 0);
-    }, 0);
+    const maxPosition = recordedHistoryPosition(visibleSeries, state.metricUnit);
     const sources = [...new Set(visibleSeries.map((series) => series.source))];
     renderSummary([
       ["Metric series", visibleSeries.length],
