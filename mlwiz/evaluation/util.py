@@ -7,6 +7,8 @@ import json
 import math
 import os
 import random
+from dataclasses import dataclass
+from html import escape
 from typing import List, Tuple, Callable
 
 import numpy as np
@@ -32,6 +34,337 @@ from mlwiz.static import (
     VALIDATION,
 )
 from mlwiz.util import dill_load, return_class_and_args, s2c
+
+
+def direction_to_comparator(direction: str) -> Callable[[float, float], bool]:
+    """Resolve a configured objective direction to a strict comparator."""
+    if not isinstance(direction, str):
+        raise ValueError(
+            "Each model selection criterion requires a string 'direction'."
+        )
+    normalized = direction.strip().lower()
+    if normalized in {"max", "higher", "higher_is_better"}:
+        return lambda a, b: float(a) > float(b)
+    if normalized in {"min", "lower", "lower_is_better"}:
+        return lambda a, b: float(a) < float(b)
+    raise ValueError(
+        f"Unsupported criterion direction '{direction}'. Use 'max' or 'min'."
+    )
+
+
+def normalize_selection_criteria(raw, higher_is_better):
+    """Validate selection settings and return a mode and resolved criterion definitions.
+
+    Existing lists mean lexicographic selection. A missing setting uses the
+    legacy main-score direction; structured settings explicitly name a mode.
+    Metric result keys are resolved later, once validation results exist.
+    """
+    if raw is None:
+        if not isinstance(higher_is_better, bool):
+            raise ValueError(
+                "When model_selection_criteria is absent, "
+                "higher_results_are_better must specify a boolean direction."
+            )
+        return "classic", None
+    if higher_is_better is not None:
+        raise ValueError(
+            "Configuration cannot define both 'model_selection_criteria' "
+            "and 'higher_results_are_better'."
+        )
+    if isinstance(raw, list):
+        mode, criteria = "lexicographic", raw
+    elif isinstance(raw, dict):
+        mode = raw.get("mode")
+        if mode not in ("classic", "lexicographic", "pareto"):
+            raise ValueError(
+                "model_selection_criteria.mode must be classic, lexicographic, or pareto."
+            )
+        if mode == "classic":
+            if "criteria" in raw:
+                raise ValueError(
+                    "Classic mode uses main_score; specify direction, not criteria."
+                )
+            criteria = [
+                {"metric": "main_score", "direction": raw.get("direction")}
+            ]
+        else:
+            criteria = raw.get("criteria")
+    else:
+        raise ValueError(
+            "model_selection_criteria must be a non-empty list or a mode mapping."
+        )
+    if not isinstance(criteria, list) or not criteria:
+        raise ValueError(
+            "model_selection_criteria requires a non-empty list of criteria."
+        )
+    for criterion in criteria:
+        if not isinstance(criterion, dict):
+            raise ValueError(
+                "Each entry in model_selection_criteria must be a dictionary."
+            )
+        metric = criterion.get("metric")
+        if not isinstance(metric, str) or not metric.strip():
+            raise ValueError(
+                "Each criterion must define a non-empty string 'metric'."
+            )
+        direction_to_comparator(criterion.get("direction"))
+        metric = metric.strip()
+        source = criterion.get("source")
+        if source is not None:
+            if not isinstance(source, str) or source.strip().lower() not in {
+                "score",
+                "loss",
+            }:
+                raise ValueError(
+                    f"Criterion '{metric}' has invalid source; use 'score' or 'loss'."
+                )
+            source = source.strip().lower()
+        if metric in {"main_score", "main_loss"}:
+            expected = "score" if metric == "main_score" else "loss"
+            if source is not None and source != expected:
+                raise ValueError(
+                    f"Criterion '{metric}' cannot use source '{source}'."
+                )
+        elif source is None:
+            raise ValueError(
+                f"Criterion '{metric}' must define 'source' as either 'score' or 'loss'."
+            )
+    return mode, criteria
+
+
+def _pareto_values(configurations, criteria, atol):
+    """Validate and extract objective values without changing result dictionaries."""
+    if not configurations or not criteria:
+        raise ValueError(
+            "Pareto selection requires non-empty configurations and criteria."
+        )
+    if not math.isfinite(atol) or atol < 0:
+        raise ValueError("Pareto tolerance must be finite and non-negative.")
+    values = []
+    for config_id, results in configurations:
+        row = []
+        for key, _ in criteria:
+            try:
+                value = float(results[key])
+            except (KeyError, TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"Configuration {config_id} requires a numeric Pareto objective '{key}'."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Configuration {config_id} has non-finite Pareto objective '{key}'."
+                )
+            row.append(value)
+        values.append(row)
+    return np.asarray(values, dtype=float)
+
+
+def _dominates(other, candidate, criteria):
+    """Use exact objective comparisons to preserve transitive dominance."""
+    comparisons = [
+        0 if a == b else (1 if comparator(a, b) else -1)
+        for a, b, (_, comparator) in zip(other, candidate, criteria)
+    ]
+    return all(c >= 0 for c in comparisons) and any(c > 0 for c in comparisons)
+
+
+def _frontier_indices(values, criteria):
+    """Find all non-dominated rows using direction-aware pairwise comparisons."""
+    return [
+        i
+        for i, candidate in enumerate(values)
+        if not any(
+            i != j and _dominates(other, candidate, criteria)
+            for j, other in enumerate(values)
+        )
+    ]
+
+
+def pareto_frontier(configurations, criteria, atol: float = 1e-12):
+    """Return non-dominated ``(id, results)`` pairs in their original order.
+
+    Criteria are ``(result_key, strict_better_comparator)`` pairs. Dominance
+    uses exact comparisons; duplicate objective vectors remain eligible.
+    ``atol`` is accepted for compatibility but does not affect membership.
+    """
+    values = _pareto_values(configurations, criteria, atol)
+    return [
+        configurations[i] for i in _frontier_indices(values, criteria)
+    ]
+
+
+@dataclass
+class ParetoSelection:
+    """A winning pair, ordered frontier, and its ideal-point distances."""
+
+    winner: Tuple[int, dict]
+    frontier: List[Tuple[int, dict]]
+    distances: dict
+
+
+def select_pareto_configuration(configurations, criteria, atol: float = 1e-12):
+    """Choose an equally weighted, normalized ideal-point compromise.
+
+    Dominance uses exact comparisons. Normalize over frontier extrema only.
+    ``atol`` applies only to distance ties. Distance ties use lower main-score
+    standard deviation (missing means infinity), then lower configuration ID.
+    The returned frontier is ordered by this same rule, winner first.
+    """
+    values = _pareto_values(configurations, criteria, atol)
+    indices = _frontier_indices(values, criteria)
+    if not indices:
+        raise ValueError(
+            "No Pareto frontier: comparators must define strict min/max ordering."
+        )
+    return _order_pareto_frontier(
+        [configurations[i] for i in indices], values[indices], criteria, atol
+    )
+
+
+def _order_pareto_frontier(configurations, frontier_values, criteria, atol):
+    """Apply the same normalized compromise ordering within any Pareto front."""
+    low, high = frontier_values.min(axis=0), frontier_values.max(axis=0)
+    # Scale first to avoid overflow when subtracting opposite large finite values.
+    scale = np.maximum(np.maximum(np.abs(low), np.abs(high)), 1.0)
+    scaled = frontier_values / scale
+    low_scaled, high_scaled = low / scale, high / scale
+    spans = high_scaled - low_scaled
+    shortfalls = np.zeros_like(scaled)
+    for column, (_, comparator) in enumerate(criteria):
+        if high[column] == low[column]:
+            continue
+        ideal = (
+            high_scaled[column] if comparator(1.0, 0.0) else low_scaled[column]
+        )
+        shortfalls[:, column] = (
+            np.abs(scaled[:, column] - ideal) / spans[column]
+        )
+    distances = {
+        configurations[i][0]: float(distance)
+        for i, distance in enumerate(np.linalg.norm(shortfalls, axis=1))
+    }
+    remaining = list(configurations)
+    ordered = []
+    while remaining:
+        closest = min(distances[config_id] for config_id, _ in remaining)
+        tied = [
+            pair
+            for pair in remaining
+            if abs(distances[pair[0]] - closest) <= atol
+        ]
+        winner = min(
+            tied,
+            key=lambda pair: (
+                float(pair[1].get("std_validation_score", float("inf"))),
+                pair[0],
+            ),
+        )
+        ordered.append(winner)
+        remaining = [pair for pair in remaining if pair[0] != winner[0]]
+    return ParetoSelection(ordered[0], ordered, distances)
+
+
+def pareto_fronts(configurations, criteria, atol: float = 1e-12):
+    """Return successive Pareto fronts, each ordered by its ideal-point distance.
+
+    Dominance uses exact comparisons; ``atol`` only controls distance ties.
+    Removing the first front reveals the second, and so on. Build the dominance
+    graph once, so a configuration always precedes any configuration it dominates
+    without repeating pairwise comparisons for each front.
+    """
+    values = _pareto_values(configurations, criteria, atol)
+    dominated = [[] for _ in configurations]
+    counts = [0 for _ in configurations]
+    for i, candidate in enumerate(values):
+        for j in range(i + 1, len(configurations)):
+            if _dominates(candidate, values[j], criteria):
+                dominated[i].append(j)
+                counts[j] += 1
+            elif _dominates(values[j], candidate, criteria):
+                dominated[j].append(i)
+                counts[i] += 1
+    front = [i for i, count in enumerate(counts) if count == 0]
+    fronts = []
+    ranked = 0
+    while front:
+        selection = _order_pareto_frontier(
+            [configurations[i] for i in front], values[front], criteria, atol
+        )
+        fronts.append(selection.frontier)
+        ranked += len(front)
+        following = []
+        for i in front:
+            for j in dominated[i]:
+                counts[j] -= 1
+                if counts[j] == 0:
+                    following.append(j)
+        front = following
+    if ranked != len(configurations):
+        raise ValueError(
+            "Cannot rank Pareto fronts: comparators must define strict min/max ordering."
+        )
+    return fronts
+
+
+def write_pareto_report(folder, configurations, criteria, selection):
+    """Replace ``pareto_results.md`` beside the selected configuration artifact."""
+
+    def markdown(value):
+        text = escape(str(value), quote=False)
+        for char in ("\\", "`", "*", "_", "[", "]"):
+            text = text.replace(char, "\\" + char)
+        return (
+            text.replace("|", "&#124;").replace("\n", " ").replace("\r", " ")
+        )
+
+    frontier_ids = {config_id for config_id, _ in selection.frontier}
+    remaining = [
+        pair for pair in configurations if pair[0] not in frontier_ids
+    ]
+    fronts = [selection.frontier] + (
+        pareto_fronts(remaining, criteria) if remaining else []
+    )
+    ordered = [
+        (rank, pair) for rank, front in enumerate(fronts, 1) for pair in front
+    ]
+    headers = ["Position", "Configuration", "Status", "Pareto front"] + [
+        f"{markdown(key)} ({'max' if comparator(1.0, 0.0) else 'min'})"
+        for key, comparator in criteria
+    ]
+    lines = [
+        "# Pareto model selection",
+        "",
+        "The winner is first. Configurations are ordered by successive Pareto "
+        "fronts (1 is the non-dominated frontier). Within each front, normalized "
+        "distance to that front's ideal determines order, with ties resolved by "
+        "main-score standard deviation and configuration ID. Position is the "
+        "display order; Pareto front is the dominance rank.",
+        "",
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for position, (rank, (config_id, results)) in enumerate(ordered, 1):
+        status = (
+            "Winner · Pareto"
+            if config_id == selection.winner[0]
+            else ("Pareto" if config_id in frontier_ids else "Dominated")
+        )
+        cells = [
+            str(position),
+            f"[config_{config_id}](config_{config_id}/config_results.json)",
+            status,
+            str(rank),
+        ]
+        cells.extend(
+            format(float(results[key]), ".12g") for key, _ in criteria
+        )
+        if config_id in frontier_ids:
+            cells = [f"**{cell}**" for cell in cells]
+        lines.append("| " + " | ".join(cells) + " |")
+    with open(
+        os.path.join(folder, "pareto_results.md"), "w", encoding="utf-8"
+    ) as stream:
+        stream.write("\n".join(lines) + "\n")
 
 
 """

@@ -150,6 +150,7 @@
     query: storedState.query || "",
     scale: normalizedScale(storedState.scale),
     smoothing: normalizedSmoothing(storedState.smoothing),
+    showExtrema: Boolean(storedState.showExtrema),
     removeOutliers: Boolean(storedState.removeOutliers),
     runFamilyModes: storedState.runFamilyModes
       && typeof storedState.runFamilyModes === "object"
@@ -268,6 +269,7 @@
         query: state.query,
         scale: state.scale,
         smoothing: state.smoothing,
+        showExtrema: state.showExtrema,
         removeOutliers: state.removeOutliers,
         runFamilyModes: state.runFamilyModes,
         theme: state.theme,
@@ -374,6 +376,7 @@
       zLabel,
       scale,
       smoothing,
+      showExtrema: state.showExtrema,
       series: exportedLines(lines),
     };
   }
@@ -2318,6 +2321,7 @@
         node("span", "chart-type", "3D trajectory"),
         plotCodeButton(() => ({
           kind: "trajectory3d",
+          showExtrema: state.showExtrema,
           title: chartGroup.title,
           subtitle: `3D ${plot.unit} trajectory grouped by ${plot.hyperparameter}${plot.removeOutliers ? " · 1.5×IQR outliers removed" : ""}`,
           xLabel: plot.unit,
@@ -2370,7 +2374,13 @@
         const item = node("span", "legend-item");
         const swatch = node("span", "legend-swatch");
         swatch.style.background = line.color;
-        item.append(swatch, document.createTextNode(line.label));
+        const extrema = state.showExtrema ? [
+          `${chartGroup.yLabel}: ${curveExtremaSummary(MLWizCurveExtrema.paired(line.leftValues, line.rightValues), line.xValues)}`,
+          `${chartGroup.zLabel}: ${curveExtremaSummary(MLWizCurveExtrema.paired(line.rightValues, line.leftValues), line.xValues)}`,
+        ].join(" · ") : "";
+        item.append(swatch, document.createTextNode(
+          `${line.label}${extrema ? ` · ${extrema}` : ""}`,
+        ));
         legend.append(item);
         legendEntries.push({ line, item });
       }
@@ -3671,6 +3681,20 @@
         ctx.stroke();
         ctx.globalAlpha = 1;
       }
+      if (state.showExtrema) {
+        for (const line of chart.lines) {
+          const positions = analysisLineXValues(line, line.leftValues.length);
+          const paired = (values, other) => MLWizCurveExtrema.paired(values, other);
+          const pointAt = (index) => project(
+            normalizedValue(positions[index], xExtent),
+            normalizedValue(leftScale.transform(line.leftValues[index]), yExtent),
+            normalizedValue(rightScale.transform(line.rightValues[index]), zExtent),
+          );
+          const bounds = { left: 0, right: width, top: 0, bottom: height };
+          drawCurveExtrema(ctx, paired(line.leftValues, line.rightValues), pointAt, line, chartLineOpacity(chart, line), bounds, positions, `${chart.yLabel} `);
+          drawCurveExtrema(ctx, paired(line.rightValues, line.leftValues), pointAt, line, chartLineOpacity(chart, line), bounds, positions, `${chart.zLabel} `);
+        }
+      }
       if (Number.isInteger(chart.hoverEpoch)) {
         for (const line of chart.lines) {
           const pointCount = Math.min(line.leftValues.length, line.rightValues.length);
@@ -3792,6 +3816,19 @@
       ctx.lineWidth = opacity === 1 && chart.focusedLineId ? 3.2 : 2.2;
       ctx.stroke();
       ctx.globalAlpha = 1;
+    }
+    if (state.showExtrema) {
+      for (const line of chart.lines) {
+        const positions = analysisLineXValues(line, line.values.length);
+        const z = zValues.length <= 1 ? 0.5
+          : zIndex.get(analysisValueKey(line.secondaryValue)) / (zValues.length - 1);
+        drawCurveExtrema(ctx, line.values, (index, value) => project(
+          normalizedValue(positions[index], xExtent),
+          normalizedValue(transformTrendValue(value), yExtent), z,
+        ), line, chartLineOpacity(chart, line), {
+          left: 0, right: width, top: 0, bottom: height,
+        }, positions);
+      }
     }
     if (Number.isInteger(chart.hoverEpoch)) {
       for (const line of chart.lines) {
@@ -4685,6 +4722,28 @@
     return series.values.map((_value, index) => index + 1);
   }
 
+  function recordedHistoryPosition(series, unit) {
+    const bySource = new Map();
+    for (const item of series) {
+      const source = item.source || "";
+      if (!bySource.has(source)) bySource.set(source, []);
+      bySource.get(source).push(item);
+    }
+    let latest = 0;
+    for (const items of bySource.values()) {
+      // Auxiliary numeric lists can describe components rather than epochs.
+      // Prefer actual loss/score histories independently for each run.
+      const histories = unit === "epoch" ? items.filter((item) => (
+        ["losses", "scores"].includes(item.group) && item.values.length
+      )) : [];
+      for (const item of histories.length ? histories : items) {
+        const positions = seriesXValues(item);
+        latest = Math.max(latest, positions.at(-1) || 0);
+      }
+    }
+    return latest;
+  }
+
   function seriesTimestamps(series) {
     const storedTimestamps = series.timestamps;
     if (
@@ -4766,10 +4825,7 @@
 
     renderMetricUnit();
     const visibleSeries = metricSeries();
-    const maxPosition = visibleSeries.reduce((max, series) => {
-      const positions = seriesXValues(series);
-      return Math.max(max, positions.at(-1) || 0);
-    }, 0);
+    const maxPosition = recordedHistoryPosition(visibleSeries, state.metricUnit);
     const sources = [...new Set(visibleSeries.map((series) => series.source))];
     renderSummary([
       ["Metric series", visibleSeries.length],
@@ -6967,6 +7023,17 @@
     }
   }
 
+  function curveExtremaSummary(values, positions = null) {
+    return MLWizCurveExtrema.summary(values, formatNumber, positions);
+  }
+
+  function drawCurveExtrema(ctx, values, pointAt, line, opacity, bounds, positions, prefix = "") {
+    return MLWizCurveExtrema.draw(ctx, values, pointAt, {
+      color: line.color || colors[line.split] || colors.other,
+      opacity, bounds, xValues: positions, prefix, format: formatNumber,
+    });
+  }
+
   function formatLineReadout(line, requestedIndex = null) {
     let index = requestedIndex;
     if (index === null) {
@@ -6974,13 +7041,15 @@
       while (index >= 0 && (line.values[index] === null || !Number.isFinite(line.values[index]))) index -= 1;
     }
     const value = index >= 0 ? line.values[index] : undefined;
-    if (!line.band || !Number.isFinite(value)) return formatNumber(value);
+    const extrema = state.showExtrema ? curveExtremaSummary(line.values, line.xValues) : "";
+    const suffix = extrema ? ` · ${extrema}` : "";
+    if (!line.band || !Number.isFinite(value)) return formatNumber(value) + suffix;
     const lower = line.band.lower[index];
     const upper = line.band.upper[index];
     const std = Number.isFinite(lower) && Number.isFinite(upper)
       ? (upper - lower) / 2
       : undefined;
-    return `${formatNumber(value)} ± ${formatNumber(std)}`;
+    return `${formatNumber(value)} ± ${formatNumber(std)}${suffix}`;
   }
 
   function adaptiveLinearThreshold(values) {
@@ -7253,6 +7322,18 @@
         ctx, line, line.values, lineXValues, x, y, validValue,
         false, opacity, opacity === 1 && Boolean(chart.focusedLineId),
       );
+    }
+
+    if (state.showExtrema) {
+      for (const line of group.lines) {
+        const positions = analysisLineXValues(line, line.values.length);
+        drawCurveExtrema(ctx, line.values, (index, value) => ({
+          x: x(positions[index]), y: y(value),
+        }), line, chartLineOpacity(chart, line), {
+          left: margin.left, right: width - margin.right,
+          top: margin.top, bottom: margin.top + plotHeight,
+        }, positions);
+      }
     }
 
     if (chart.hoverIndex !== null) {
@@ -7627,6 +7708,18 @@
   el("analysis-smoothing-slider").addEventListener("input", (event) => {
     updateSmoothing(event.target.value);
   });
+  for (const id of ["curve-extrema", "analysis-curve-extrema"]) {
+    el(id).addEventListener("change", (event) => {
+      state.showExtrema = event.target.checked;
+      syncSmoothingControl();
+      persistState();
+      if (analysisTabActive()) {
+        if (state.analysisData) renderAnalysisPlotsPreservingScroll();
+      } else if (state.details) {
+        renderChartsPreservingScroll();
+      }
+    });
+  }
   el("outlier-filter").addEventListener("change", (event) => {
     state.removeOutliers = event.target.checked;
     persistState();
@@ -7902,6 +7995,9 @@
   }
 
   function syncSmoothingControl() {
+    for (const id of ["curve-extrema", "analysis-curve-extrema"]) {
+      el(id).checked = state.showExtrema;
+    }
     const formatted = state.smoothing
       .toFixed(2)
       .replace(/0+$/, "")

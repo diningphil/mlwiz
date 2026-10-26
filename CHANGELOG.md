@@ -1,5 +1,46 @@
 # Changelog
 
+## [1.7.8]
+
+## Fixed
+
+- used exact Pareto dominance comparisons to prevent cycles for near-equal
+  objectives, retaining tolerance only for compromise-distance tie-breaking
+- derived dashboard epoch summaries and inferred legacy step boundaries from
+  loss/score histories so longer component-value lists do not inflate epochs
+- corrected the Pareto tutorial subsection level so the strict Sphinx build
+  succeeds in GitHub Actions
+- enabled epoch and sampled-step metric persistence in the MLP Pareto example,
+  overriding the classification search defaults so dashboard trends are saved
+
+## Added
+
+- added a persistent **Show min/max** checkbox shared by Run Explorer,
+  Model Selection Analysis, and Risk Assessment Analysis, marking each displayed
+  curve's extrema and listing their values in its legend
+- included extrema annotations in generated Python plots for 2D curves,
+  3D trends, and combined trajectories, respecting smoothing, aggregation,
+  missing samples, and the plotted coordinates
+- added opt-in Pareto-frontier model selection for grid and random search,
+  supporting any number of validation criteria and selecting an equally
+  weighted, normalized ideal-point compromise for final training
+- added ordered `pareto_results.md` reports beside `winner_config.json`, with
+  the winner first, highlighted frontier members, and all remaining evaluated
+  configurations and criterion values
+- added a runnable CPU MLP Pareto example at
+  `examples/MODEL_CONFIGS/config_MLP_pareto.yml`
+
+## Changed
+
+- ordered dominated configurations in Pareto reports by successive Pareto
+  fronts and normalized compromise distance within each front, with an explicit
+  front-number column instead of listing dominated configurations by ID
+- added structured `classic`, `lexicographic`, and `pareto` selection modes
+  while preserving existing criterion lists and legacy main-score selection
+- validated selection settings during search initialization and rejected
+  Pareto mode for Bayesian search
+- bumped the package version to 1.7.8
+
 ## [1.7.7]
 
 ## Added

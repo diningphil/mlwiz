@@ -334,6 +334,24 @@ def _history_series(value: Any, prefix: str = "") -> list[tuple[str, list]]:
     return []
 
 
+def _recorded_epoch_count(series: list[dict[str, Any]]) -> int:
+    """Prefer loss/score history lengths over auxiliary component-list lengths."""
+    histories = [
+        item
+        for item in series
+        if item.get("unit", "epoch") == "epoch"
+        and item["group"] in {"losses", "scores"}
+        and item["values"]
+    ]
+    return max(
+        (
+            len(item["values"])
+            for item in (histories or series)
+            if item.get("unit", "epoch") == "epoch"
+        ),
+        default=0,
+    )
+
 def _deep_size(value: Any, seen: Optional[set[int]] = None) -> int:
     """Estimate the resident size of a normalized cache value in bytes."""
     if seen is None:
@@ -2391,14 +2409,7 @@ class ResultsRepository:
                 step_metrics.get("epoch_last_steps")
             )
             if not epoch_boundaries:
-                completed_epochs = max(
-                    (
-                        len(item["values"])
-                        for item in series
-                        if item.get("unit") == "epoch"
-                    ),
-                    default=0,
-                )
+                completed_epochs = _recorded_epoch_count(series)
                 sampled_last_step = max(
                     (step for step in steps if step is not None),
                     default=None,

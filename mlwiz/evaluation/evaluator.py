@@ -23,6 +23,11 @@ from mlwiz.data.provider import DataProvider
 from mlwiz.evaluation.config import Config
 from mlwiz.evaluation.grid import Grid
 from mlwiz.evaluation.random_search import RandomSearch
+from mlwiz.evaluation.util import (
+    direction_to_comparator,
+    select_pareto_configuration,
+    write_pareto_report,
+)
 from mlwiz.ui.progress_manager import (
     ProgressManager,
     ProgressManagerActor,
@@ -584,6 +589,7 @@ class RiskAssesser:
         self.risk_assessment_training_runs = risk_assessment_training_runs
         self.model_selection_training_runs = model_selection_training_runs
         self.training_timeout_seconds = training_timeout_seconds
+        self.model_selection_mode = model_configs.model_selection_mode
         self.model_selection_criteria = model_configs.model_selection_criteria
         if (
             self.model_selection_criteria is not None
@@ -1927,18 +1933,7 @@ class RiskAssesser:
         """
         Convert a textual direction into a numeric comparator.
         """
-        if not isinstance(direction, str):
-            raise ValueError(
-                "Each model selection criterion requires a string 'direction'."
-            )
-        norm_direction = direction.strip().lower()
-        if norm_direction in {"max", "higher", "higher_is_better"}:
-            return lambda a, b: float(a) > float(b)
-        if norm_direction in {"min", "lower", "lower_is_better"}:
-            return lambda a, b: float(a) < float(b)
-        raise ValueError(
-            f"Unsupported criterion direction '{direction}'. Use 'max' or 'min'."
-        )
+        return direction_to_comparator(direction)
 
     def _available_validation_avg_keys(self, config_dict: dict) -> List[str]:
         """
@@ -2083,8 +2078,8 @@ class RiskAssesser:
         skip_config_ids: List[int],
     ):
         r"""
-        Chooses the best hyper-parameters configuration using the proper
-        ordered model-selection criteria.
+        Chooses the best hyper-parameters configuration using the configured
+        model-selection mode and criteria.
 
         Args:
             folder (str): the model selection folder associated with
@@ -2123,28 +2118,33 @@ class RiskAssesser:
                     f"selection keys: {missing}"
                 )
 
-        best_i, best_config = evaluated_configs[0]
-        for config_id, config_dict in evaluated_configs[1:]:
-            cmp_res = self._compare_by_criteria(config_dict, best_config, criteria)
-            if cmp_res > 0:
-                best_i, best_config = config_id, config_dict
-                continue
-            if cmp_res < 0:
-                continue
+        if self.model_selection_mode == "pareto":
+            selection = select_pareto_configuration(evaluated_configs, criteria)
+            best_i, best_config = selection.winner
+            write_pareto_report(folder, evaluated_configs, criteria, selection)
+        else:
+            best_i, best_config = evaluated_configs[0]
+            for config_id, config_dict in evaluated_configs[1:]:
+                cmp_res = self._compare_by_criteria(config_dict, best_config, criteria)
+                if cmp_res > 0:
+                    best_i, best_config = config_id, config_dict
+                    continue
+                if cmp_res < 0:
+                    continue
 
-            # Fully tied under the configured criteria: keep legacy fallback
-            # on lower std validation score, then lower config id.
-            candidate_std = float(
-                config_dict.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
-            )
-            best_std = float(
-                best_config.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
-            )
-            if candidate_std < best_std or (
-                self._values_equal(candidate_std, best_std)
-                and config_id < best_i
-            ):
-                best_i, best_config = config_id, config_dict
+                # Fully tied under the configured criteria: keep legacy fallback
+                # on lower std validation score, then lower config id.
+                candidate_std = float(
+                    config_dict.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
+                )
+                best_std = float(
+                    best_config.get(f"{STD}_{VALIDATION}_{SCORE}", float("inf"))
+                )
+                if candidate_std < best_std or (
+                    self._values_equal(candidate_std, best_std)
+                    and config_id < best_i
+                ):
+                    best_i, best_config = config_id, config_dict
 
         best_avg_vl = best_config.get(f"{AVG}_{VALIDATION}_{SCORE}", None)
         best_std_vl = best_config.get(f"{STD}_{VALIDATION}_{SCORE}", None)
@@ -2161,7 +2161,8 @@ class RiskAssesser:
                 f"Exp *{exp_name}* \n"
                 f"Model Sel. ended for outer fold *{outer_k + 1}* \n"
                 f"Best config id: *{best_i}* \n"
-                f"Primary criterion ({primary_key}): *{primary_value:.4f}*"
+                f"{'Objective' if self.model_selection_mode == 'pareto' else 'Primary criterion'} "
+                f"({primary_key}): *{primary_value:.4f}*"
             )
             if best_avg_vl is not None and best_std_vl is not None:
                 telegram_msg += (

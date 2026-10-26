@@ -495,6 +495,79 @@ This lets you define deterministic tie-breaking across multiple metrics:
 For non-main metrics (anything different from ``main_score`` and ``main_loss``),
 you must specify ``source`` as either ``score`` or ``loss``.
 
+Selection modes and Pareto reports
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+The list syntax above remains lexicographic. To select by a Pareto frontier,
+use a structured setting in the ``experiment`` section:
+
+.. code-block:: yaml
+
+    model_selection_criteria:
+      mode: pareto
+      criteria:
+        - metric: main_score
+          direction: max
+        - metric: main_loss
+          direction: min
+        - metric: ToyMetric
+          source: score
+          direction: max
+
+Any positive number of criteria is supported, with the same metric, source,
+and direction conventions as the list syntax. ``mode: lexicographic`` accepts
+this same ``criteria`` list and applies its order as priority. Explicit classic
+selection always uses ``main_score`` and requires a direction:
+
+.. code-block:: yaml
+
+    model_selection_criteria:
+      mode: classic
+      direction: max
+
+If ``model_selection_criteria`` is omitted or null, classic selection requires
+``higher_results_are_better: true`` (maximize) or ``false`` (minimize). Do not
+combine that legacy flag with a non-null ``model_selection_criteria`` setting.
+Mode and criterion definitions are checked when initializing the search.
+
+Pareto selection uses aggregated inner-validation results. A configuration is
+on the frontier when no other configuration is no worse on every objective and
+strictly better on at least one. Dominance uses exact comparisons of the
+stored floating-point values; identical objective vectors remain on the frontier.
+Pairwise objective tolerances are not used, preventing cyclic dominance for
+near-equal values. A finite, non-empty set of configurations with valid scores
+always has a frontier. The ``1e-12`` tolerance applies only to compromise-distance
+ties, not to frontier membership or dominance ranks.
+
+MLWiz selects one compromise from the frontier for final training. For each
+objective, normalize its shortfall from the ideal using frontier extrema:
+``(maximum - value) / range`` for maximization and
+``(value - minimum) / range`` for minimization. Constant objectives contribute
+zero. The configuration with the smallest Euclidean distance to the ideal wins,
+with equal weight for every objective. Distance ties within ``1e-12`` use lower
+main-score validation standard deviation, then lower configuration ID. A missing
+standard deviation counts as infinity. Criterion order does not imply priority
+in Pareto mode.
+
+Whenever a frontier is computed, ``pareto_results.md`` is written beside
+``winner_config.json`` in each outer fold's ``MODEL_SELECTION`` directory.
+It contains all evaluated, non-skipped configurations and each criterion's
+validation value and optimization direction. The winner appears first, followed
+by other frontier members under the same compromise ordering. Dominated
+configurations follow in successive Pareto fronts: remove the first frontier
+to find the second, and repeat. Within each front, apply the same compromise
+ordering using that front's extrema. A configuration always precedes any
+configuration it dominates. Frontier rows are bold and explicitly
+marked ``Winner · Pareto`` or ``Pareto``. Table positions are display positions,
+with a separate ``Pareto front`` column giving the dominance rank (1 is the
+non-dominated frontier). Values use up to 12 significant digits; selection uses full
+precision. Recomputing selection replaces the report.
+
+Pareto mode supports grid and random search. Bayesian search rejects this mode;
+multi-objective Bayesian optimization is not implemented. When the search has
+only one configuration, MLWiz skips validation/model selection as before and
+does not create a Pareto report.
+
 By default MLWiz will run each training session until either the configured number of epochs is reached or the early
 stopper halts it. If you need to cap the wall-clock time of each run, set ``training_timeout_seconds`` to a positive
 value. The :class:`~mlwiz.training.engine.TrainingEngine` tracks the elapsed time (including previous attempts when

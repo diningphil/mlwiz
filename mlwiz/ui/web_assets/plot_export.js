@@ -95,6 +95,17 @@ style.update({
 plt.rcParams.update(style)
 
 
+def curve_extrema(values, valid):
+    indices = np.flatnonzero(valid)
+    if not len(indices):
+        return []
+    minimum = int(indices[np.argmin(values[indices])])
+    maximum = int(indices[np.argmax(values[indices])])
+    if values[minimum] == values[maximum]:
+        return [("min = max", minimum)]
+    return [("min", minimum), ("max", maximum)]
+
+
 def label(value):
     return value if isinstance(value, str) else json.dumps(value)
 
@@ -175,6 +186,14 @@ for series in DATA["series"]:
     )
     if series.get("dash"):
         line.set_dashes(series["dash"])
+    if DATA.get("showExtrema"):
+        for kind, index in curve_extrema(values, valid & np.isfinite(positions)):
+            ax.scatter(positions[index], values[index], color=color, s=20, zorder=4)
+            ax.annotate(
+                f"{kind} {values[index]:.12g}", (positions[index], values[index]),
+                xytext=(5, -12 if kind == "max" else 8),
+                textcoords="offset points", color=color, fontsize="small",
+            )
     if series.get("lower") and series.get("upper"):
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
@@ -228,6 +247,11 @@ for series in DATA["series"]:
             color=color, linewidth=1, alpha=0.22, label="_nolegend_",
         )
     ax.plot(positions[valid], values[valid], np.full(valid.sum(), z_value), color=color, label=series["label"])
+    if DATA.get("showExtrema"):
+        for kind, index in curve_extrema(values, valid & np.isfinite(positions)):
+            ax.scatter(positions[index], values[index], z_value, color=color, s=20)
+            ax.text(positions[index], values[index], z_value,
+                    f"{kind} {values[index]:.12g}", color=color, fontsize="small")
     if series.get("lower") and series.get("upper"):
         lower = numeric(series["lower"])
         upper = numeric(series["upper"])
@@ -286,6 +310,13 @@ for series in DATA["series"]:
         positions[valid], left[:point_count][valid], right[:point_count][valid],
         color=color, label=series["label"],
     )
+    if DATA.get("showExtrema"):
+        for axis_label, values in ((DATA.get("yLabel", "y"), left[:point_count]),
+                                   (DATA.get("zLabel", "z"), right[:point_count])):
+            for kind, index in curve_extrema(values, valid & np.isfinite(positions)):
+                ax.scatter(positions[index], left[index], right[index], color=color, s=20)
+                ax.text(positions[index], left[index], right[index],
+                        f"{axis_label} {kind} {values[index]:.12g}", color=color, fontsize="small")
 
 ax.set_xlabel(DATA.get("xLabel", "epoch"))
 ax.set_ylabel(DATA.get("yLabel", "value"))

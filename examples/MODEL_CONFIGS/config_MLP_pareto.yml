@@ -1,0 +1,56 @@
+# Run from the repository root:
+#   mlwiz-data --config-file examples/DATA_CONFIGS/config_MNIST.yml
+#   mlwiz-exp --config-file examples/MODEL_CONFIGS/config_MLP_pareto.yml --debug
+# Remove --debug to run configurations in parallel with Ray.
+# This small demonstration searches 4 configurations; increase epochs and
+# repeated training runs before using the results for scientific reporting.
+# Each outer fold writes MODEL_SELECTION/pareto_results.md beside winner_config.json.
+defaults:
+  - dataset: mnist
+  - resources: cpu
+  - reproducibility: default
+  - data_loading: torch
+  - experiment: default
+  - _self_
+
+resources:
+  max_cpus: 4
+  max_gpus: 0
+  gpus_per_task: 0
+
+experiment:
+  # Avoid reusing completed results from the earlier example without histories.
+  exp_name: mlp_pareto_history
+  model_selection_training_runs: 1
+  risk_assessment_training_runs: 1
+  model_selection_criteria:
+    mode: pareto
+    criteria:
+      # Classification accuracy and cross-entropy on inner validation folds.
+      - metric: main_score
+        direction: max
+      - metric: main_loss
+        direction: min
+
+grid:
+  defaults:
+    - optimizer: adam_001_0001
+    - search/classification@_here_
+    - _self_
+  model: mlwiz.model.MLP
+  checkpoint: true
+  shuffle: true
+  batch_size: 512
+  epochs: 5
+  dim_embedding:
+    - 16
+    - 64
+  mlwiz_tests: true
+  # Override search/classification.yml's plotter: null so dashboard curves
+  # are recorded during both model selection and final training.
+  plotter:
+    class_name: mlwiz.training.callback.plotter.Plotter
+    args:
+      store_on_disk: true
+      store_every_N_epochs: 1
+      store_every_N_steps: 10
