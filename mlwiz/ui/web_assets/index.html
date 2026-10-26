@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0f172a" />
     <title>MLWiz Dashboard</title>
     <link rel="stylesheet" href="/assets/styles.css" />
+    <script src="/assets/curve_extrema.js" defer></script>
     <script src="/assets/plot_export.js" defer></script>
     <script src="/assets/app.js" defer></script>
   </head>
@@ -252,6 +253,10 @@
                   />
                   <output id="smoothing-value" for="smoothing-slider">0</output>
                 </label>
+                <label class="aggregation-toggle" title="Mark the minimum and maximum of each displayed curve after smoothing and aggregation">
+                  <input id="curve-extrema" type="checkbox" />
+                  <span>Show min/max</span>
+                </label>
                 <label
                   class="aggregation-toggle"
                   id="outlier-filter-field"
@@ -359,6 +364,10 @@
                     aria-label="Model analysis curve smoothing"
                   />
                   <output id="analysis-smoothing-value" for="analysis-smoothing-slider">0</output>
+                </label>
+                <label class="aggregation-toggle" title="Mark the minimum and maximum of each displayed curve after smoothing and aggregation">
+                  <input id="analysis-curve-extrema" type="checkbox" />
+                  <span>Show min/max</span>
                 </label>
               </div>
             </div>

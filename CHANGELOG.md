@@ -4,6 +4,12 @@
 
 ## Added
 
+- added a persistent **Show min/max** checkbox shared by Run Explorer,
+  Model Selection Analysis, and Risk Assessment Analysis, marking each displayed
+  curve's extrema and listing their values in its legend
+- included extrema annotations in generated Python plots for 2D curves,
+  3D trends, and combined trajectories, respecting smoothing, aggregation,
+  missing samples, and the plotted coordinates
 - added opt-in Pareto-frontier model selection for grid and random search,
   supporting any number of validation criteria and selecting an equally
   weighted, normalized ideal-point compromise for final training
